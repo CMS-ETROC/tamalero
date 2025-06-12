@@ -128,23 +128,51 @@ class LPGBT(RegParser):
                 sleep(0.01)
                 is_v1 = (self.rd_adr(0x1d7) == 0xa6)
 
-                if is_v0 ^ is_v1:
+                is_v2 = (self.rd_adr(0x1d7) == 0xae)
+                
+                print("0x1d7 readback value is", f'0x{(self.rd_adr(0x1d7)):02x}')
+
+                print("lpGBT version found", is_v0 ^ is_v1 ^ is_v2)
+
+                if is_v0 ^ is_v1 ^ is_v2:
                     break
                 self.reset_daq_mgts()
                 sleep(0.05)
                 timeout += 1
+                print(timeout)
                 if timeout > 50:
                     raise Exception("Could not successfully read from lpGBT and failed to determine lpGBT version. Check optical links and power of RB.")
 
-            if is_v0 and not is_v1:
+            if is_v0 and not is_v1 and not is_v2:
                 print (" > lpGBT v0 detected")
                 self.ver = 0
-            elif is_v1 and not is_v0:
+            elif is_v1 and not is_v0 and not is_v2:
                 print (" > lpGBT v1 detected")
+                self.ver = 1
+            elif is_v2 and not is_v0 and not is_v1:
+                print (" > lpGBT v2 detected")
                 self.ver = 1
             else:
                 print (" > unsure about lpGBT version. This case should have been impossible to reach.")
                 raise Exception("Spurious lpGBT version.")
+
+            #     if is_v0 ^ is_v1:
+            #         break
+            #     self.reset_daq_mgts()
+            #     sleep(0.05)
+            #     timeout += 1
+            #     if timeout > 50:
+            #         raise Exception("Could not successfully read from lpGBT and failed to determine lpGBT version. Check optical links and power of RB.")
+
+            # if is_v0 and not is_v1:
+            #     print (" > lpGBT v0 detected")
+            #     self.ver = 0
+            # elif is_v1 and not is_v0:
+            #     print (" > lpGBT v1 detected")
+            #     self.ver = 1
+            # else:
+            #     print (" > unsure about lpGBT version. This case should have been impossible to reach.")
+            #     raise Exception("Spurious lpGBT version.")
 
         if self.rbver is None:
             self.rbver = self.ver + 1
