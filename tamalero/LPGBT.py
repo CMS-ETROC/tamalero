@@ -42,6 +42,7 @@ class LPGBT(RegParser):
         Initialize lpGBT for a certain readout board number (rb).
         The trigger lpGBT is accessed through I2C of the master (= DAQ lpGBT).
         '''
+        # print('############################LPGBT Initialization############################')
         self.nodes = {}
         self.rb = rb
         self.trigger = trigger
@@ -93,8 +94,10 @@ class LPGBT(RegParser):
             return
 
         # Get LPGBT Version
+        # print('############################get lpgbt version############################')
         timeout = 0
         if not hasattr(self, 'ver'):
+            # print('############################get lpgbt version debug############################')
             if self.verbose:
                 print ("Figuring out lpGBT version by reading from ROMREG")
             while True:
@@ -156,33 +159,15 @@ class LPGBT(RegParser):
                 print (" > unsure about lpGBT version. This case should have been impossible to reach.")
                 raise Exception("Spurious lpGBT version.")
 
-            #     if is_v0 ^ is_v1:
-            #         break
-            #     self.reset_daq_mgts()
-            #     sleep(0.05)
-            #     timeout += 1
-            #     if timeout > 50:
-            #         raise Exception("Could not successfully read from lpGBT and failed to determine lpGBT version. Check optical links and power of RB.")
-
-            # if is_v0 and not is_v1:
-            #     print (" > lpGBT v0 detected")
-            #     self.ver = 0
-            # elif is_v1 and not is_v0:
-            #     print (" > lpGBT v1 detected")
-            #     self.ver = 1
-            # else:
-            #     print (" > unsure about lpGBT version. This case should have been impossible to reach.")
-            #     raise Exception("Spurious lpGBT version.")
-
         if self.rbver is None:
             self.rbver = self.ver + 1
 
-        #self.base_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_config.yaml'))['base'][f'v{self.ver}']
-        #self.ec_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_config.yaml'))['ec'][f'v{self.ver}']
+        #self.base_config = load_yaml(os.path.expandvars('./configs/lpgbt_config.yaml'))['base'][f'v{self.ver}']
+        #self.ec_config = load_yaml(os.path.expandvars('./configs/lpgbt_config.yaml'))['ec'][f'v{self.ver}']
 
-        self.base_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_smu_config.yaml'))['base'][f'v{self.ver}']
-        self.ec_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_smu_config.yaml'))['ec'][f'v{self.ver}']
-
+        self.base_config = load_yaml(os.path.expandvars('./configs/lpgbt_smu_config.yaml'))['base'][f'v{self.ver}']
+        self.ec_config = load_yaml(os.path.expandvars('./configs/lpgbt_smu_config.yaml'))['ec'][f'v{self.ver}']
+        
         self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, self.ver)
         self.parse_xml(ver=self.ver)
 
@@ -224,9 +209,12 @@ class LPGBT(RegParser):
         #
         print("{:80}{:10}{:10}".format("Register", "value", "default"))
         for reg in self.base_config:
+            #print('id: ', reg, ' value': self.base_config[reg])
+            write = self.wr_reg(reg,self.base_config[reg])
             res = self.rd_reg(reg)
             colored = green if res == self.base_config[reg] else red
             print (colored("{:80}{:<10}{:<10}".format(reg, res, self.base_config[reg])))
+            #print (colored("{:80}{:<10}{:<10}".format(reg, res, self.base_config[reg])))
 
     def base_configuration(self):
         # this could be extended to run over the configuration in lpgbt_config.yaml file
@@ -259,14 +247,14 @@ class LPGBT(RegParser):
 
     def set_gpio_mapping(self):
         assert self.rbver in [1,2,3], f"Unrecognized version {self.rbver}"
-        if self.rbver > 2 and self.trigger:
-            self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT2']['gpio']
-        else:
-            self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['gpio']
-        #if self.ver == 0:
-        #    self.gpio_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping.yaml'), 'gpio')
-        #elif self.ver == 1:
-        #    self.gpio_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping_v2.yaml'), 'gpio')
+        # if self.rbver > 2 and self.trigger:
+        #     self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT2']['gpio']
+        # else:
+        #     self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['gpio']
+        if self.ver == 0:
+           self.gpio_mapping = read_mapping(os.path.expandvars('/home/roy/Etroc2_CE/module_test_sw/configs/LPGBT_mapping.yaml'), 'gpio')
+        elif self.ver == 1:
+           self.gpio_mapping = read_mapping(os.path.expandvars('/home/roy/Etroc2_CE/module_test_sw/configs/LPGBT_mapping_v2.yaml'), 'gpio')
 
     def update_rb_ver(self, new_ver):
         assert new_ver in [1,2,3], f"Unrecognized version {new_ver}"
@@ -370,9 +358,9 @@ class LPGBT(RegParser):
             sleep(0.1)
 
             if self.ver == 0:
-                self.master.program_slave_from_file(os.path.expandvars('$TAMALERO_BASE/configs/config_slave.txt'))
+                self.master.program_slave_from_file('configs/config_slave.txt')
             elif self.ver == 1:
-                self.master.program_slave_from_file(os.path.expandvars('$TAMALERO_BASE/configs/config_slave_v1.txt'))
+                self.master.program_slave_from_file('configs/config_slave_v1.txt')
             sleep(0.1)
             self.invert_links()
 
@@ -638,7 +626,36 @@ class LPGBT(RegParser):
             if 0x1 & (en_mask >> i):
                 self.wr_reg("LPGBT.RWF.EPORTCLK.EPCLK%dFREQ" % i, 1)
                 self.wr_reg("LPGBT.RWF.EPORTCLK.EPCLK%dDRIVESTRENGTH" % i, 4)
-
+    ##add some here
+    def apply_eliminator_config(self):
+        if self.verbose:
+            print("Applying eliminator-specific register configuration...")
+    
+    # Register values from your eliminator CSV
+        eliminator_regs = [
+        (0x0fb, 0x06),  # Testing/power configuration
+        (0x0a8, 0xff), (0x0aa, 0x11), (0x0ab, 0x11), (0x0ac, 0x61),  # EPTX configs
+        (0x0ae, 0x03), (0x0b2, 0x03), (0x0b6, 0x03), (0x0ba, 0x03),  # EPTX configs
+        (0x0c8, 0x5a), (0x0c9, 0x5a), (0x0ca, 0x5a), (0x0cb, 0x5a),  # EPRX configs
+        (0x0cf, 0x10), (0x0d0, 0x56), (0x0d2, 0x56), (0x0d4, 0x56),  # EPRX configs
+        (0x0d6, 0x56), (0x0d8, 0x56), (0x0da, 0x56), (0x0dc, 0x56),  # EPRX configs
+        (0x0de, 0x56), (0x0ec, 0x02), (0x0f2, 0x2d)                  # Additional configs
+    ]
+    
+        for addr, val in eliminator_regs:
+            try:
+                self.wr_adr(addr, val)
+                readback = self.rd_adr(addr)
+            
+                if readback == val:
+                    if self.verbose:
+                        print(f"✓ Register 0x{addr:03x} = 0x{val:02x}")
+                else:
+                    print(f"✗ Register 0x{addr:03x}: wrote 0x{val:02x}, read 0x{readback:02x}")
+                
+            except Exception as e:
+                print(f"Error writing register 0x{addr:03x}: {e}")
+    ## --------------------------------------------
     def config_eport_dlls(self):
         if self.verbose:
             print("Configuring eport dlls...")
@@ -680,6 +697,7 @@ class LPGBT(RegParser):
 
         for i in range(4):
             self.wr_reg(f"LPGBT.RWF.EPORTTX.EPTX{i}MIRRORENABLE", 0x1)
+
 
     def configure_eprx(self):
         if self.verbose:
@@ -965,6 +983,7 @@ class LPGBT(RegParser):
 
             # ADC = (Vdiff/Vref)*Gain*512 + Offset
             gain = 2*abs(self.read_adc_raw(0xC)-offset)/512
+            print(gain)
             self.wr_reg("LPGBT.RW.ADC.VDDMONENA", initial_val)
             type = "Trigger" if self.trigger else "DAQ"
             print("Calibrated %s ADC. Gain: %f / Offset: %d" % (type, gain, offset))
@@ -1337,7 +1356,7 @@ class LPGBT(RegParser):
                 if retries > 50:
                     raise TimeoutError(f"I2C write failed after 50 retries, status={status}")
 
-    def I2C_read(self, reg=0x0, master=2, slave_addr=0x70, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
+    def I2C_read(self, reg=0x0, master=2, slave_addr=0x71, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
         #https://gitlab.cern.ch/lpgbt/pigbt/-/blob/master/backend/apiapp/lpgbtLib/lowLevelDrivers/MASTERI2C.py#L83
 
         # debugging
@@ -1434,6 +1453,7 @@ class LPGBT(RegParser):
         self.kcu.dispatch()
 
         status = self.rd_adr(i2cm0status+OFFSET_RD)
+        print(status)
 
         # debugging
         #print(f"status: {status}")
@@ -1765,5 +1785,5 @@ if __name__ == '__main__':
 
     lpgbt = LPGBT()
     lpgbt.get_version()
-    lpgbt.parse_xml(self.ver)
+    # lpgbt.parse_xml(self.ver)
     lpgbt.dump(nMax=10)
