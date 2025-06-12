@@ -149,8 +149,11 @@ class LPGBT(RegParser):
         if self.rbver is None:
             self.rbver = self.ver + 1
 
-        self.base_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_config.yaml'))['base'][f'v{self.ver}']
-        self.ec_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_config.yaml'))['ec'][f'v{self.ver}']
+        #self.base_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_config.yaml'))['base'][f'v{self.ver}']
+        #self.ec_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_config.yaml'))['ec'][f'v{self.ver}']
+
+        self.base_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_smu_config.yaml'))['base'][f'v{self.ver}']
+        self.ec_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_smu_config.yaml'))['ec'][f'v{self.ver}']
 
         self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, self.ver)
         self.parse_xml(ver=self.ver)
