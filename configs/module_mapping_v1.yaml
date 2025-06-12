@@ -1,0 +1,21 @@
+# Starting from the top / VTRX
+# https://etl-rb.docs.cern.ch/Hardware/
+
+m1:
+  elinks: [0, 2, 20, 22]
+  addresses: [0x72, 0x72, 0x72, 0x72]
+  i2c:
+    master: lpgbt
+    channel: 1
+m2:
+  elinks: [4, 6, 16, 18]
+  addresses: [0x72, 0x72, 0x72, 0x72]
+  i2c:
+    master: sca
+    channel: 0
+m3:
+  elinks: [8, 10, 12, 14]
+  addresses: [0x72, 0x72, 0x72, 0x72]
+  i2c:
+    master: sca
+    channel: 3

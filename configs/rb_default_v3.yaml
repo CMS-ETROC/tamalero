@@ -1,0 +1,219 @@
+MUX64:
+    channel:
+        A0:
+            pin: 0x00
+            R1: 10
+            R2: 1
+            sig_name: unsed
+            comment: "LV RB"
+            terminal_input: False
+        A1:
+            pin: 0x01
+            R1: 10
+            R2: 10
+            sig_name: unsed
+            comment: "lpGBT ADC5 (RT2), R2 values is approximate"
+            terminal_input: False
+
+LPGBT:
+    adc:
+        TH1:
+            pin: 0x00
+            current: 1
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTRX TH1
+        MUX64OUT:
+            pin: 0x01
+            current: 0
+            conv: 1.0
+            min: 1.12
+            max: 1.68
+            flavor: small
+            comment: MUX64OUT
+        LVRB:
+            pin: 0x02
+            current: 0
+            conv: 11.0
+            min: 8.0
+            max: 10.0
+            flavor: small
+            comment: LVRB / 11.0
+        2V5TX_ADC:
+            pin: 0x03
+            current: 0
+            conv: 3.0
+            min: 2.0
+            max: 3.0
+            flavor: small
+            comment: 2V5TX * 0.33
+        RSSI_ADC:
+            pin: 0x04
+            current: 0
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: RSSI
+        1V2RA:
+            pin: 0x05
+            current: 0
+            conv: 2.0
+            min: 0.8
+            max: 1.4
+            flavor: small
+            comment: 1V2RA * 0.5 (ADC5)
+        2V5RX_ADC:
+            pin: 0x06
+            current: 0
+            conv: 3.0
+            min: 2.0
+            max: 3.0
+            flavor: small
+            comment: 2V5RX * 0.33
+        VTEMP_ADC:
+            pin: 0x07
+            current: 0
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: RT1
+        EOM_ADC:
+            pin: 0x08
+            current: 0
+            conv: 1
+            flavor: small
+            comment: EOM DAC (internal signal)
+        VDDIO:
+            pin: 0x09
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDDIO * 0.42 (internal signal)
+        VDDTX:
+            pin: 0x0a
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDDTX * 0.42 (internal signal)
+        VDDRX:
+            pin: 0x0b
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDDRX * 0.42 (internal signal)
+        VDD:
+            pin: 0x0c
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDD * 0.42 (internal signal)
+        VDDA:
+            pin: 0x0d
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDDA * 0.42 (internal signal)
+        TEMP:
+            pin: 0x0e
+            current: 0
+            conv: 1
+            flavor: small
+            comment: Temperature sensor (internal signal)
+        VREF:
+            pin: 0x0f
+            current: 0
+            conv: 2.0
+            flavor: small
+            comment: VREF/2 (internal signal)
+    gpio:
+        MUXCNT5:
+            pin: 0x00
+            default: 1
+            direction: out
+            flavor: small
+            comment: MUXCNT5
+        MUXCNT4:
+            pin: 0x01
+            default: 1
+            direction: out
+            flavor: small
+            comment: MUXCNT4
+        MUXCNT6:
+            pin: 0x02
+            default: 1
+            direction: out
+            flavor: small
+            comment: MUXCNT6
+        MUXCNT3:
+            pin: 0x03
+            default: 1
+            direction: out
+            flavor: small
+            comment: MUXCNT3
+        MUXCNT1:
+            pin: 0x04
+            default: 1
+            direction: out
+            flavor: small
+            comment: MUXCNT1
+        MUXCNT2:
+            pin: 0x05
+            default: 1
+            direction: out
+            flavor: small
+            comment: MUXCNT2
+        RESET1:
+            pin: 0x07
+            default: 1
+            direction: out
+            flavor: small
+            comment: Reset 
+        LD_RSTN:
+            pin: 0x09
+            default: 1
+            direction: out
+            flavor: small
+            comment: LED
+        RESET2:
+            pin: 0x0A
+            default: 1
+            direction: out
+            flavor: small
+            comment: Reset
+        LD_DIS:
+            pin: 0x0D
+            default: 0
+            direction: out
+            flavor: small
+            comment: LD_DIS
+        LED_RHETT:
+            pin: 0x0F
+            default: 1
+            direction: out
+            flavor: small
+            comment: success LED
+LPGBT2:
+    adc:
+    gpio:
+        LED_0:
+            pin: 0x0B
+            default: 1
+            direction: out
+            flavor: small
+            comment: LED 1 on schematic, GPIO config LED
+        LED_1:
+            pin: 0x0C
+            default: 0
+            direction: out
+            flavor: small
+            comment: LED 2 on schematic
+
+inversions:
+   clocks: []
+   downlink: []
+   uplink: []
+   trigger: []

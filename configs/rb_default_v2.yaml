@@ -1,0 +1,490 @@
+SCA:
+    adc:
+        mod_a00:
+            pin: 0x0B
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 20 in ETROC 0 and 1
+        mod_a01:
+            pin: 0x0C
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 18 in ETROC 0 and 1
+        mod_a02:
+            pin: 0x0E
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 16 in ETROC 0 and 1
+        mod_a03:
+            pin: 0x0F
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 14 in ETROC 0 and 1
+        mod_a04:
+            pin: 0x03
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 21 in ETROC 2 and 3
+        mod_a05:
+            pin: 0x01
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 23 in ETROC 2 and 3
+        mod_a06:
+            pin: 0x02
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 25 in ETROC 2 and 3
+        mod_a07:
+            pin: 0x0
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 27 in ETROC 2 and 3
+        mod_a08:
+            pin: 0x12
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 20 in ETROC 4 and 5
+        mod_a09:
+            pin: 0x15
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 18 in ETROC 4 and 5
+        mod_a10:
+            pin: 0x14
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 16 in ETROC 4 and 5
+        mod_a11:
+            pin: 0x11
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 14 in ETROC 4 and 5
+        mod_a12:
+            pin: 0x05
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 21 in ETROC 6 and 7
+        mod_a13:
+            pin: 0x06
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 23 in ETROC 6 and 7
+        mod_a14:
+            pin: 0x08
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 25 in ETROC 6 and 7
+        mod_a15:
+            pin: 0x09
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 27 in ETROC 6 and 7
+        mod_a16:
+            pin: 0x17
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 20 in ETROC 8 and 9
+        mod_a17:
+            pin: 0x16
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 18 in ETROC 8 and 9
+        mod_a18:
+            pin: 0x13
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 16 in ETROC 8 and 9
+        mod_a19:
+            pin: 0x10
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 14 in ETROC 8 and 9
+        mod_a20:
+            pin: 0x0D
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 21 in ETROC 10 and 11
+        mod_a21:
+            pin: 0x0A
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 23 in ETROC 10 and 11
+        mod_a22:
+            pin: 0x07
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 25 in ETROC 10 and 11
+        mod_a23:
+            pin: 0x04
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 27 in ETROC 10 and 11
+        LV_RB:
+            pin: 0x1C
+            conv: 11.
+            flavor: small
+            comment: low voltage
+        VDAC:
+            pin: 0x1D
+            conv: 1.
+            flavor: small
+            comment: temperature sensor
+
+    gpio:
+        mod_d00:
+            pin: 0x1E
+            default: 1
+            direction: in
+            flavor: small
+            comment: pin 32 in ETROC 0 and 1
+        mod_d01:
+            pin: 0x1F
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 30 in ETROC 0 and 1
+        mod_d02:
+            pin: 0x1D
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 28 in ETROC 0 and 1
+        mod_d03:
+            pin: 0x1C
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 26 in ETROC 0 and 1
+        mod_d04:
+            pin: 0x00
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 9 in ETROC 2 and 3
+        mod_d05:
+            pin: 0x02
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 11 in ETROC 2 and 3
+        mod_d06:
+            pin: 0x01
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 13 in ETROC 2 and 3
+        mod_d07:
+            pin: 0x03
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 15 in ETROC 2 and 3
+        mod_d08:
+            pin: 0x16
+            default: 1
+            direction: in
+            flavor: small
+            comment: pin 32 in ETROC 4 and 5
+        mod_d09:
+            pin: 0x19
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 30 in ETROC 4 and 5
+        mod_d10:
+            pin: 0x13
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 28 in ETROC 4 and 5
+        mod_d11:
+            pin: 0x10
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 26 in ETROC 4 and 5
+        mod_d12:
+            pin: 0x0A
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 9 in ETROC 6 and 7
+        mod_d13:
+            pin: 0x04
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 11 in ETROC 6 and 7
+        mod_d14:
+            pin: 0x07
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 13 in ETROC 6 and 7
+        mod_d15:
+            pin: 0x0D
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 15 in ETROC 6 and 7
+        mod_d16:
+            pin: 0x0F
+            default: 1
+            direction: in
+            flavor: small
+            comment: pin 32 in ETROC 8 and 9
+        mod_d17:
+            pin: 0x0E
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 30 in ETROC 8 and 9
+        mod_d18:
+            pin: 0x0C
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 28 in ETROC 8 and 9
+        mod_d19:
+            pin: 0x0B
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 26 in ETROC 8 and 9
+        mod_d20:
+            pin: 0x09
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 9 in ETROC 10 and 11
+        mod_d21:
+            pin: 0x08
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 11 in ETROC 10 and 11
+        mod_d22:
+            pin: 0x06
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 13 in ETROC 10 and 11
+        mod_d23:
+            pin: 0x05
+            default: 0
+            direction: in
+            flavor: small
+            comment: pin 15 in ETROC 10 and 11
+        sca_led:
+            pin: 0x1B
+            default: 1
+            direction: out
+            flavor: small
+            comment: SCA LED indicator
+
+LPGBT:
+    adc:
+        TH1:
+            pin: 0x00
+            current: 1
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTRX TH1
+        1V4D_ADC:
+            pin: 0x01
+            current: 0
+            conv: 1.82
+            min: 1.12
+            max: 1.68
+            flavor: small
+            comment: 1V4D * 0.55
+        1V5A_ADC:
+            pin: 0x02
+            current: 0
+            conv: 1.82
+            min: 1.2
+            max: 1.8
+            flavor: small
+            comment: 1V5D * 0.55
+        2V5TX_ADC:
+            pin: 0x03
+            current: 0
+            conv: 3.0
+            min: 2.0
+            max: 3.0
+            flavor: small
+            comment: 2V5TX * 0.33
+        RSSI_ADC:
+            pin: 0x04
+            current: 0
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: RSSI
+        ADC5:
+            pin: 0x05
+            current: 0
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: N/A
+        2V5RX_ADC:
+            pin: 0x06
+            current: 0
+            conv: 3.0
+            min: 2.0
+            max: 3.0
+            flavor: small
+            comment: 2V5RX * 0.33
+        VTEMP_ADC:
+            pin: 0x07
+            current: 1
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: RT1
+        EOM_ADC:
+            pin: 0x08
+            current: 0
+            conv: 1
+            flavor: small
+            comment: EOM DAC (internal signal)
+        VDDIO:
+            pin: 0x09
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDDIO * 0.42 (internal signal)
+        VDDTX:
+            pin: 0x0a
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDDTX * 0.42 (internal signal)
+        VDDRX:
+            pin: 0x0b
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDDRX * 0.42 (internal signal)
+        VDD:
+            pin: 0x0c
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDD * 0.42 (internal signal)
+        VDDA:
+            pin: 0x0d
+            current: 0
+            conv: 2.38
+            flavor: small
+            comment: VDDA * 0.42 (internal signal)
+        TEMP:
+            pin: 0x0e
+            current: 0
+            conv: 1
+            flavor: small
+            comment: Temperature sensor (internal signal)
+        VREF:
+            pin: 0x0f
+            current: 0
+            conv: 2.0
+            flavor: small
+            comment: VREF/2 (internal signal)
+    gpio:
+        SCA_RESETB:
+            pin: 0x00
+            default: 1
+            direction: out
+            flavor: small
+            comment: GBT SCA reset
+        LED_0:
+            pin: 0x01
+            default: 1
+            direction: out
+            flavor: small
+            comment: LPGBT GPIO configuration LED
+        LED_1:
+            pin: 0x02
+            default: 0
+            direction: out
+            flavor: small
+            comment: tamalero LED
+        LED_RHETT:
+            pin: 0x03
+            default: 1
+            direction: out
+            flavor: small
+            comment: success LED
+        LD_RSTN:
+            pin: 0x0A
+            default: 1
+            direction: out
+            flavor: small
+            comment: VTRX reset
+        LD_DIS:
+            pin: 0x0D
+            default: 0
+            direction: out
+            flavor: small
+            comment: VTRX DIS
+
+inversions:
+   clocks: []
+   downlink: []
+   uplink: []
+   trigger: []

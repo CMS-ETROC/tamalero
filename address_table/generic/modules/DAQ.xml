@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<node id="DAQ_FIFO" fwinfo="endpoint; width=16">
+  <node id="FIFO"      address="0x0"    mode="non-incremental" size="16384" permission="r"/>
+</node>

@@ -1,0 +1,371 @@
+SCA:
+    adc:
+        mod_a00:
+            pin: 0x0B
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 20 in ETROC 0 and 1, not used
+        mod_a01:
+            pin: 0x0C
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 18 in ETROC 0 and 1, not used, in J2
+        mod_a02:
+            pin: 0x0E
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 16 in ETROC 0 and 1, not used, in J2
+        mod_a03:
+            pin: 0x0F
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: Thermistor power board, in J2
+        mod_a04:
+            pin: 0x03
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: NTC1 on module 1
+        mod_a05:
+            pin: 0x01
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF on module 1
+        mod_a06:
+            pin: 0x02
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP on module 1
+        mod_a07:
+            pin: 0x0
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: NTC2 on module 1
+        mod_a08:
+            pin: 0x12
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 20 in ETROC 4 and 5, not used
+        mod_a09:
+            pin: 0x15
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 18 in ETROC 4 and 5, not used, in J2
+        mod_a10:
+            pin: 0x14
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 16 in ETROC 4 and 5, not used, in J2
+        mod_a11:
+            pin: 0x11
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: Thermistor power board, in J2
+        mod_a12:
+            pin: 0x05
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: NTC1 on module 2
+        mod_a13:
+            pin: 0x06
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF on module 2
+        mod_a14:
+            pin: 0x08
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP on module 2 
+        mod_a15:
+            pin: 0x09
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: NTC2 on module 2 
+        mod_a16:
+            pin: 0x17
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 20 in ETROC 8 and 9, not used
+        mod_a17:
+            pin: 0x16
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 18 in ETROC 8 and 9, not used, in J2
+        mod_a18:
+            pin: 0x13
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: pin 16 in ETROC 8 and 9, not used, in J2
+        mod_a19:
+            pin: 0x10
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: Thermistor power board, in J2
+        mod_a20:
+            pin: 0x0D
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: NTC1 on module 3 
+        mod_a21:
+            pin: 0x0A
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF on module 3
+        mod_a22:
+            pin: 0x07
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP on module 3 
+        mod_a23:
+            pin: 0x04
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: NTC2 on module 3 
+    gpio:
+        mod_d00:
+            pin: 0x1E
+            default: 1
+            direction: out
+            flavor: small
+            comment: 2.5V for ETROC on module 1. 1 = 2.5V is OFF, 0 = 2.5V is ON
+        mod_d01:
+            pin: 0x1F
+            default: 0
+            direction: out
+            flavor: small
+            comment: enable FEAST on module 1
+        mod_d03:
+            pin: 0x1C
+            default: 0
+            direction: out
+            flavor: small
+            comment: WS_WR_EN on module 1
+        mod_d04:
+            pin: 0x00
+            default: 1
+            direction: out
+            flavor: small
+            comment: WS_RSTN on module 1
+        mod_d05:
+            pin: 0x02
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR1 on module 1
+        mod_d06:
+            pin: 0x01
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR0 on module 1
+        mod_d07:
+            pin: 0x03
+            default: 1
+            direction: out
+            flavor: small
+            comment: RSTN on module 1
+        mod_d08:
+            pin: 0x16
+            default: 1
+            direction: out
+            flavor: small
+            comment: 2.5V for ETROC on module 2. 1 = 2.5V is OFF, 0 = 2.5V is ON
+        mod_d09:
+            pin: 0x19
+            default: 0
+            direction: out
+            flavor: small
+            comment: enable FEAST on module 2
+        mod_d11:
+            pin: 0x10
+            default: 0
+            direction: out
+            flavor: small
+            comment: WS_WR_EN on module 2
+        mod_d12:
+            pin: 0x0A
+            default: 1
+            direction: out
+            flavor: small
+            comment: WS_RSTN on module 2
+        mod_d13:
+            pin: 0x04
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR1 on module 2
+        mod_d14:
+            pin: 0x07
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR0 on module 2
+        mod_d15:
+            pin: 0x0D
+            default: 1
+            direction: out
+            flavor: small
+            comment: RSTN on module 2 
+        mod_d16:
+            pin: 0x0F
+            default: 1
+            direction: out
+            flavor: small
+            comment: 2.5V for ETROC on module 2.  = .5V is OFF, 0 = 2.5V is ON
+        mod_d17:
+            pin: 0x0E
+            default: 0
+            direction: out
+            flavor: small
+            comment: enable FEAST on module 3
+        mod_d19:
+            pin: 0x0B
+            default: 0
+            direction: out
+            flavor: small
+            comment: WS_WR_EN on module 3
+        mod_d20:
+            pin: 0x09
+            default: 1
+            direction: out
+            flavor: small
+            comment: WS_RSTN on module 3
+        mod_d21:
+            pin: 0x08
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR1 on module 3
+        mod_d22:
+            pin: 0x06
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR0 on module 3
+        mod_d23:
+            pin: 0x05
+            default: 1
+            direction: out
+            flavor: small
+            comment: RSTN on module 3
+LPGBT:
+    adc:
+    gpio:
+
+inversions:
+   clocks:
+      - 3
+      - 4
+      - 5
+      - 22
+      - 23
+      - 25
+      - 26
+      - 27
+   downlink:
+      - 2
+      - 4
+      - 8
+      - 10
+      - 12
+   uplink:
+      - 6
+      - 12
+      - 14
+      - 16
+      - 18
+      - 20
+      - 22
+   trigger:
+      - 2
+      - 6
+      - 10
+      - 16
+      - 18
+      - 20
+      - 22
+
+modules:
+  1:
+    elinks: [[[0, 2],[]]]  # structure here is ETROC, LPGBT, ELINK
+    addresses: [0x60]
+    i2c:
+      master: lpgbt
+      channel: 1
+    reset: mod_d07
+    vref: [mod_a05]
+    disable_vref_gen: [False]
+    power_board: mod_d01
+    pgood: mod_d02
+    vtemp: [mod_a06]
+  2:
+    elinks: [[[4, 6],[]]]
+    addresses: [0x64]
+    i2c:
+      master: sca
+      channel: 3
+    reset: mod_d15
+    vref: [mod_a13]
+    disable_vref_gen: [False]
+    power_board: mod_d09
+    pgood: mod_d10
+    vtemp: [mod_a14]
+  3:
+    elinks: [[[8, 10],[]]]
+    addresses: [0x68]
+    i2c:
+      master: sca
+      channel: 0
+    reset: mod_d23
+    vref: [mod_a21]
+    disable_vref_gen: [False]
+    power_board: mod_d17
+    pgood: mod_d18
+    vtemp: [mod_a22]

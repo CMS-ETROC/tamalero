@@ -1,0 +1,147 @@
+SCA:
+    adc:
+    gpio:
+LPGBT:
+    adc:
+    gpio:
+        RSTN_1:
+            pin: 0x8
+            default: 1
+            direction: out
+            flavor: small
+            comment: RSTN of module 1, called Reset 1 on RBv3
+        RESET_2:
+            pin: 0xB
+            default: 1
+            direction: out
+            flavor: small
+            comment: Reset 2 on module 1 (not used)
+        RSTN_2:
+            pin: 0xE
+            default: 1
+            direction: out
+            flavor: small
+            comment: This is actually not connected, use this pin as dummy reset for module 2
+        RSTN_3:
+            pin: 0xE
+            default: 1
+            direction: out
+            flavor: small
+            comment: This is actually not connected, use this pin as dummy reset for module 3
+
+MUX64:
+    channel:
+        mod0_a5:
+            pin: 0x3
+            R1: 0
+            R2: 4.7
+            sig_name: unsed
+            comment: "VREF on module 1"
+            terminal_input: False
+        mod0_a6:
+            pin: 0x04
+            R1: 0
+            R2: 4.7
+            sig_name: unsed
+            comment: "VTEMP on module 1"
+            terminal_input: False
+        mod1_a5:
+            pin: 0x7
+            R1: 0
+            R2: 4.7
+            sig_name: unsed
+            comment: "VREF on module 2"
+            terminal_input: False
+        mod1_a6:
+            pin: 0x08
+            R1: 0
+            R2: 4.7
+            sig_name: unsed
+            comment: "VTEMP on module 2"
+            terminal_input: False
+        mod2_a5:
+            pin: 0xB
+            R1: 0
+            R2: 4.7
+            sig_name: unsed
+            comment: "VREF on module 3"
+            terminal_input: False
+        mod2_a6:
+            pin: 0xC
+            R1: 0
+            R2: 4.7
+            sig_name: unsed
+            comment: "VTEMP on module 3"
+            terminal_input: False
+
+
+inversions:
+   clocks:
+      - 3
+      - 4
+      - 5
+      - 22
+      - 23
+      - 25
+      - 26
+      - 27
+   downlink:
+      - 2
+      - 4
+      - 8
+      - 10
+      - 12
+   uplink:
+      - 6
+      - 12
+      - 14
+      - 16
+      - 18
+      - 20
+      - 22
+   trigger:
+      - 2
+      - 6
+      - 10
+      - 16
+      - 18
+      - 20
+      - 22
+
+modules:
+  1:
+    elinks: [[[0],[0]]]  # structure here is ETROC, LPGBT, ELINK
+    addresses: [0x60]
+    i2c:
+      master: lpgbt
+      channel: 1
+    reset: RSTN_1
+    vref: [mod0_a5]
+    disable_vref_gen: [True]
+    power_board: mod_d01
+    pgood: mod_d02
+    vtemp: [mod0_a6]
+  2:
+    elinks: [[[4],[4]]]
+    addresses: [0x64]
+    i2c:
+      master: lpgbt
+      channel: 1
+    reset: RSTN_2
+    vref: [mod1_a5]
+    disable_vref_gen: [True]
+    power_board: mod_d09
+    pgood: mod_d10
+    vtemp: [mod1_a6]
+  3:
+    elinks: [[[8],[8]]]
+    addresses: [0x68]
+    i2c:
+      master: lpgbt
+      channel: 1
+    reset: RSTN_3
+    vref: [mod2_a5]
+    disable_vref_gen: [True]
+    power_board: mod_d17
+    pgood: mod_d18
+    vtemp: [mod2_a6]

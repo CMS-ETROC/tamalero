@@ -1,0 +1,369 @@
+SCA:
+    adc:
+        mod_a00:
+            pin: 0x0B
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP1 on module 1
+        mod_a01:
+            pin: 0x0C
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP2 on module 1
+        mod_a02:
+            pin: 0x0E
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP3 on module 1
+        mod_a03:
+            pin: 0x0F
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP4 on module 1
+        mod_a04:
+            pin: 0x03
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF3 on module 1
+        mod_a05:
+            pin: 0x01
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF2 on module 1
+        mod_a06:
+            pin: 0x02
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF4 on module 1
+        mod_a07:
+            pin: 0x0
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF1 on module 1
+        mod_a08:
+            pin: 0x12
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP1 on module 2
+        mod_a09:
+            pin: 0x15
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP2 on module 2
+        mod_a10:
+            pin: 0x14
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP3 on module 2
+        mod_a11:
+            pin: 0x11
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP4 on module 2
+        mod_a12:
+            pin: 0x05
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF3 on module 2
+        mod_a13:
+            pin: 0x06
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF2 on module 2
+        mod_a14:
+            pin: 0x08
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF4 on module 2
+        mod_a15:
+            pin: 0x09
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF1 on module 2
+        mod_a16:
+            pin: 0x17
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP1 on module 3
+        mod_a17:
+            pin: 0x16
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP2 on module 3
+        mod_a18:
+            pin: 0x13
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP3 on module 3
+        mod_a19:
+            pin: 0x10
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VTEMP4 on module 3
+        mod_a20:
+            pin: 0x0D
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF3 on module 3
+        mod_a21:
+            pin: 0x0A
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF2 on module 3
+        mod_a22:
+            pin: 0x07
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF4 on module 3
+        mod_a23:
+            pin: 0x04
+            conv: 1
+            min: 0
+            max: 1.0
+            flavor: small
+            comment: VREF1 on module 3
+    gpio:
+        mod_d00:
+            pin: 0x1E
+            default: 1
+            direction: out
+            flavor: small
+            comment: RSTN on module 1
+        mod_d01:
+            pin: 0x1F
+            default: 1
+            direction: out
+            flavor: small
+            comment: module 1, unused
+        mod_d02:
+            pin: 0x1D
+            default: 1
+            direction: out
+            flavor: small
+            comment: module 1, unused
+        mod_d03:
+            pin: 0x1C
+            default: 1
+            direction: out
+            flavor: small
+            comment: module 1, unused
+        mod_d04:
+            pin: 0x00
+            default: 1
+            direction: out
+            flavor: small
+            comment: module 1, unused
+        mod_d05:
+            pin: 0x02
+            default: 1
+            direction: out
+            flavor: small
+            comment: module 1, unused
+        mod_d06:
+            pin: 0x01
+            default: 1
+            direction: out
+            flavor: small
+            comment: module 1, unused
+        mod_d07:
+            pin: 0x03
+            default: 1
+            direction: out
+            flavor: small
+            comment: module 1, unused
+        mod_d08:
+            pin: 0x16
+            default: 1
+            direction: out
+            flavor: small
+            comment: RSTN module 2
+        mod_d09:
+            pin: 0x19
+            default: 0
+            direction: out
+            flavor: small
+            comment: enable FEAST on module 2
+        mod_d11:
+            pin: 0x10
+            default: 0
+            direction: out
+            flavor: small
+            comment: WS_WR_EN on module 2
+        mod_d12:
+            pin: 0x0A
+            default: 1
+            direction: out
+            flavor: small
+            comment: WS_RSTN on module 2
+        mod_d13:
+            pin: 0x04
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR1 on module 2
+        mod_d14:
+            pin: 0x07
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR0 on module 2
+        mod_d15:
+            pin: 0x0D
+            default: 1
+            direction: out
+            flavor: small
+            comment: RSTN on module 2 
+        mod_d16:
+            pin: 0x0F
+            default: 1
+            direction: out
+            flavor: small
+            comment: 2.5V for ETROC on module 2.  = .5V is OFF, 0 = 2.5V is ON
+        mod_d17:
+            pin: 0x0E
+            default: 0
+            direction: out
+            flavor: small
+            comment: enable FEAST on module 3
+        mod_d19:
+            pin: 0x0B
+            default: 0
+            direction: out
+            flavor: small
+            comment: WS_WR_EN on module 3
+        mod_d20:
+            pin: 0x09
+            default: 1
+            direction: out
+            flavor: small
+            comment: WS_RSTN on module 3
+        mod_d21:
+            pin: 0x08
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR1 on module 3
+        mod_d22:
+            pin: 0x06
+            default: 0
+            direction: out
+            flavor: small
+            comment: ADDR0 on module 3
+        mod_d23:
+            pin: 0x05
+            default: 1
+            direction: out
+            flavor: small
+            comment: RSTN on module 3
+LPGBT:
+    adc:
+    gpio:
+
+inversions:
+   clocks:
+      - 2
+      - 3
+      - 4
+      - 5
+      - 23
+      - 25
+   downlink:
+      - 2
+      - 4  # 10
+      - 10 # 22
+   uplink:
+      - 6
+   trigger:
+      - 12
+      - 14
+
+modules:
+  1:
+    elinks: [[[2],[0]], [[20],[22]], [[0],[2]], [[22],[20]]]  # structure here is ETROC, LPGBT, ELINK
+    addresses: [0x60, 0x61, 0x62, 0x63]
+    clocks: [0,26,1,27]
+    downlinks: [0,12,0,12]
+    i2c:
+      master: lpgbt
+      channel: 1
+    reset: mod_d00
+    vref: [mod_a04, mod_a05, mod_a06, mod_a07]
+    disable_vref_gen: [True, True, True, True]
+    power_board: mod_d01
+    pgood: mod_d02
+    vtemp: [mod_a00, mod_a01, mod_a02, mod_a03]
+  2:
+    elinks: [[[6],[4]], [[16],[18]], [[4],[6]], [[18],[16]]]
+    addresses: [0x64, 0x65, 0x66, 0x67]
+    clocks: [3, 23, 2, 25]
+    downlinks: [2,10,2,10]
+    i2c:
+      master: sca
+      channel: 3
+    reset: mod_d08
+    vref: [mod_a12, mod_a13, mod_a14, mod_a15]
+    disable_vref_gen: [False, False, False, False]
+    power_board: mod_d09
+    pgood: mod_d10
+    vtemp: [mod_a08, mod_a09, mod_a10, mod_a11]
+  3:
+    elinks: [[[10],[8]], [[12],[14]], [[8],[10]], [[14],[12]]]
+    addresses: [0x68, 0x69, 0x6a, 0x6b]
+    clocks: [5,24,4,22]
+    downlinks: [4,8,4,8]
+    i2c:
+      master: sca
+      channel: 0
+    reset: mod_d16
+    vref: [mod_a20, mod_a21, mod_a22, mod_a23]
+    disable_vref_gen: [False, False, False, False]
+    power_board: mod_d17
+    pgood: mod_d18
+    vtemp: [mod_a16, mod_a17, mod_a18, mod_a19]
+

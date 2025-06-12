@@ -1,0 +1,77 @@
+LPGBT:
+    adc:
+    gpio:
+
+inversions:
+    clocks:
+      - 3
+      - 4
+      - 5
+      - 22
+      - 23
+      - 25
+      - 26
+      - 27
+    downlink:
+      - 2
+      - 4
+      - 8
+      - 10
+      - 12
+    uplink:
+      - 6
+      - 12
+      - 14
+      - 16
+      - 18
+      - 20
+      - 22
+    trigger:
+      - 2
+      - 6
+      - 10
+      - 16
+      - 18
+      - 20
+      - 22
+
+modules:
+  1:
+   elinks: [[[0],[0]], [[2],[2]], [[20],[20]], [[22],[22]]]
+   addresses: [0x72, 0x72, 0x72, 0x72]
+   i2c:
+     master: lpgbt
+     channel: 1
+   status: mod_d01
+   reset: None
+   vref: [None, None, None, None]
+   disable_vref_gen: [False, False, False, False]
+   power_board: 0
+   pgood: 0
+   vtemp: [None, None, None, None]
+  2:
+   elinks: [[[4],[4]], [[6],[6]], [[16],[16]], [[18],[18]]]
+   addresses: [0x72, 0x72, 0x72, 0x72]
+   i2c:
+     master: lpgbt
+     channel: 1
+   status: mod_d09
+   reset: None
+   vref: [None, None, None, None]
+   disable_vref_gen: [False, False, False, False]
+   power_board: 0
+   pgood: 0
+   vtemp: [None, None, None, None]
+  3:
+   elinks: [[[8],[8]], [[10],[10]], [[12],[12]], [[14],[14]]]
+   addresses: [0x72, 0x72, 0x72, 0x72]
+   i2c:
+     master: lpgbt
+     channel: 1
+   status: mod_d17
+   reset: None
+   vref: [None, None, None, None]
+   disable_vref_gen: [False, False, False, False]
+   power_board: 0
+   pgood: 0
+   vtemp: [None, None, None, None]

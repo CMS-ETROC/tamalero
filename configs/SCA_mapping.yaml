@@ -1,0 +1,148 @@
+adc:
+    1V2_mon0:
+        pin: 0x01
+        conv: 1
+        flavor: small
+        comment: monitoring for 1.2V of ETROC0
+    1V2_mon1:
+        pin: 0x03
+        conv: 1
+        flavor: small
+        comment: monitoring for 1.2V of ETROC1
+    1V2_mon2:
+        pin: 0x06
+        conv: 1
+        flavor: small
+        comment: monitoring for 1.2V of ETROC2
+    1V2_mon3:
+        pin: 0x09
+        conv: 1
+        flavor: small
+        comment: monitoring for 1.2V of ETROC3
+    1V2_mon4:
+        pin: 0x0C
+        conv: 1
+        flavor: small
+        comment: monitoring for 1.2V of ETROC4
+    1V2_mon5:
+        pin: 0x0F
+        conv: 1
+        flavor: small
+        comment: monitoring for 1.2V of ETROC5
+    1V2_mon6:
+        pin: 0x01
+        conv: 1
+        flavor: medium
+    BV0:
+        pin: 0x12
+        conv: 1220.51
+        flavor: small
+        comment: monitoring for BV line 0
+    BV1:
+        pin: 0x15
+        conv: 1220.51
+        flavor: small
+        comment: monitoring for BV line 1
+    BV2:
+        pin: 0x1C
+        conv: 1220.51
+        flavor: small
+        comment: monitoring for BV line 2
+    1V2A:
+        pin: 0x17
+        conv: 3.5
+        flavor: small
+        comment: 1.2v reference voltage A        
+    1V2B:
+        pin: 0x18
+        conv: 3.5
+        flavor: small
+        comment: 1.2v reference voltage B        
+    1V2C:
+        pin: 0x19
+        conv: 3.5
+        flavor: small
+        comment: 1.2v reference voltage C        
+    1V2D:
+        pin: 0x16
+        conv:  3.5
+        flavor: small
+        comment: 1.2v reference voltage D        
+    LV_RB:
+        pin: 0x1E
+        conv: 11.
+        flavor: small
+        comment: low voltage       
+    Vref:
+        pin: 0x1D
+        conv: 1.
+        flavor: small
+        comment: temperature sensor
+        
+gpio:
+    PG0:
+        pin: 0x1
+        default: 0
+        direction: in
+        flavor: small
+        comment: Power Good 0
+    PG1:
+        pin: 0x6
+        default: 0
+        direction: in
+        flavor: small
+        comment: Power Good 1
+    PG2:
+        pin: 0x12
+        default: 1
+        direction: in
+        flavor: small
+        comment: Power Good 2
+    PG3:
+        pin: 0xC
+        default: 0
+        direction: in
+        flavor: small
+        comment: Power Good 3
+    ON0:
+        pin: 0x3
+        default: 0
+        direction: out
+        flavor: small
+        comment: Power On 0
+    ON1:
+        pin: 0x9
+        default: 1
+        direction: out
+        flavor: small
+        comment: Power On 1
+    ON2:
+        pin: 0x15
+        default: 1
+        direction: out
+        flavor: small
+        comment: Power On 2
+    ON3:
+        pin: 0xF
+        default: 1
+        direction: out
+        flavor: small
+        comment: Power On 3
+    RSTB0:
+        pin: 0x1F
+        default: 1
+        direction: out
+        flavor: small
+        comment: reset for module/ETROC 0
+    RSTB1:
+        pin: 0x1E
+        default: 1
+        direction: out
+        flavor: small
+        comment: reset for module/ETROC 1
+    RSTB2:
+        pin: 0x1D
+        default: 1
+        direction: out
+        flavor: small
+        comment: reset for module/ETROC 2
