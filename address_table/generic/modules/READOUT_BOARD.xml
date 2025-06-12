@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<node id="READOUT_BOARD" fwinfo="endpoint; width=12">
+
+  <!-- LPGBT-FPGA  -->
+  <node id="LPGBT" address="0x0">
+
+
+    <node id="UPLINK_0" fwinfo="type=array" address="0x00" module="file://LPGBT_UPLINK.xml"/>
+    <node id="UPLINK_1" fwinfo="type=array" address="0x10" module="file://LPGBT_UPLINK.xml"/>
+
+    <node id="DOWNLINK" address="0x20" module="file://LPGBT_DOWNLINK.xml"/>
+
+    <node id="FEC_ERR_RESET" address="0x1f" mask="0x40" permission="w" description="Write 1 to reset FEC error counter"/>
+
+    <node id="PATTERN_CHECKER" address="0x41" module="file://PATTERN_CHECKER.xml"/>
+
+  </node>
+
+  <node id="BITSLIP_AUTO_EN" address="0x107" mask="0x1"        permission="rw" description="1 to enable automatic bitslipping alignment" parameters="default=0x1"/>
+
+  <node id="ELINK_WIDTH"     address="0x107" mask="0xe"        permission="rw" description="2 = 320 Mbps, 3 = 640 Mbps, 4 = 1280 Mbps" parameters="default=0x2"/>
+
+  <node id="ETROC_BITSLIP"   address="0x104" mask="0xffffffff" permission="w"  description="1 to bitslip an ETROC" />
+  <node id="RESET_ETROC_RX"  address="0x105" mask="0xffffffff" permission="w"  description="1 to reset the ETROC rx module" />
+  <node id="ZERO_SUPRESS"    address="0x106" mask="0xffffffff" permission="rw" description="1 to zero suppress fillers out from the ETROC RX" parameters="default=0xfffffff" />
+  <node id="RAW_DATA_MODE"   address="0x108" mask="0xffffffff" permission="rw" description="1 to read all data from ETROC, regardless of content"/>
+
+  <node id="ETROC_BITSLIP_SLAVE"   address="0x109" mask="0xffffffff" permission="w"  description="1 to bitslip an ETROC" />
+  <node id="RESET_ETROC_RX_SLAVE"  address="0x10A" mask="0xffffffff" permission="w"  description="1 to reset the ETROC rx module" />
+  <node id="ZERO_SUPRESS_SLAVE"    address="0x10B" mask="0xffffffff" permission="rw" description="1 to zero suppress fillers out from the ETROC RX" parameters="default=0xfffffff" />
+  <node id="RAW_DATA_MODE_SLAVE"   address="0x10C" mask="0xffffffff" permission="rw" description="1 to read all data from ETROC, regardless of content"/>
+
+  <!-- LPGBT-FPGA  -->
+  <node id="SC"   address="0x200" module="file://GBT_SC.xml"/>
+
+  <node id="FIFO_ELINK_SEL0"     address="0x300" mask="0x1f"         permission="rw" description="Choose which e-link the readout fifo connects to (0-27)"/>
+  <node id="FIFO_LPGBT_SEL0"     address="0x300" mask="0x100"        permission="rw" description="Choose which lpgbt the readout fifo connects to (0-1)"/>
+
+  <node id="TX_FIFO_RESET"  address="0x30e" mask="0x1"        permission="w"  description="Reset the tx FIFO"/>
+  <node id="TX_FIFO_WR_EN"  address="0x30e" mask="0x2"        permission="w"  description="TX Fifo Write enable"/>
+  <node id="TX_FIFO_RD_EN"  address="0x30f" mask="0x2"        permission="rw" description="TX Fifo Read enable"/>
+  <node id="TX_FIFO_DATA"   address="0x310" mask="0xffffffff" permission="rw" description="TX Fifo Data"/>
+
+  <node id="FIFO_RESET"          address="0x311" mask="0x1"          permission="w"  description="Reset the daq FIFO"/>
+
+  <node id="RX_FIFO_LOST_WORD_CNT" address="0x312" mask="0xffffffff"   permission="r" description="# of words lost to a full FIFO"/>
+  <node id="RX_FIFO_FULL" address="0x313" mask="0x00000001"   permission="r" description="RX FIFO is full"/>
+  <node id="RX_FIFO_OCCUPANCY" address="0x314" mask="0xffffffff"   permission="r" description="RX FIFO occupancy"/>
+
+  <node id="RX_FIFO_DATA_SRC"     address="0x420" mask="0x00000001"   permission="rw" description="0=etroc data, 1=fixed pattern for ETROC data fifo"/>
+  <node id="ETROC_LOCKED"         address="0x421" mask="0x0fffffff"   permission="r"  description="ETROC Link Locked"/>
+  <node id="ETROC_LOCKED_SLAVE"   address="0x422" mask="0x0fffffff"   permission="r"  description="ETROC Link Locked"/>
+
+  <node id="ETROC_DISABLE"        address="0x423" mask="0x0fffffff"   permission="rw"  description="Write a 1 to disable this ETROC from readout"/>
+  <node id="ETROC_DISABLE_SLAVE"  address="0x424" mask="0x0fffffff"   permission="rw"  description="Write a 1 to disable this ETROC from readout"/>
+
+  <node id="LINK_RESET_PULSE"  address="0x501" mask="0x00000001" permission="w"  description="Write 1 to pulse Link reset"/>
+  <node id="WS_STOP_PULSE"     address="0x501" mask="0x00000002" permission="w"  description="Write 1 to pulse Waveform Stop"/>
+  <node id="WS_START_PULSE"    address="0x501" mask="0x00000004" permission="w"  description="Write 1 to pulse Waveform Start"/>
+  <node id="QINJ_PULSE"        address="0x501" mask="0x00000008" permission="w"  description="Write 1 to pulse Charge Injection"/>
+  <node id="STP_PULSE"         address="0x501" mask="0x00000010" permission="w"  description="Write 1 to pulse STP"/>
+  <node id="ECR_PULSE"         address="0x501" mask="0x00000020" permission="w"  description="Write 1 to pulse ECR"/>
+  <node id="BC0_PULSE"         address="0x501" mask="0x00000040" permission="w"  description="Write 1 to pulse BC0"/>
+  <node id="L1A_PULSE"         address="0x501" mask="0x00000080" permission="w"  description="Write 1 to pulse L1A"/>
+  <node id="L1A_QINJ_PULSE"    address="0x501" mask="0x00000100" permission="w"  description="Write 1 to pulse Charge Injection followed by L1A"/>
+  <node id="L1A_INJ_DLY"       address="0x502" mask="0x0000ffff" permission="rw" description="Number of clock cycles (40MHz) after which the L1A should be generated for a QINJ+L1A"/>
+
+  <node id="PACKET_RX_RATE"   address="0x504" mask="0xffffffff" permission="r"  description="Measured rate of generated received packets in Hz" />
+  <node id="PACKET_CNT"       address="0x505" mask="0x0000ffff" permission="r"  description="Count of packets received (muxed across elinks)" />
+  <node id="ERROR_CNT"        address="0x505" mask="0xffff0000" permission="r"  description="Count of packet errors (muxed across elinks)" />
+  <node id="DATA_CNT"         address="0x506" mask="0xffff0000" permission="r"  description="Count of packet data frames (muxed across elinks)"/>
+  <node id="FILLER_RATE"      address="0x507" mask="0x00ffffff" permission="r"  description="Rate of packet filler frames (muxed across elinks)"/>
+  <node id="PACKET_CNT_RESET" address="0x506" mask="0x00000001" permission="w"  description="Write 1 to reset packet counters"/>
+  <node id="ERR_CNT_RESET"    address="0x506" mask="0x00000002" permission="w"  description="Write 1 to reset error counters"/>
+  <node id="DATA_CNT_RESET"   address="0x506" mask="0x00000004" permission="w"  description="Write 1 to reset data counters"/>
+
+</node>

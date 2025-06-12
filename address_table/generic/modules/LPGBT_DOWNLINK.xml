@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<node id="DOWNLINK">
+  <node id="RESET"          address="0x0" mask="0x00000001" permission="w"  description="Reset this Downlink LpGBT Encoder"/>
+  <node id="READY"          address="0x1" mask="0x00000001" permission="r"  description="LPGBT Downlink Ready"/>
+  <node id="DL_SRC"         address="0x3" mask="0x0000000f" permission="rw" description="0=etroc, 1=upcnt, 2=prbs, 3=txfifo"/>
+</node>
