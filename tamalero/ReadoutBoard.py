@@ -1,7 +1,7 @@
 import os
 from tamalero.LPGBT import LPGBT
 from tamalero.SCA import SCA
-from tamalero.MUX64 import MUX64
+# from tamalero.MUX64 import MUX64
 from tamalero.utils import get_temp, chunk, get_temp_direct, get_config, load_yaml
 from tamalero.VTRX import VTRX
 from tamalero.utils import read_mapping
@@ -31,6 +31,7 @@ class ReadoutBoard:
         create a readout board.
         trigger: if true, also configure a trigger lpGBT
         '''
+        # print('############################version check############################')
         self.rb = rb
         self.flavor = flavor
         self.ver = 2
@@ -38,7 +39,9 @@ class ReadoutBoard:
         self.config = config
 
         self.trigger = trigger
+        # print('############################ReadoutBoard LPGBT Instantiation############################')
         self.DAQ_LPGBT = LPGBT(rb=rb, flavor=flavor, kcu=kcu, config=self.config, poke=poke, rbver=self.ver)
+        # print('############################ReadoutBoard VTRX Instantiation############################')
         self.VTRX = VTRX(self.DAQ_LPGBT)
         # This is not yet recommended:
         #for adr in [0x06, 0x0A, 0x0E, 0x12]:
@@ -54,31 +57,31 @@ class ReadoutBoard:
             self.kcu.readout_boards.append(self)
             self.DAQ_LPGBT.configure()
             # If version is undetermined or older than 3, get version from LPGBT and try to connect SCA to KCU
-            self.SCA = SCA(rb=rb, flavor=flavor, ver=self.DAQ_LPGBT.ver, config=self.config, poke=poke)
+            # self.SCA = SCA(rb=rb, flavor=flavor, ver=self.DAQ_LPGBT.ver, config=self.config, poke=poke)
             if self.DAQ_LPGBT.ver == 1:
                 self.ver = 2
-                self.SCA.update_ver(self.ver)
+                # self.SCA.update_ver(self.ver)
                 self.DAQ_LPGBT.update_rb_ver(self.ver)
             elif self.DAQ_LPGBT.ver == 0:
                 self.ver = 1
-                self.SCA.update_ver(self.ver)
+                # self.SCA.update_ver(self.ver)
                 self.DAQ_LPGBT.update_rb_ver(self.ver)
-            self.SCA.connect_KCU(kcu)
+            # self.SCA.connect_KCU(kcu)
             try:
                 self.sca_hard_reset()
                 self.sca_setup(verbose=self.verbose)
-                self.SCA.reset()
-                self.SCA.connect()
-                self.SCA.configure_control_registers()
-                self.SCA.config_gpios()  # this sets the directions etc according to the mapping
-                if self.verbose:
-                    print(" > GBT-SCA detected and configured")
+                # self.SCA.reset()
+                # self.SCA.connect()
+                # self.SCA.configure_control_registers()
+                # self.SCA.config_gpios()  # this sets the directions etc according to the mapping
+                # if self.verbose:
+                    # print(" > GBT-SCA detected and configured")
             except TimeoutError:
                 self.ver = 3
                 self.DAQ_LPGBT.update_rb_ver(self.ver)
             # If version newer than 3, connect MUX64
-            if self.ver > 2:
-                self.MUX64 = MUX64(rb=self.rb, ver=1, config=self.config, rbver=self.ver, LPGBT=self.DAQ_LPGBT)
+            # if self.ver > 2:
+            #     self.MUX64 = MUX64(rb=self.rb, ver=1, config=self.config, rbver=self.ver, LPGBT=self.DAQ_LPGBT)
 
         if self.verbose:
             print(f" > Readout Board version detected: {self.ver}")
@@ -95,7 +98,7 @@ class ReadoutBoard:
         self.configured = self.DAQ_LPGBT.is_configured()
         #if not self.configured:
 
-        self.VTRX.get_version()
+        # self.VTRX.get_version()
 
         if trigger:
             self.get_trigger()
@@ -106,14 +109,15 @@ class ReadoutBoard:
 
                 self.TRIG_LPGBT.invert_links()
 
-        if not self.configured:
-            self.configure()
-            self.configured = 1
+        # if not self.configured:
+        #     self.configure()
+        #     self.configured = 1
 
         if self.ver == 2:
             # this method does not work for RB v1 / lpGBT v0
             self.reset_problematic_links(max_retries=50, allow_bad_links=allow_bad_links)
 
+        # print('############################ReadoutBoard self.is_configured Debug############################')
         self.is_configured()
 
 
@@ -144,7 +148,7 @@ class ReadoutBoard:
     def connect_KCU(self, kcu):
         self.kcu = kcu
         self.DAQ_LPGBT.connect_KCU(kcu)
-        self.SCA.connect_KCU(kcu)
+        # self.SCA.connect_KCU(kcu)
 
     def set_elink_width(self, width=320):
         widths = {320:1, 640:2, 1280:3}
@@ -171,12 +175,15 @@ class ReadoutBoard:
         sleep(0.1)
 
     def ready_led(self, to=1):
+        # print('############################ReadoutBoard ready_led Debug############################')
+        print(self.ver)
         if self.ver > 2 and self.trigger:
             self.TRIG_LPGBT.set_gpio("LED_1", to)
         else:
             self.DAQ_LPGBT.set_gpio("LED_1", to)
 
     def is_configured(self):
+        # print('############################ReadoutBoard is_configured Debug############################')
         if self.configured:
             self.ready_led()
         
@@ -391,7 +398,7 @@ class ReadoutBoard:
 
         # SCA init (only if version is newer than 2)
         #self.
-        #if self.ver < 3:
+        # if self.ver < 3:
         #    self.sca_hard_reset()
         #    self.sca_setup(verbose=self.verbose)
         #    self.SCA.reset()
@@ -422,17 +429,17 @@ class ReadoutBoard:
             self.VTRX.configure(trigger=trigger)
             self.DAQ_LPGBT.reset_trigger_mgts()
             self.TRIG_LPGBT.power_up_init()
-        else:
-            if self.VTRX.ver == 'production':
-                self.VTRX.reset()
-            elif self.VTRX.ver == 'prototype':
-                #self.VTRX.reset(toggle_channels=[0])
-                self.VTRX.reset()
-            else:
-                print ("Don't know how to reset VTRX version", self.VTRX.ver)
-            self.VTRX.configure(trigger=trigger)
-            self.DAQ_LPGBT.reset_daq_mgts()
-            self.DAQ_LPGBT.power_up_init()
+        # else:
+        #     if self.VTRX.ver == 'production':
+        #         self.VTRX.reset()
+        #     elif self.VTRX.ver == 'prototype':
+        #         #self.VTRX.reset(toggle_channels=[0])
+        #         self.VTRX.reset()
+        #     else:
+        #         print ("Don't know how to reset VTRX version", self.VTRX.ver)
+        #     self.VTRX.configure(trigger=trigger)
+        #     self.DAQ_LPGBT.reset_daq_mgts()
+        #     self.DAQ_LPGBT.power_up_init()
 
         self.reset_FEC_error_count(quiet=True)
 
@@ -462,100 +469,104 @@ class ReadoutBoard:
                     else:
                         raise RuntimeError(f"{link} link does not have a stable connection after {max_retries} retries")
     
-    # Uses MUX64 configuration to convert integer to voltage
-    def volt_conver_mux64(self,num,ch):
-        voltage = (num / (2**12 - 1) ) * self.configuration['mux64']['input'][ch]['conv']
-        return voltage
+
+    ################################################################################
+    # MUX64 chip configuration, not used in ETROC2_CE
+    ################################################################################
+    # # Uses MUX64 configuration to convert integer to voltage
+    # def volt_conver_mux64(self,num,ch):
+    #     voltage = (num / (2**12 - 1) ) * self.configuration['mux64']['input'][ch]['conv']
+    #     return voltage
     
-    def read_mux_test_board(self, ch):
-        #checks to make sure that the mux64 configuration is available
-        assert 'mux64' in self.configuration, "MUX64 configuration not correctly loaded: Check configuration"
-        #checks to see RB mapping version (RB ver = 1, SCA ver = RB.ver + 1)
-        assert self.SCA.ver in [2], f"MUX64 testboard only works with 2v RB\nRB 1v detected"
+    # def read_mux_test_board(self, ch):
+    #     #checks to make sure that the mux64 configuration is available
+    #     assert 'mux64' in self.configuration, "MUX64 configuration not correctly loaded: Check configuration"
+    #     #checks to see RB mapping version (RB ver = 1, SCA ver = RB.ver + 1)
+    #     assert self.SCA.ver in [2], f"MUX64 testboard only works with 2v RB\nRB 1v detected"
 
-        #channel select
-        s0 = (ch & 0x01)
-        s1 = (ch & 0x02) >> 1
-        s2 = (ch & 0x04) >> 2
-        s3 = (ch & 0x08) >> 3
-        s4 = (ch & 0x10) >> 4
-        s5 = (ch & 0x20) >> 5
+    #     #channel select
+    #     s0 = (ch & 0x01)
+    #     s1 = (ch & 0x02) >> 1
+    #     s2 = (ch & 0x04) >> 2
+    #     s3 = (ch & 0x08) >> 3
+    #     s4 = (ch & 0x10) >> 4
+    #     s5 = (ch & 0x20) >> 5
 
-        self.SCA.set_gpio('mux_addr0', s0) #mod_d08
-        self.SCA.set_gpio('mux_addr1', s1) #mod_d09
-        self.SCA.set_gpio('mux_addr2', s2) #mod_d10
-        self.SCA.set_gpio('mux_addr3', s3) #mod_d11
-        self.SCA.set_gpio('mux_addr4', s4) #mod_d12
-        self.SCA.set_gpio('mux_addr5', s5) #mod_d13
+    #     self.SCA.set_gpio('mux_addr0', s0) #mod_d08
+    #     self.SCA.set_gpio('mux_addr1', s1) #mod_d09
+    #     self.SCA.set_gpio('mux_addr2', s2) #mod_d10
+    #     self.SCA.set_gpio('mux_addr3', s3) #mod_d11
+    #     self.SCA.set_gpio('mux_addr4', s4) #mod_d12
+    #     self.SCA.set_gpio('mux_addr5', s5) #mod_d13
 
-        #read integar value and covert it to a voltge
-        integer_volt = self.SCA.read_adc(0x12)
-        gi = self.volt_conver_mux64(integer_volt,ch)
+    #     #read integar value and covert it to a voltge
+    #     integer_volt = self.SCA.read_adc(0x12)
+    #     gi = self.volt_conver_mux64(integer_volt,ch)
 
-        return gi
+    #     return gi
     
-    def read_all_mux64_data(self, show = False):
-        #checks to make sure that the mux64 configuration is available
-        assert 'mux64' in self.configuration, "MUX64 configuration not correctly loaded: Check configuration"
-        table=[]
-        v_data=[]
-        for i in self.configuration['mux64']['input'].keys():
-            if self.configuration['mux64']['input'][i]['terminal_input']:
-                volt=self.read_mux_test_board(i)
-                v_data.append(volt)
-            else:
-                volt=None
-                v_data.append(volt)
-            sig_name=self.configuration['mux64']['input'][i]['sig_name']
-            table.append([i, volt, sig_name])
+    # def read_all_mux64_data(self, show = False):
+    #     #checks to make sure that the mux64 configuration is available
+    #     assert 'mux64' in self.configuration, "MUX64 configuration not correctly loaded: Check configuration"
+    #     table=[]
+    #     v_data=[]
+    #     for i in self.configuration['mux64']['input'].keys():
+    #         if self.configuration['mux64']['input'][i]['terminal_input']:
+    #             volt=self.read_mux_test_board(i)
+    #             v_data.append(volt)
+    #         else:
+    #             volt=None
+    #             v_data.append(volt)
+    #         sig_name=self.configuration['mux64']['input'][i]['sig_name']
+    #         table.append([i, volt, sig_name])
         
-        if (show):
-            print(tabulate(table, headers=["Channel","Voltage", "Sig_Name"],  tablefmt="simple_outline"))
+    #     if (show):
+    #         print(tabulate(table, headers=["Channel","Voltage", "Sig_Name"],  tablefmt="simple_outline"))
 
-        return table
+    #     return table
 
-    def read_selected_mux64(self, chs):
-        volts = {}
-        for i in chs:
-            volts[str(i)] = self.read_mux_test_board(i)
-        return volts
+    # def read_selected_mux64(self, chs):
+    #     volts = {}
+    #     for i in chs:
+    #         volts[str(i)] = self.read_mux_test_board(i)
+    #     return volts
 
-    def mux64_monitoring(self, chs, tmax = 60, lat = 5, plot = False):
-        # time is given in seconds
-        mntr = {}
-        mntr['record'] = []
-        t = 0.0
-        while (t<tmax):
-            if (t%(60*5)==0):
-                print(f'Monitoring: {t}/{tmax} secs')
-            try:
-                mntr['record'].append(self.read_selected_mux64(chs))
-                mntr['record'][-1]['time'] = datetime.datetime.now().isoformat()
-                time.sleep(lat)
-            except:
-                print("NonValidatedMemory exception: sleeping 0.1 secs...")
-                time.sleep(0.1)
-            t+=lat
-        with open("mux64_mntr_%.2fmin.json".format(tmax/60.0), "w") as f:
-            json.dump(mntr, f)
-        if plot:
-            fig, ax = plt.subplots(figsize=(10, 4))
-            plt.title("MUX64 monitoring")
-            plt.xlabel("Time")
-            plt.ylabel("Voltage (V)")
-            for ch in chs:
-                vec = [mntr['record'][x][str(ch)] for x in range(len(mntr['record']))]
-                vtime = [datetime.datetime.fromisoformat(mntr['record'][x]['time']) for x in range(len(mntr['record']))]
-                plt.plot(vtime, vec, '.-', label=f"Channel: {ch}")
-            locator = mdates.AutoDateLocator(minticks=3, maxticks=7)
-            formatter = mdates.ConciseDateFormatter(locator)
-            ax.xaxis.set_major_locator(locator)
-            ax.xaxis.set_major_formatter(formatter)
-            plt.grid(True)
-            plt.legend(loc='best')
-            fig.savefig('mux64_mntr_{:.2f}min.png'.format(tmax/60.0), dpi=600)
-            plt.close(fig) 
-        return 1
+    # def mux64_monitoring(self, chs, tmax = 60, lat = 5, plot = False):
+    #     # time is given in seconds
+    #     mntr = {}
+    #     mntr['record'] = []
+    #     t = 0.0
+    #     while (t<tmax):
+    #         if (t%(60*5)==0):
+    #             print(f'Monitoring: {t}/{tmax} secs')
+    #         try:
+    #             mntr['record'].append(self.read_selected_mux64(chs))
+    #             mntr['record'][-1]['time'] = datetime.datetime.now().isoformat()
+    #             time.sleep(lat)
+    #         except:
+    #             print("NonValidatedMemory exception: sleeping 0.1 secs...")
+    #             time.sleep(0.1)
+    #         t+=lat
+    #     with open("mux64_mntr_%.2fmin.json".format(tmax/60.0), "w") as f:
+    #         json.dump(mntr, f)
+    #     if plot:
+    #         fig, ax = plt.subplots(figsize=(10, 4))
+    #         plt.title("MUX64 monitoring")
+    #         plt.xlabel("Time")
+    #         plt.ylabel("Voltage (V)")
+    #         for ch in chs:
+    #             vec = [mntr['record'][x][str(ch)] for x in range(len(mntr['record']))]
+    #             vtime = [datetime.datetime.fromisoformat(mntr['record'][x]['time']) for x in range(len(mntr['record']))]
+    #             plt.plot(vtime, vec, '.-', label=f"Channel: {ch}")
+    #         locator = mdates.AutoDateLocator(minticks=3, maxticks=7)
+    #         formatter = mdates.ConciseDateFormatter(locator)
+    #         ax.xaxis.set_major_locator(locator)
+    #         ax.xaxis.set_major_formatter(formatter)
+    #         plt.grid(True)
+    #         plt.legend(loc='best')
+    #         fig.savefig('mux64_mntr_{:.2f}min.png'.format(tmax/60.0), dpi=600)
+    #         plt.close(fig) 
+    #     return 1
 
     def read_vtrx_temp(self):
         return self.VTRX.get_temp()
@@ -587,27 +598,29 @@ class ReadoutBoard:
                 raise Exception("Unknown lpgbt version")
 
         elif rt==2:
+            vref = 1.2
+            rt2_voltage = self.DAQ_LPGBT.read_adc(1)/(2**10-1)
+            return get_temp(rt2_voltage, vref, 10000, 25, 10000, 3900)  # this comes from the lpGBT ADC
 
-
-            if self.ver == 1:
-                rt2_voltage = self.SCA.read_adc(29)/(2**12-1) # FIXME: 29 should not be hardcoded
+            # if self.ver == 1:
+                # rt2_voltage = self.SCA.read_adc(29)/(2**12-1) # FIXME: 29 should not be hardcoded
                 # https://www.digikey.com/en/products/detail/tdk-corporation/NTCG063UH103HTBX/8565486
-                return get_temp(rt2_voltage, v_ref, 10000, 25, 10000, 3900)  # this comes from the SCA ADC
-            elif self.ver == 2:
-                rt2_voltage = self.SCA.read_adc(29)/(2**12-1) # FIXME: 29 should not be hardcoded
+                # return get_temp(rt2_voltage, v_ref, 10000, 25, 10000, 3900)  # this comes from the SCA ADC
+            # elif self.ver == 2:
+                # rt2_voltage = self.SCA.read_adc(29)/(2**12-1) # FIXME: 29 should not be hardcoded
                 # https://www.digikey.com/en/products/detail/tdk-corporation/NTCG063JF103FTB/5872743
-                return get_temp(rt2_voltage, v_ref, 10000, 25, 10000, 3380)  # this comes from the SCA ADC
-            elif self.ver == 3:
-                vref = 1.2
-                self.MUX64.select_channel(1)
-                rt2_voltage = self.DAQ_LPGBT.read_adc(1)/(2**10-1)
-                if False:
+                # return get_temp(rt2_voltage, v_ref, 10000, 25, 10000, 3380)  # this comes from the SCA ADC
+            # elif self.ver == 3:
+                # vref = 1.2
+                # self.MUX64.select_channel(1)
+                # rt2_voltage = self.DAQ_LPGBT.read_adc(1)/(2**10-1)
+                # if False:
                     # this is the direct way of reading the voltage on RT2
-                    self.MUX64.select_channel(0)  # make sure you're not selecting channel 1!
-                    rt2_voltage = self.DAQ_LPGBT.read_adc(5)/(2**10-1)
-                return get_temp(rt2_voltage, vref, 10000, 25, 10000, 3900)  # this comes from the lpGBT ADC
-            else:
-                raise Exception("Unknown lpgbt version")
+                    # self.MUX64.select_channel(0)  # make sure you're not selecting channel 1!
+                    # rt2_voltage = self.DAQ_LPGBT.read_adc(5)/(2**10-1)
+                # return get_temp(rt2_voltage, vref, 10000, 25, 10000, 3900)  # this comes from the lpGBT ADC
+            # else:
+                # raise Exception("Unknown lpgbt version")
 
         else:
             raise Exception(f"Attempt to read unknown thermistor rt={rt}")
@@ -622,21 +635,21 @@ class ReadoutBoard:
         t_vtrx = self.read_vtrx_temp()
         t_rt1 = self.read_rb_thermistor(1)
         t_rt2 = self.read_rb_thermistor(2)
-        if self.ver < 3:
-            t_sca = self.SCA.read_temp()
+        # if self.ver < 3:
+        #     t_sca = self.SCA.read_temp()
 
         if verbose:
             print ("\nTemperature on RB RT1 is: %.1f C" % t_rt1)
             print ("Temperature on RB RT2 is: %.1f C" % t_rt2)
-            if self.ver < 3:
-                print ("Temperature on RB SCA is: %.1f C" % t_sca)
-            if self.ver > 1:
-                print ("Temperature on RB VTRX is: %.1f C" % t_vtrx)
+            # if self.ver < 3:
+                # print ("Temperature on RB SCA is: %.1f C" % t_sca)
+            # if self.ver > 1:
+            #     print ("Temperature on RB VTRX is: %.1f C" % t_vtrx)
 
         res = {'t1': t_rt1, 't_VTRX': t_vtrx}
         if self.ver < 3:
             res['t2'] = t_rt2
-            res['t_SCA'] = t_sca
+            # res['t_SCA'] = t_sca
         return res
 
     def etroc_locked(self, elink, slave=False):
@@ -798,12 +811,12 @@ class ReadoutBoard:
         self.DAQ_LPGBT.set_gpio("LED_RHETT", 0)  # rhett
         self.DAQ_LPGBT.set_gpio("LED_0", 0)  # Set LED0 after succesfull gpio configure
         self.DAQ_LPGBT.set_gpio("LED_1", 0) # Set LED1 after tamalero finishes succesfully
-        if self.ver < 3:
-            self.SCA.set_gpio("sca_led", 0)
+        # if self.ver < 3:
+        #     self.SCA.set_gpio("sca_led", 0)
 
     def light_mode(self):
         self.DAQ_LPGBT.set_gpio("LED_RHETT", 1)  # rhett
         self.DAQ_LPGBT.set_gpio("LED_0", 1)  # Set LED0 after succesfull gpio configure
         self.DAQ_LPGBT.set_gpio("LED_1", 1) # Set LED1 after tamalero finishes succesfully
-        if self.ver < 3:
-            self.SCA.set_gpio("sca_led", 1)
+        # if self.ver < 3:
+        #     self.SCA.set_gpio("sca_led", 1)
