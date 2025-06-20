@@ -845,6 +845,7 @@ class ETROC():
             return elinks[0], slaves[0]
         else:
             return elinks[1], slaves[1]
+            
 
 
     # ***********************

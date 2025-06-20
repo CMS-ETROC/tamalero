@@ -5,28 +5,28 @@ adc:
         min: 0
         max: 1.0
         flavor: small
-        comment: VTRX TH1
+        comment: ETROC VREF4 #VTRX TH1
     1V4D_ADC:
         pin: 0x01
         conv: 1.82
         min: 1.12
         max: 1.68
         flavor: small
-        comment: 1V4D * 0.55
+        comment: ETROC VTEMP4 #1V4D * 0.55
     1V5A_ADC:
         pin: 0x02
         conv: 1.82
         min: 1.2
         max: 1.8
         flavor: small
-        comment: 1V5D * 0.55
+        comment: ETROC VREF1 #1V5D * 0.55
     2V5TX_ADC:
         pin: 0x03
         conv: 3.0
         min: 2.0
         max: 3.0
         flavor: small
-        comment: 2V5TX * 0.33
+        comment: ETROC VTEMP1 #2V5TX * 0.33
     RSSI_ADC:
         pin: 0x04
         conv: 1
