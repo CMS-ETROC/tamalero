@@ -74,4 +74,15 @@
   <node id="ERR_CNT_RESET"    address="0x506" mask="0x00000002" permission="w"  description="Write 1 to reset error counters"/>
   <node id="DATA_CNT_RESET"   address="0x506" mask="0x00000004" permission="w"  description="Write 1 to reset data counters"/>
 
+  <!-- SELF TRIGGER  -->
+  <node id="SELF_TRIG_RESET" address="0x518" mask="0x00000001" permission="w" description="Write 1 to refreash self trigger + flashing bits"/>
+  <node id="TRIG_ENABLE"   address="0x50f" mask="0x10000000" permission="rw" description="Set to 1 to enable ETROC self trigger."/>
+  <node id="TRIGGER_RATES" address="0x515" mask="0x0000001f" permission="r" description="Trigger rate cnt of selected ETROC (muxed accross elinks)"/>
+  <node id="TRIG_DLY_SEL" address="0x514" mask="0x01f00000" permission="rw" description="Select Delay in terms of clock cycles"/>
+
+  <!-- EVENT COUNTER  -->
+  <node id="EVENT_CNT_RESET" address="0x516" mask="0x00000001" permission="w" description="Reset event counter"/>
+  <node id="EVENT_CNT" address="0x517" mask="0xffffffff" permission="r" description="Read counts on event counter"/>
+
+
 </node>

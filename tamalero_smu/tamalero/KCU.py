@@ -142,22 +142,12 @@ class KCU:
 
     def status(self):
         print("LPGBT Link Status from KCU:")
-        rb_id = 0
-        # Check downlink
-        self.print_reg(self.hw.getNode(f"READOUT_BOARD_{rb_id}.LPGBT.DOWNLINK.READY"), 
-                    use_color=True, threshold=1)
-        
-        # Check DAQ uplink (UPLINK_0)
-        self.print_reg(self.hw.getNode(f"READOUT_BOARD_{rb_id}.LPGBT.UPLINK_0.READY"), 
-                    use_color=True, threshold=1)
-        self.print_reg(self.hw.getNode(f"READOUT_BOARD_{rb_id}.LPGBT.UPLINK_0.FEC_ERR_CNT"), 
-                    use_color=True, threshold=1, invert=True)
-        # for id in self.hw.getNodes(".*LPGBT.*DOWNLINK.*READY"):
-        #     self.print_reg(self.hw.getNode(id), use_color=True, threshold=1)
-        # for id in self.hw.getNodes(".*LPGBT.*UPLINK_0.*READY"):
-        #     self.print_reg(self.hw.getNode(id), use_color=True, threshold=1)
-        # for id in self.hw.getNodes(".*LPGBT.*UPLINK_0.*FEC_ERR_CNT"):
-        #     self.print_reg(self.hw.getNode(id), use_color=True, threshold=1, invert=True)
+        for id in self.hw.getNodes(".*LPGBT.*DOWNLINK.*READY"):
+            self.print_reg(self.hw.getNode(id), use_color=True, threshold=1)
+        for id in self.hw.getNodes(".*LPGBT.*UPLINK_0.*READY"):
+            self.print_reg(self.hw.getNode(id), use_color=True, threshold=1)
+        for id in self.hw.getNodes(".*LPGBT.*UPLINK_0.*FEC_ERR_CNT"):
+            self.print_reg(self.hw.getNode(id), use_color=True, threshold=1, invert=True)
         # for id in self.hw.getNodes(".*LPGBT.*UPLINK_1.*READY"):
         #     self.print_reg(self.hw.getNode(id), use_color=True, threshold=1)
         # for id in self.hw.getNodes(".*LPGBT.*UPLINK_1.*FEC_ERR_CNT"):
@@ -191,19 +181,14 @@ class KCU:
         val = reg.read()
         id = reg.getPath()
         self.dispatch()
-        try:
-            val_int = val.value()
-        except uhal.NonValidatedMemory:
-            print(red(f"Error: Could not read value for register {id} (NonValidatedMemory)"))
-            return
         if use_color:
             if invert:
-                colored = green if (val_int < threshold and val_int < maxval) else red
+                colored = green if (val < threshold and val < maxval) else red
             else:
-                colored = green if (val_int >= threshold and val_int < maxval) else red
+                colored = green if (val >= threshold and val < maxval) else red
         else:
             colored = dummy
-        print(colored(self.format_reg(reg.getAddress(), id[4:], val_int,
+        print(colored(self.format_reg(reg.getAddress(), id[4:], val,
                               self.format_permission(reg.getPermission()))))
 
     def format_reg(self, address, name, val, permission=""):

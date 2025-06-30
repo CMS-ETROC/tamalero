@@ -374,7 +374,8 @@ def get_kcu(kcu_address, control_hub=True, host='localhost', verbose=False, quie
     return kcu
 
 def get_config(config, version='v2', verbose=False):
-    default_cfg = load_yaml(os.path.join(here, f'../configs/rb_default_{version}.yaml'))
+    # default_cfg = load_yaml(os.path.join(here, f'../configs/rb_default_{version}.yaml'))
+    default_cfg = load_yaml(os.path.join(here, f'../configs/rb_default_{version}_smu.yaml'))
     if config != 'default':
         updated_cfg = load_yaml(os.path.join(here, f'../configs/{config}_{version}.yaml'))
         for chip in ['SCA', 'LPGBT', 'MUX64']:

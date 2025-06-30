@@ -125,8 +125,7 @@ class ReadoutBoard:
         # Self-check if a trigger lpGBT is present, if trigger is not explicitely set to False
         sleep(0.5)
         try:
-            # test_read = self.DAQ_LPGBT.I2C_read(reg=0x0, master=2, slave_addr=0x70, verbose=False)
-            test_read = self.DAQ_LPGBT.I2C_read(reg=0x0, master=0, slave_addr=0x72, verbose=False)
+            test_read = self.DAQ_LPGBT.I2C_read(reg=0x0, master=2, slave_addr=0x70, verbose=False)
         except TimeoutError:
             test_read = None
         if test_read is not None and self.trigger and not poke:
@@ -344,10 +343,10 @@ class ReadoutBoard:
         if not quiet:
             print("{:<8}{:<8}{:<50}{:<8}".format("Address", "Perm.", "Name", "Value"))
             self.kcu.print_reg(self.kcu.hw.getNode("READOUT_BOARD_%s.LPGBT.UPLINK_0.FEC_ERR_CNT" % self.rb), use_color=True, invert=True)
-            # self.kcu.print_reg(self.kcu.hw.getNode("READOUT_BOARD_%s.LPGBT.UPLINK_1.FEC_ERR_CNT" % self.rb), use_color=True, invert=True)
+            self.kcu.print_reg(self.kcu.hw.getNode("READOUT_BOARD_%s.LPGBT.UPLINK_1.FEC_ERR_CNT" % self.rb), use_color=True, invert=True)
         return {
             'DAQ': self.kcu.read_node("READOUT_BOARD_%s.LPGBT.UPLINK_0.FEC_ERR_CNT" % self.rb).value(),
-            # 'TRIGGER': self.kcu.read_node("READOUT_BOARD_%s.LPGBT.UPLINK_1.FEC_ERR_CNT" % self.rb).value()
+            'TRIGGER': self.kcu.read_node("READOUT_BOARD_%s.LPGBT.UPLINK_1.FEC_ERR_CNT" % self.rb).value()
         }
 
     def reset_FEC_error_count(self, quiet=False):
@@ -625,16 +624,7 @@ class ReadoutBoard:
 
         else:
             raise Exception(f"Attempt to read unknown thermistor rt={rt}")
-        
-    ## -----------------add here    
-    def vtemp_to_celsius(self, vtemp_voltage):
-        """
-        example of exchange voltage to temp
-        """
-        temp_celsius = 25 + (vtemp_voltage - 0.8) * 100
-        return temp_celsius
 
-    ## ----------------------
     def read_temp(self, verbose=False):
 
         """
@@ -647,15 +637,6 @@ class ReadoutBoard:
         t_rt2 = self.read_rb_thermistor(2)
         # if self.ver < 3:
         #     t_sca = self.SCA.read_temp()
-        ## ---------------------- add here---------------
-        etroc_temp = {}
-        adc_mapping = self.DAQ_LPGBT.adc_mapping
-        for channel_name, config in adc_mapping.items():
-            if 'VTEMP' in channel_name and 'pin' in config:
-                pin = config['pin']
-                vtemp_voltage = self.DAQ_LPGBT.read_adc(pin)/(2**10-1)
-                temp_celsius = self.vtemp_to_celsius(vtemp_voltage)
-                etroc_temp[channel_name] = temp_celsius
 
         if verbose:
             print ("\nTemperature on RB RT1 is: %.1f C" % t_rt1)
@@ -665,19 +646,11 @@ class ReadoutBoard:
             # if self.ver > 1:
             #     print ("Temperature on RB VTRX is: %.1f C" % t_vtrx)
 
-            ##------------------------------
-            if etroc_temp:
-                print("\n ETROC Internal Temp")
-                for vtemp_name, temp in etroc_temp.items():
-                    print(f"{vtemp_name}: {temp:.1f} C")
         res = {'t1': t_rt1, 't_VTRX': t_vtrx}
         if self.ver < 3:
             res['t2'] = t_rt2
             # res['t_SCA'] = t_sca
-        res['etroc_temp'] = etroc_temp
         return res
-
-
 
     def etroc_locked(self, elink, slave=False):
         if slave:
@@ -847,148 +820,3 @@ class ReadoutBoard:
         self.DAQ_LPGBT.set_gpio("LED_1", 1) # Set LED1 after tamalero finishes succesfully
         # if self.ver < 3:
         #     self.SCA.set_gpio("sca_led", 1)
-
-    def reset_self_trigger(self):
-        """
-        Reset trigger and Flashing bits
-        """
-        self.kcu.write_node(f"READOUT_BOARD_{self.rb}.SELF_TRIG_RESET", 0x1)
-
-    def enable_etroc_trigger(self):
-        """
-        Enable Etroc self trigger
-        """
-        self.kcu.write_node(f"READOUT_BOARD_{self.rb}.TRIG_ENABLE", 0x1)
-    
-    def disable_etroc_trigger(self):
-        """
-        Disable Etroc self trigger
-        """
-        self.kcu.write_node(f"READOUT_BOARD_{self.rb}.TRIG_ENABLE", 0x0)
-
-    def get_etroc_self_trigger_status(self):
-        """
-        Get ETROC self trigger enable status
-        
-        Returns:
-            bool: True if self trigger is enabled, False otherwise
-        """
-        status = self.kcu.read_node(f"READOUT_BOARD_{self.rb}.TRIG_ENABLE").value()
-        return status == 1
-
-    def set_trigger_delay(self, delay_cycles):
-        """
-        Set Trigger delays in terms of clock cycles
-
-        ARGS:
-            int: current clock cycles 
-        """
-        if not (0 <= delay_cycles <= 31):
-            raise ValueError("Delay cycles must be with 0 and 31")
-        self.kcu.write_node(f"READOUT_BOARD_{self.rb}.TRIG_DLY_SEL", delay_cycles)
-
-    def get_trigger_delay(self):
-        """
-        Get current delay setting
-        """
-        return self.kcu.read_node(f"READOUT_BOARD_{self.rb}.TRIG_DLY_SEL").value()
-    
-    def read_trigger_rates(self, elink):
-        """
-        Read trigger raate of selected Etroc
-        This is muxed cross elinks, so need to seleck elink first
-        """
-        self.kcu.write_node(f"READOUT_BOARD_{self.rb}.FIFO_ELINK_SEL0", elink)
-        return self.kcu.read_node(f"READOUT_BOARD_{self.rb}.TRIGGER_RATES").value()
-    
-    def read_all_trigger_rates(self, elink_group, slave=False):
-        """
-        Read trigger rates for all elinks
-        
-        Args:
-            elink_group (list): specific elink you set
-            slave (bool): Whether to read from slave lpGBT (default False)
-        
-        Returns:
-            dict: Dictionary with elink numbers as keys and trigger rates as values
-        """
-        trigger_rates = {}
-        
-        for elink in elink_group:
-            # Select elink and lpGBT
-            self.kcu.write_node(f"READOUT_BOARD_{self.rb}.FIFO_ELINK_SEL0", elink)
-            self.kcu.write_node(f"READOUT_BOARD_{self.rb}.FIFO_LPGBT_SEL0", 1 if slave else 0)
-            
-            # Read trigger rate
-            rate = self.kcu.read_node(f"READOUT_BOARD_{self.rb}.TRIGGER_RATES").value()
-            trigger_rates[elink] = rate
-        
-        return trigger_rates
-
-    def self_trigger_status(self, verbose=True):
-        """
-        Print comprehensive self trigger status
-        
-        Args:
-            verbose (bool): Whether to print detailed status
-        """
-        elink_group = [0,4,8,12]
-        if verbose:
-            print("ETROC Self Trigger Status:")
-            
-            # Trigger enable status
-            enabled = self.get_etroc_self_trigger_status()
-            status_str = "ENABLED" if enabled else "DISABLED"
-            print(f"Self Trigger: {status_str}")
-            
-            # Trigger delay status
-            delay = self.get_trigger_delay()
-            print(f"Trigger Delay: {delay} clock cycles")
-            
-            # Trigger rates for active elinks
-            print("\nTrigger Rates per elink:")
-            rates = self.read_all_trigger_rates(elink_group)
-            for elink, rate in rates.items():
-                if rate > 0:  # Only show elinks with non-zero rates
-                    print(f"  Elink {elink}: {rate}")
-        
-        return {
-            'enabled': self.get_etroc_self_trigger_status(),
-            'delay': self.get_trigger_delay()
-            # 'rates': self.read_all_trigger_rates()
-        }
-
-
-    # def configure_self_trigger(self, enable=True, delay_cycles=0, reset_first=True):
-    def configure_self_trigger(self, enable=True, delay_cycles=0):
-        """
-        Configure ETROC self trigger with all parameters
-        
-        Args:
-            enable (bool): Enable self trigger
-            delay_cycles (int): Trigger delay in clock cycles (0-31)
-            reset_first (bool): Reset self trigger before configuration
-        """
-        # if reset_first:
-        #     print("Resetting self trigger...")
-        #     self.reset_self_trigger()
-        
-        print(f"Setting trigger delay to {delay_cycles} clock cycles...")
-        self.set_trigger_delay(delay_cycles)
-        
-        if enable:
-            print("Enabling ETROC self trigger...")
-            self.enable_etroc_trigger()
-        else:
-            print("Disabling ETROC self trigger...")
-            self.disable_etroc_trigger()
-        
-        print("Self trigger configuration complete.")
-        
-        if enable:
-            time.sleep(0.1)
-            self.self_trigger_status(verbose=True)
-
-
-
-

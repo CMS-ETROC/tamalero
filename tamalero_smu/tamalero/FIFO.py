@@ -119,17 +119,6 @@ class FIFO:
             print(f"Sent {count} L1As at a rate of {rate}Hz")
         return rate
 
-    def send_Qinj_only(self, count = 1):
-        """
-        Send Qinj only (not fowed by L1A)
-        Relies on self-trigger
-        """
-        for i in range(count):
-            try:
-                self.tv.kcu.write_node("READOUT_BOARD_%s.QINJ_PULSE"%self.rb.rb, 0x01)
-            except:
-                print("Couldn't send Qinj pulse")
-
     def send_QInj(self, count=1, delay=0):
         self.rb.kcu.write_node("READOUT_BOARD_%s.L1A_INJ_DLY"%self.rb.rb, delay)
         for i in range(count):

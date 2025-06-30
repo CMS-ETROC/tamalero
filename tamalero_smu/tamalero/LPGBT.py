@@ -231,27 +231,15 @@ class LPGBT(RegParser):
         assert self.rbver in [1,2,3], f"Unrecognized version {self.rbver}"
         self.adc_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['adc']
         for channel in self.adc_mapping:
-            ## -----------------added here -------------------
-            if self.adc_mapping[channel].get('differential', False):
-                pin_pos = self.adc_mapping[channel].get('pin_pos')
-                pin_neg = self.adc_mapping[channel].get('pin_neg')
-                if pin_pos is not None and pin_pos < 8:
-                    if self.adc_mapping[channel]['current'] == 1:
-                        if self.verbose:
-                            print(f'Enabling current source for differential ADC {channel} (pins {pin_pos})')
-                        self.set_current_adc(pin_pos, to=0)
-            else:
-                if 'pin' in self.adc_mapping[channel]:
-            ## -------------------added done
-                    if self.adc_mapping[channel]['pin'] < 8:  # ignore internal channels
-                        if self.adc_mapping[channel]['current'] == 1:
-                            if self.verbose:
-                                print(f'Enabling current soure for ADC{channel}')
-                            self.set_current_adc(self.adc_mapping[channel]['pin'])
-                        else:
-                            if self.verbose:
-                                print(f'Disabling current soure for ADC{channel}')
-                            self.set_current_adc(self.adc_mapping[channel]['pin'], to=0)
+            if self.adc_mapping[channel]['pin'] < 8:  # ignore internal channels
+                if self.adc_mapping[channel]['current'] == 1:
+                    if self.verbose:
+                        print(f'Enabling current soure for ADC{channel}')
+                    self.set_current_adc(self.adc_mapping[channel]['pin'])
+                else:
+                    if self.verbose:
+                        print(f'Disabling current soure for ADC{channel}')
+                    self.set_current_adc(self.adc_mapping[channel]['pin'], to=0)
         #if self.ver == 0:
         #    self.adc_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping.yaml'), 'adc')
         #elif self.ver == 1:
@@ -826,88 +814,45 @@ class LPGBT(RegParser):
         adc_dict = self.adc_mapping
         table = []
         will_fail = False
-
         for adc_reg in adc_dict.keys():
-            ## ----- added here
-            if adc_dict[adc_reg].get('differential', False):
-                pin_pos = adc_dict[adc_reg]['pin_pos']
-                pin_neg = adc_dict[adc_reg]['pin_neg']
-                comment = adc_dict[adc_reg]['comment']
-
-                value = self.read_adc(pin_pos) - self.read_adc(pin_neg)
-                value_raw = self.read_adc(pin_pos, calibrate=False) - self.read_adc(pin_neg, calibrate=False)
-
-                pin_info = f"{pin_pos}-{pin_neg}"
-
-                input_voltage_direct = value / (2**10 - 1)
-                input_voltage = None
-                current_value = input_voltage_direct * adc_dict[adc_reg]['conv']
-            else:
-            ## ----- added done
-                pin = adc_dict[adc_reg]['pin']
-                comment = adc_dict[adc_reg]['comment']
-                value = self.read_adc(pin)
-                value_raw = self.read_adc(pin, calibrate=False)
-                #value_calibrated = value * self.cal_gain / 1.85 + (512 - self.cal_offset)  # FIXME this was applying twice
-                input_voltage_direct = value / (2**10 - 1)
-                input_voltage = input_voltage_direct * adc_dict[adc_reg]['conv']
-
-                pin_info = str(pin)
-                current_value = None
-
+            pin = adc_dict[adc_reg]['pin']
+            comment = adc_dict[adc_reg]['comment']
+            value = self.read_adc(pin)
+            value_raw = self.read_adc(pin, calibrate=False)
+            #value_calibrated = value * self.cal_gain / 1.85 + (512 - self.cal_offset)  # FIXME this was applying twice
+            input_voltage_direct = value / (2**10 - 1)
+            input_voltage = input_voltage_direct * adc_dict[adc_reg]['conv']
             if check:
                 try:
                     min_v = adc_dict[adc_reg]['min']
                     max_v = adc_dict[adc_reg]['max']
-                    check_value = current_value if current_value is not None else input_voltage
-                    # status = "OK" if (input_voltage >= min_v) and (input_voltage <= max_v) else "ERR"
-                    status = "OK" if (check_value >= min_v) and (check_value <= max_v) else "ERR"
+                    status = "OK" if (input_voltage >= min_v) and (input_voltage <= max_v) else "ERR"
                     if status == "ERR" and strict_limits:
                         will_fail = True
                 except KeyError:
                     status = "N/A"
-                table.append([adc_reg, pin_info, value_raw, value, input_voltage_direct, input_voltage, current_value, status, comment])
-                # table.append([adc_reg, pin, value_raw, value, input_voltage_direct, input_voltage, status, comment])
+                table.append([adc_reg, pin, value_raw, value, input_voltage_direct, input_voltage, status, comment])
             else:
-                table.append([adc_reg, pin_info, value_raw, value, input_voltage_direct, input_voltage, current_value, comment])
-                # table.append([adc_reg, pin, value_raw, value, input_voltage_direct, input_voltage, comment])
+                table.append([adc_reg, pin, value_raw, value, input_voltage_direct, input_voltage, comment])
 
         if check:
-            headers = ["Register","Pin", "Reading (raw)", "Reading (calib)", "Voltage (direct)", "Voltage (conv)", "current_value (A)", "Status", "Comment"]
+            headers = ["Register","Pin", "Reading (raw)", "Reading (calib)", "Voltage (direct)", "Voltage (conv)", "Status", "Comment"]
         else:
-            headers = ["Register","Pin", "Reading (raw)", "Reading (calib)", "Voltage (direct)", "Voltage (conv)", "current_value (A)", "Comment"]
+            headers = ["Register","Pin", "Reading (raw)", "Reading (calib)", "Voltage (direct)", "Voltage (conv)", "Comment"]
 
         if has_tabulate:
             print(tabulate(table, headers=headers,  tablefmt="simple_outline"))
         else:
             header_string = "{:<20}"*len(headers)
+            data_string = "{:<20}{:<20}{:<20.0f}{:<20.0f}{:<20.3f}{:<20.3f}{:<20}"
             if check:
-                data_string = "{:<20}{:<20}{:<20.0f}{:<20.0f}{:<20.3f}{:<20.3f}{:<20}{:<20}{:<20}"
-            else:
-                data_string = "{:<20}{:<20}{:<20.0f}{:<20.0f}{:<20.3f}{:<20.3f}{:<20}{:<20}"
+                data_string += "{:<20}"
             print(header_string.format(*headers))
-            # data_string = "{:<20}{:<20}{:<20.0f}{:<20.0f}{:<20.3f}{:<20.3f}{:<20}"
-            # if check:
-            #     data_string += "{:<20}"
-            # print(header_string.format(*headers))
             for line in table:
-                if line[6] is not None:
-                    formatted_current = f"{line[6]:.3f}"
-                else:
-                    formatted_current = "N/A"
-                if check:
-                    print(data_string.format(line[0], line[1], line[2], line[3], line[4], 
-                                        line[5] if line[5] != "N/A" else "N/A", 
-                                        formatted_current, line[7], line[8]))
-                else:
-                    print(data_string.format(line[0], line[1], line[2], line[3], line[4], 
-                                        line[5] if line[5] != "N/A" else "N/A", 
-                                        formatted_current, line[7]))
-                # print(data_string.format(*line))
+                print(data_string.format(*line))
 
         if will_fail:
-            print(red("At least one measurement is out of bounds, with status ERR as seen in the table above"))
-            # raise ValueError("At least one measurement is out of bounds, with status ERR as seen in the table above")
+            raise ValueError("At least one input voltage is out of bounds, with status ERR as seen in the table above")
 
     def set_current_dac(self, units):
         self.wr_reg("LPGBT.RWF.CUR_DAC.CURDACSELECT", units)
@@ -1332,8 +1277,7 @@ class LPGBT(RegParser):
     def I2C_write_single(self, reg=0x0, val=0, master=2, slave_addr=0x70, freq=2):
         pass
 
-    # def I2C_write(self, reg=0x0, val=10, master=2, slave_addr=0x70, adr_nbytes=2, freq=2, verbose=False, ignore_response=False):
-    def I2C_write(self, reg=0x0, val=10, master=0, slave_addr=0x72, adr_nbytes=2, freq=2, verbose=False, ignore_response=False):
+    def I2C_write(self, reg=0x0, val=10, master=2, slave_addr=0x70, adr_nbytes=2, freq=2, verbose=False, ignore_response=False):
         '''
         reg: target register
         val: has to be a single byte, or a list of single bytes.
@@ -1412,8 +1356,7 @@ class LPGBT(RegParser):
                 if retries > 50:
                     raise TimeoutError(f"I2C write failed after 50 retries, status={status}")
 
-    # def I2C_read(self, reg=0x0, master=2, slave_addr=0x71, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
-    def I2C_read(self, reg=0x0, master=0, slave_addr=0x72, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
+    def I2C_read(self, reg=0x0, master=2, slave_addr=0x71, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
         #https://gitlab.cern.ch/lpgbt/pigbt/-/blob/master/backend/apiapp/lpgbtLib/lowLevelDrivers/MASTERI2C.py#L83
 
         # debugging

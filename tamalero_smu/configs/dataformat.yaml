@@ -1,0 +1,231 @@
+# To find headers, data etc you'd compare the 40bit word with
+# For the identifiers this is how it works:
+# frame == ( WORD & mask )
+# To decipher the actual data use
+# (WORD & mask) >> shift
+
+# In the end the code has to split into 40bit words, and if we trigger with the first bytes of the header
+# we then only need to make sure that the words are all 40 bits or abort otherwise
+# Need to restructure Chris' code accordingly (So Young??)
+
+ETROC1:
+  nbits: 40
+  bitorder: normal
+  identifiers:
+    header:
+      frame: 0x3555555000
+      mask: 0xFFFFFFF000
+    data:
+      frame: 0x4000000000
+      mask: 0xC000000000
+    trailer:
+      frame: 0x9555555000
+      mask: 0xFFFFFF5000
+    filler:
+      frame: 0xC00AAAAAAA
+      mask: 0xFFFFFFFFFF
+  data:
+    header:
+      bcid:
+        mask: 0x0000000FFF
+        shift: 0
+    data:
+      row_id:
+        mask: 0x3C00000000
+        shift: 34
+      col_id:
+        mask: 0x03C0000000
+        shift: 30
+      toa:
+        mask: 0x003FF00000
+        shift: 20
+      tot:
+        mask: 0x00000FF800
+        shift: 11
+      cal:
+        mask: 0x00000007FE
+        shift: 1
+      parity:
+        mask: 0x0000000001
+        shift: 0
+    trailer:
+      hits:
+        mask: 0x00000003FE
+        shift: 1
+      parity:
+        mask: 0x0000000001
+        shift: 0
+    filler:
+      nothing:
+        mask: 0x00
+        shift: 0
+
+
+ETROC2:
+  nbits: 40
+  bitorder: reversed
+  identifiers:
+    header:
+      frame: 0x3C5C000000
+      mask: 0xFFFFC00000
+    data:
+      frame: 0x8000000000
+      mask: 0x8000000000
+    filler:
+      frame: 0x3C5C800000
+      mask: 0xFFFFC00000
+    trailer:  # This is very weak
+      frame: 0x0000000000
+      mask: 0x8000000000
+  types:
+    0: [ea, col_id, row_id, toa, cal, tot, elink, full, any_full, global_full]
+    1: [ea, col_id, row_id, col_id2, row_id2, bcid, counter_a, elink, full, any_full, global_full]
+    2: [ea, col_id, row_id, col_id2, row_id2, counter_b, test_pattern, elink, full, any_full, global_full]
+  data:
+    header: # Define the different masks here?
+      elink:
+        mask: 0xFF0000000000
+        shift: 40
+      sof:
+        mask: 0x1000000000000
+        shift: 48
+      eof:
+        mask: 0x2000000000000
+        shift: 49
+      full:
+        mask: 0x4000000000000
+        shift: 50
+      any_full:
+        mask: 0x8000000000000
+        shift: 51
+      global_full:
+        mask: 0xF0000000000000
+        shift: 52
+      l1counter:
+        mask: 0x00003FC000
+        shift: 14
+      type:
+        mask: 0x0000003000
+        shift: 12
+      bcid:
+        mask: 0x0000000FFF
+        shift: 0
+    data:
+      elink:
+        mask: 0xFF0000000000
+        shift: 40
+      sof:
+        mask: 0x1000000000000
+        shift: 48
+      eof:
+        mask: 0x2000000000000
+        shift: 49
+      full:
+        mask: 0x4000000000000
+        shift: 50
+      any_full:
+        mask: 0x8000000000000
+        shift: 51
+      global_full:
+        mask: 0xF0000000000000
+        shift: 52
+      ea:
+        mask: 0x6000000000
+        shift: 37
+      col_id:
+        mask: 0x1E00000000
+        shift: 33
+      row_id:
+        mask: 0x01E0000000
+        shift: 29
+      # random test pattern specific
+      col_id2:
+        mask: 0x001E000000
+        shift: 25
+      row_id2:
+        mask: 0x0001E00000
+        shift: 21
+      bcid:
+        mask: 0x00001FFE00
+        shift: 9
+      counter_a:
+        mask: 0x00000001FF
+        shift: 0
+      counter_b:
+        mask: 0x1FFE00
+        shift: 9
+      test_pattern:
+        mask: 0xff  # should be 9 bits according to manual, but bit 9 is (almost) always 1
+        shift: 0
+      # generic portion of the data
+      data:
+        mask: 0x001FFFFFFF
+        shift: 0
+      toa:
+        mask: 0x1ff80000
+        shift: 19
+      tot:
+        mask: 0x0007fc00
+        shift: 10
+      cal:
+        mask: 0x000003ff
+        shift: 0
+    trailer:
+      elink:
+        mask: 0xFF0000000000
+        shift: 40
+      sof:
+        mask: 0x1000000000000
+        shift: 48
+      eof:
+        mask: 0x2000000000000
+        shift: 49
+      full:
+        mask: 0x4000000000000
+        shift: 50
+      any_full:
+        mask: 0x8000000000000
+        shift: 51
+      global_full:
+        mask: 0xF0000000000000
+        shift: 52
+      chipid:
+        mask: 0x7FFFC00000
+        shift: 24
+      status:
+        mask: 0x00003F0000
+        shift: 16
+      hits:
+        mask: 0x000000FF00
+        shift: 8
+      crc:
+        mask: 0x00000000FF
+        shift: 0
+    filler:
+      elink:
+        mask: 0xFF0000000000
+        shift: 40
+      sof:
+        mask: 0x1000000000000
+        shift: 48
+      eof:
+        mask: 0x2000000000000
+        shift: 49
+      full:
+        mask: 0x4000000000000
+        shift: 50
+      any_full:
+        mask: 0x8000000000000
+        shift: 51
+      global_full:
+        mask: 0xF0000000000000
+        shift: 52
+      l1counter:
+        mask: 0x00003FC000
+        shift: 14
+      ebs:
+        mask: 0x0000003000
+        shift: 12
+      bcid:
+        mask: 0x0000000FFF
+        shift: 0

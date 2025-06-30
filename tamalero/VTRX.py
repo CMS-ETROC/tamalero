@@ -46,6 +46,7 @@ class VTRX:
 
         if self.master.kcu.dummy:
             return
+        self.get_version()
 
     def configure(self, trigger=False):
         if not hasattr(self, 'ver'):
@@ -68,7 +69,7 @@ class VTRX:
             self.ver = "production"
         else:
             self.ver = "prototype"
-        print(' > VTRx+ version detected: '+self.ver)
+        print(' > VTRx+ version detected: '+ self.ver)
 
         with open(os.path.expandvars('$TAMALERO_BASE/address_table/VTRX.yaml'), 'r') as f:
             self.regs = load(f, Loader=Loader)[self.ver]
@@ -90,10 +91,12 @@ class VTRX:
             self.enable(ch=ch)
 
     def rd_adr(self, adr):
-        return self.master.I2C_read(adr, master=2, slave_addr=0x50, adr_nbytes=1)
+        # return self.master.I2C_read(adr, master=2, slave_addr=0x50, adr_nbytes=1)
+        return self.master.I2C_read(adr, master=0, slave_addr=0x50, adr_nbytes=1)
 
     def wr_adr(self, adr, data, ignore_response=False):
-        self.master.I2C_write(adr, val=data, master=2, slave_addr=0x50, adr_nbytes=1, ignore_response=ignore_response)
+        # self.master.I2C_write(adr, val=data, master=2, slave_addr=0x50, adr_nbytes=1, ignore_response=ignore_response)
+        self.master.I2C_write(adr, val=data, master=0, slave_addr=0x50, adr_nbytes=1, ignore_response=ignore_response)
 
     def rd_reg(self, reg):
         adr   = self.regs[reg]['adr']
