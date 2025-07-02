@@ -837,6 +837,9 @@ class LPGBT(RegParser):
                 value = self.read_adc(pin_pos) - self.read_adc(pin_neg)
                 value_raw = self.read_adc(pin_pos, calibrate=False) - self.read_adc(pin_neg, calibrate=False)
 
+                # value_raw = self.read_differential_adc_raw(pin_pos, pin_neg)
+                # value = value_raw * 1.875 / 1.85 + (512 - 510)
+
                 pin_info = f"{pin_pos}-{pin_neg}"
 
                 input_voltage_direct = value / (2**10 - 1)
@@ -925,6 +928,28 @@ class LPGBT(RegParser):
     def get_current_dac_uA(self):
         # CURDACSELECT is in units of 900/256 uA per bit, with max of 255
         return self.rd_reg("LPGBT.RWF.CUR_DAC.CURDACSELECT") * 900/256.0
+
+    def read_differential_adc_raw(self,pin_p, pin_n):
+        import time
+        self.kcu.toggle_dispatch()
+        self.wr_reg("LPGBT.RW.ADC.ADCINPSELECT", pin_p)
+        self.wr_reg("LPGBT.RW.ADC.ADCINNSELECT", pin_n)
+
+        self.wr_reg("LPGBT.RW.ADC.ADCCONVERT", 0x1)
+
+        while self.rd_reg("LPGBT.RO.ADC.ADCDONE") == 0:
+            time.sleep(0.01)
+        
+        val_h = self.rd_reg("LPGBT.RO.ADC.ADCVALUEH")
+        val_l = self.rd_reg("LPGBT.RO.ADC.ADCVALUEL")
+        val = val_l | (val_h << 8)
+
+        self.kcu.toggle_dispatch()
+        self.wr_reg("LPGBT.RW.ADC.ADCCONVERT", 0x0)
+        self.wr_reg("LPGBT.RW.ADC.ADCENABLE", 0x1)
+        self.kcu.dispatch()
+
+        return val
 
 
     def read_adc_raw (self, channel):

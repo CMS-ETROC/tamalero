@@ -331,7 +331,15 @@ base:
     # POWERUP2 (0xFB)
     "LPGBT.RWF.POWERUP.DLLCONFIGDONE": 1              # From 00FB:6
     "LPGBT.RWF.POWERUP.PLLCONFIGDONE": 1              # From 00FB:6
-           
+    
+    # VOLTAGE_DAC (0x6A)
+    "LPGBT.RWF.VOLTAGE.VOLDACENABLE" : 1
+    "LPGBT.RWF.VOLTAGE.CURDACENABLE" : 0
+    "LPGBT.RWF.VOLTAGE.VOLDACVALUE_8TO11" : 0xF
+
+    # DACConfigL (0x6B)
+    "LPGBT.RWF.VOLTAGE.VOLDACVALUE_0TO7" : 0xFF
+
 
 # EC Channel Configuration for LpGBT v1
 ec:

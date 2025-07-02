@@ -126,7 +126,7 @@ class FIFO:
         """
         for i in range(count):
             try:
-                self.tv.kcu.write_node("READOUT_BOARD_%s.QINJ_PULSE"%self.rb.rb, 0x01)
+                self.rb.kcu.write_node("READOUT_BOARD_%s.QINJ_PULSE"%self.rb.rb, 0x01)
             except:
                 print("Couldn't send Qinj pulse")
 
