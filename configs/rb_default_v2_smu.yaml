@@ -420,8 +420,8 @@ LPGBT:
             comment: 1.2V supply current measurement CH3-CH4 differential
             differential: True
         V1V2HM3_current:
-            pin_pos: 0x04
-            pin_neg: 0x05
+            pin_pos: 0x06
+            pin_neg: 0x07
             current: 0
             conv: 15.037
             min: 0.35
@@ -430,8 +430,8 @@ LPGBT:
             comment: 1.2V supply current measurement CH5-CH6 differential
             differential: True
         V1V2HM4_current:
-            pin_pos: 0x06
-            pin_neg: 0x07
+            pin_pos: 0x04
+            pin_neg: 0x05
             current: 0
             conv: 15.037
             min: 0.35

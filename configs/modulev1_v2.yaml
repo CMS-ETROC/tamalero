@@ -255,7 +255,7 @@ SCA:
             comment: ADDR0 on module 2
         mod_d15:
             pin: 0x0D
-            default: 1
+            default: 1Qinj_Output/multi_board_injection_4_pixels_2025-07-03_16-45-43.pkl
             direction: out
             flavor: small
             comment: RSTN on module 2 
@@ -308,14 +308,14 @@ LPGBT:
 inversions:
    clocks:
       - 2
-      - 3
+    #   - 3
       - 4
       - 5
       - 23
       - 25
    downlink:
       - 2
-      - 4  # 10
+    #   - 4  # 10
       - 10 # 22
    uplink:
       - 6
@@ -325,7 +325,8 @@ inversions:
 
 modules:
   1:
-    elinks: [[[2],[0]], [[20],[22]], [[0],[2]], [[22],[20]]]  # structure here is ETROC, LPGBT, ELINK
+    # elinks: [[[2],[0]], [[20],[22]], [[0],[2]], [[22],[20]]]  # structure here is ETROC, LPGBT, ELINK
+    elinks: [[[0],[]], [[4],[]], [[8],[]], [[12],[]]]
     addresses: [0x60, 0x61, 0x62, 0x63]
     clocks: [0,26,1,27]
     downlinks: [0,12,0,12]

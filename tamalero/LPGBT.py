@@ -837,9 +837,6 @@ class LPGBT(RegParser):
                 value = self.read_adc(pin_pos) - self.read_adc(pin_neg)
                 value_raw = self.read_adc(pin_pos, calibrate=False) - self.read_adc(pin_neg, calibrate=False)
 
-                # value_raw = self.read_differential_adc_raw(pin_pos, pin_neg)
-                # value = value_raw * 1.875 / 1.85 + (512 - 510)
-
                 pin_info = f"{pin_pos}-{pin_neg}"
 
                 input_voltage_direct = value / (2**10 - 1)
@@ -976,6 +973,32 @@ class LPGBT(RegParser):
         self.kcu.dispatch()
 
         return val
+    
+    def read_adc_raw_diff (self, channel):
+
+        self.kcu.toggle_dispatch()
+        self.wr_reg("LPGBT.RW.ADC.ADCINPSELECT", channel)
+        self.wr_reg("LPGBT.RW.ADC.ADCINNSELECT", channel+1)
+        # self.wr_reg("LPGBT.RW.ADC.ADCGAINSELECT", 0x0)
+
+        self.wr_reg("LPGBT.RW.ADC.ADCCONVERT", 0x1)
+        self.wr_reg("LPGBT.RW.ADC.ADCENABLE", 0x1)
+        self.kcu.dispatch()
+
+        done = 0
+        while (done==0):
+            #print ("Waiting")
+            done = self.rd_reg("LPGBT.RO.ADC.ADCDONE")
+
+        val = self.rd_reg("LPGBT.RO.ADC.ADCVALUEL")
+        val |= self.rd_reg("LPGBT.RO.ADC.ADCVALUEH") << 8
+
+        self.kcu.toggle_dispatch()
+        self.wr_reg("LPGBT.RW.ADC.ADCCONVERT", 0x0)
+        self.wr_reg("LPGBT.RW.ADC.ADCENABLE", 0x1)
+        self.kcu.dispatch()
+
+        return val
 
     def apply_adc_calibration(self, val):
         return val*self.cal_gain/1.85 + (512 - self.cal_offset) # calibrate
@@ -1082,6 +1105,7 @@ class LPGBT(RegParser):
         self.cal_gain = gain
         self.cal_offset = offset
         self.calibrated = True
+        return gain, offset
 
     def load_calibration(self, fin="configs/lpgbt_calibration_latest.zip"):
         # you can also download from https://lpgbt.web.cern.ch/lpgbt/calibration/lpgbt_calibration_latest.zip
