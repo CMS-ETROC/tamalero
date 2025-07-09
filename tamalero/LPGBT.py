@@ -264,9 +264,11 @@ class LPGBT(RegParser):
         # else:
         #     self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['gpio']
         if self.ver == 0:
-           self.gpio_mapping = read_mapping(os.path.expandvars('/home/roy/Etroc2_CE/module_test_sw/configs/LPGBT_mapping.yaml'), 'gpio')
+        #    self.gpio_mapping = read_mapping(os.path.expandvars('/home/roy/Etroc2_CE/module_test_sw/configs/LPGBT_mapping.yaml'), 'gpio')
+           self.gpio_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping.yaml'), 'gpio')
         elif self.ver == 1:
-           self.gpio_mapping = read_mapping(os.path.expandvars('/home/roy/Etroc2_CE/module_test_sw/configs/LPGBT_mapping_v2.yaml'), 'gpio')
+        #    self.gpio_mapping = read_mapping(os.path.expandvars('/home/roy/Etroc2_CE/module_test_sw/configs/LPGBT_mapping_v2.yaml'), 'gpio')
+           self.gpio_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping_v2.yaml'), 'gpio')
 
     def update_rb_ver(self, new_ver):
         assert new_ver in [1,2,3], f"Unrecognized version {new_ver}"
@@ -833,7 +835,6 @@ class LPGBT(RegParser):
                 pin_pos = adc_dict[adc_reg]['pin_pos']
                 pin_neg = adc_dict[adc_reg]['pin_neg']
                 comment = adc_dict[adc_reg]['comment']
-
                 value = self.read_adc(pin_pos) - self.read_adc(pin_neg)
                 value_raw = self.read_adc(pin_pos, calibrate=False) - self.read_adc(pin_neg, calibrate=False)
 
@@ -926,27 +927,21 @@ class LPGBT(RegParser):
         # CURDACSELECT is in units of 900/256 uA per bit, with max of 255
         return self.rd_reg("LPGBT.RWF.CUR_DAC.CURDACSELECT") * 900/256.0
 
-    def read_differential_adc_raw(self,pin_p, pin_n):
-        import time
-        self.kcu.toggle_dispatch()
+    def read_differential_adc_raw(self, pin_p, pin_n):
+        self.init_adc()
         self.wr_reg("LPGBT.RW.ADC.ADCINPSELECT", pin_p)
         self.wr_reg("LPGBT.RW.ADC.ADCINNSELECT", pin_n)
-
         self.wr_reg("LPGBT.RW.ADC.ADCCONVERT", 0x1)
-
+        import time
         while self.rd_reg("LPGBT.RO.ADC.ADCDONE") == 0:
-            time.sleep(0.01)
+            time.sleep(0.001)
+
+        value_h = self.rd_reg("LPGBT.RO.ADC.ADCVALUEH")
+        value_l = self.rd_reg("LPGBT.RO.ADC.ADCVALUEL")
+        raw_diff_value = value_l | (value_h << 8)
         
-        val_h = self.rd_reg("LPGBT.RO.ADC.ADCVALUEH")
-        val_l = self.rd_reg("LPGBT.RO.ADC.ADCVALUEL")
-        val = val_l | (val_h << 8)
-
-        self.kcu.toggle_dispatch()
         self.wr_reg("LPGBT.RW.ADC.ADCCONVERT", 0x0)
-        self.wr_reg("LPGBT.RW.ADC.ADCENABLE", 0x1)
-        self.kcu.dispatch()
-
-        return val
+        return raw_diff_value
 
 
     def read_adc_raw (self, channel):
