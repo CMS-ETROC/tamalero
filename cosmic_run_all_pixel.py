@@ -500,7 +500,8 @@ def main():
     output_dir = "Cosmic_Output"
     os.makedirs(output_dir, exist_ok=True)
     
-    timestamp = start_time.strftime("%Y-%m-%d_%H-%M-%S")
+    # timestamp = start_time.strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"cosmic_run_{len(etroc_configs)}_chips_{timestamp}.pkl"
     filepath = os.path.join(output_dir, filename)
     
