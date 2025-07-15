@@ -507,11 +507,14 @@ class ETROC():
         # FIXME should use higher level functions for better readability
         if self.is_connected():
             self.reset()  # soft reset of the global readout
-            self.set_singlePort('both')
+            self.set_singlePort('right')
             self.set_mergeTriggerData('merge')
             self.disable_Scrambler()
+            self.set_triggerGranularity(1)
+            # self.enable_fcClkDelay()
+            # self.enable_fcDataDelay()
             # set ETROC in 320Mbps mode
-            self.wr_reg('serRateLeft', 0)
+            # self.wr_reg('serRateLeft', 0)
             self.wr_reg('serRateRight', 0)
             # get the current number of invalid fast commands received
             self.invalid_FC_counter = self.get_invalidFCCount()
@@ -524,25 +527,25 @@ class ETROC():
             self.wr_reg("PLL_ENABLEPLL", 1)
             self.wr_reg("chargeInjectionDelay", 0xa)
             self.wr_reg("L1Adelay", 0x01f5, broadcast=True)  # default for LHC / Qinj
-            self.wr_reg("disTrigPath", 1, broadcast=True)
+            self.wr_reg("disDataReadout", 1, broadcast=True)
             self.wr_reg("QInjEn", 0, broadcast=True)
 
             ## opening TOA / TOT / Cal windows
             self.wr_reg("upperTOA", 0x3ff, broadcast=True)  # this also fixes the half-chip readout with internal test data
-            self.wr_reg("lowerTOA", 0, broadcast=True)
+            self.wr_reg("lowerTOA", 0x3ff, broadcast=True)
             self.wr_reg("upperTOT", 0x1ff, broadcast=True)
-            self.wr_reg("lowerTOT", 0, broadcast=True)
+            self.wr_reg("lowerTOT", 0x1ff, broadcast=True)
             self.wr_reg("upperCal", 0x3ff, broadcast=True)
-            self.wr_reg("lowerCal", 0, broadcast=True)
+            self.wr_reg("lowerCal", 0x3ff, broadcast=True)
 
             ## Configuring the trigger stream
             self.wr_reg("disTrigPath", 1, broadcast=True)
             self.wr_reg("upperTOATrig", 0x3ff, broadcast=True)
-            self.wr_reg("lowerTOATrig", 0, broadcast=True)
+            self.wr_reg("lowerTOATrig", 0x3ff, broadcast=True)
             self.wr_reg("upperTOTTrig", 0x1ff, broadcast=True)
-            self.wr_reg("lowerTOTTrig", 0, broadcast=True)
+            self.wr_reg("lowerTOTTrig", 0x1ff, broadcast=True)
             self.wr_reg("upperCalTrig", 0x3ff, broadcast=True)
-            self.wr_reg("lowerCalTrig", 0, broadcast=True)
+            self.wr_reg("lowerCalTrig", 0x3ff, broadcast=True)
 
             self.reset()  # soft reset of the global readout, 2nd reset needed for some ETROCs
             self.reset_fast_command()
