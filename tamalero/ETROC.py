@@ -1093,31 +1093,31 @@ class ETROC():
         if datatype not in ['TOA', 'TOT', 'Cal']:
             raise Exception('type of data should be TOA, TOT or CAL.')
         if upper is not None:
-            self.wr_reg('upper'+data+'Trig', upper, row=row, col=col, broadcast=broadcast)
+            self.wr_reg('upper'+datatype+'Trig', upper, row=row, col=col, broadcast=broadcast)
         if lower is not None:
-            self.wr_reg('lower'+data+'Trig', lower, row=row, col=col, broadcast=broadcast)
+            self.wr_reg('lower'+datatype+'Trig', lower, row=row, col=col, broadcast=broadcast)
 
     def get_trigger_TH(self, datatype, row=0, col=0):
         if datatype not in ['TOA', 'TOT', 'Cal']:
             raise Exception('type of data should be TOA, TOT or CAL.')
-        upper = 'upper'+data+'Trig'
-        lower = 'lower'+data+'Trig'
+        upper = 'upper'+datatype+'Trig'
+        lower = 'lower'+datatype+'Trig'
         return self.rd_reg(upper, row=row, col=col), self.rd_reg(lower, row=row, col=col)
 
     # Set upper/lower thresholds for TDC data readout of TOA, TOT, Cal
     def set_data_TH(self, datatype, upper=None, lower=None, row=0, col=0, broadcast=True):
         if datatype not in ['TOA', 'TOT', 'Cal']:
-            raise Exception('type of data should be TOA, TOT or CAL.')
+            raise Exception('type of data should be TOA, TOT or Cal.')
         if upper is not None:
-            self.wr_reg('upper'+data, upper, row=row, col=col, broadcast=broadcast)
+            self.wr_reg('upper'+datatype, upper, row=row, col=col, broadcast=broadcast)
         if lower is not None:
-            self.wr_reg('lower'+data, lower, row=row, col=col, broadcast=broadcast)
+            self.wr_reg('lower'+datatype, lower, row=row, col=col, broadcast=broadcast)
 
     def get_data_TH(self, datatype, row=0, col=0):
         if datatype not in ['TOA', 'TOT', 'Cal']:
-            raise Exception('type of data should be TOA, TOT or CAL.')
-        upper = 'upper'+data
-        lower = 'lower'+data
+            raise Exception('type of data should be TOA, TOT or Cal.')
+        upper = 'upper'+datatype
+        lower = 'lower'+datatype
         return self.rd_reg(upper, row=row, col=col), self.rd_reg(lower, row=row, col=col)
 
     # Enable/disable circular buffer write address offset
