@@ -35,6 +35,7 @@ class ETROC():
             no_init = False,
             hard_reset = False,
             no_hard_reset_on_init = False,
+            path_to_address_table = '../address_table/ETROC2_example.yaml'
     ):
         self.QINJ_delay = 504  # this is a fixed value for the default settings of ETROC2
         self.isfake = False
@@ -58,7 +59,7 @@ class ETROC():
         self.chip_id = chip_id
         self.module_id = chip_id >> 2
         self.chip_no = chip_id & 0x3
-        self.regs = load_yaml(os.path.join(here, '../address_table/ETROC2_example.yaml'))
+        self.regs = load_yaml(os.path.join(here, path_to_address_table))
 
         self.DAC_min  = 600  # in mV
         self.DAC_max  = 1000  # in mV
@@ -506,11 +507,14 @@ class ETROC():
         # FIXME should use higher level functions for better readability
         if self.is_connected():
             self.reset()  # soft reset of the global readout
-            self.set_singlePort('both')
+            self.set_singlePort('right')
             self.set_mergeTriggerData('merge')
             self.disable_Scrambler()
+            self.set_triggerGranularity(1)
+            # self.enable_fcClkDelay()
+            # self.enable_fcDataDelay()
             # set ETROC in 320Mbps mode
-            self.wr_reg('serRateLeft', 0)
+            # self.wr_reg('serRateLeft', 0)
             self.wr_reg('serRateRight', 0)
             # get the current number of invalid fast commands received
             self.invalid_FC_counter = self.get_invalidFCCount()
@@ -523,25 +527,25 @@ class ETROC():
             self.wr_reg("PLL_ENABLEPLL", 1)
             self.wr_reg("chargeInjectionDelay", 0xa)
             self.wr_reg("L1Adelay", 0x01f5, broadcast=True)  # default for LHC / Qinj
-            self.wr_reg("disTrigPath", 1, broadcast=True)
+            self.wr_reg("disDataReadout", 1, broadcast=True)
             self.wr_reg("QInjEn", 0, broadcast=True)
 
             ## opening TOA / TOT / Cal windows
             self.wr_reg("upperTOA", 0x3ff, broadcast=True)  # this also fixes the half-chip readout with internal test data
-            self.wr_reg("lowerTOA", 0, broadcast=True)
+            self.wr_reg("lowerTOA", 0x3ff, broadcast=True)
             self.wr_reg("upperTOT", 0x1ff, broadcast=True)
-            self.wr_reg("lowerTOT", 0, broadcast=True)
+            self.wr_reg("lowerTOT", 0x1ff, broadcast=True)
             self.wr_reg("upperCal", 0x3ff, broadcast=True)
-            self.wr_reg("lowerCal", 0, broadcast=True)
+            self.wr_reg("lowerCal", 0x3ff, broadcast=True)
 
             ## Configuring the trigger stream
             self.wr_reg("disTrigPath", 1, broadcast=True)
             self.wr_reg("upperTOATrig", 0x3ff, broadcast=True)
-            self.wr_reg("lowerTOATrig", 0, broadcast=True)
+            self.wr_reg("lowerTOATrig", 0x3ff, broadcast=True)
             self.wr_reg("upperTOTTrig", 0x1ff, broadcast=True)
-            self.wr_reg("lowerTOTTrig", 0, broadcast=True)
+            self.wr_reg("lowerTOTTrig", 0x1ff, broadcast=True)
             self.wr_reg("upperCalTrig", 0x3ff, broadcast=True)
-            self.wr_reg("lowerCalTrig", 0, broadcast=True)
+            self.wr_reg("lowerCalTrig", 0x3ff, broadcast=True)
 
             self.reset()  # soft reset of the global readout, 2nd reset needed for some ETROCs
             self.reset_fast_command()
@@ -632,7 +636,6 @@ class ETROC():
     # =======================
     # === HIGH-LEVEL FUNC ===
     # =======================
-
     def QInj_set(self, charge, delay, L1Adelay, row=0, col=0, broadcast=True, reset=True):
         # FIXME this is a bad name, given that set_QInj also exists
         """
@@ -740,6 +743,8 @@ class ETROC():
         else:
             baseline = 0
             noise_width = 0
+
+        self.wr_reg("enable_TDC", 0, row=row, col=col, broadcast=broadcast)
         self.wr_reg("CLKEn_THCal", 1, row=row, col=col, broadcast=broadcast)
         self.wr_reg('Bypass_THCal', 0, row=row, col=col, broadcast=broadcast)
         self.wr_reg('BufEn_THCal', 1, row=row, col=col, broadcast=broadcast)
@@ -773,6 +778,9 @@ class ETROC():
                     timed_out = True
                     break
         self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg("CLKEn_THCal", 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('BufEn_THCal', 0, row=row, col=col, broadcast=broadcast)
+
         if offset == 'auto':
             if broadcast:
                 # Don't care about this, broken anyway
@@ -1088,31 +1096,31 @@ class ETROC():
         if datatype not in ['TOA', 'TOT', 'Cal']:
             raise Exception('type of data should be TOA, TOT or CAL.')
         if upper is not None:
-            self.wr_reg('upper'+data+'Trig', upper, row=row, col=col, broadcast=broadcast)
+            self.wr_reg('upper'+datatype+'Trig', upper, row=row, col=col, broadcast=broadcast)
         if lower is not None:
-            self.wr_reg('lower'+data+'Trig', lower, row=row, col=col, broadcast=broadcast)
+            self.wr_reg('lower'+datatype+'Trig', lower, row=row, col=col, broadcast=broadcast)
 
     def get_trigger_TH(self, datatype, row=0, col=0):
         if datatype not in ['TOA', 'TOT', 'Cal']:
             raise Exception('type of data should be TOA, TOT or CAL.')
-        upper = 'upper'+data+'Trig'
-        lower = 'lower'+data+'Trig'
+        upper = 'upper'+datatype+'Trig'
+        lower = 'lower'+datatype+'Trig'
         return self.rd_reg(upper, row=row, col=col), self.rd_reg(lower, row=row, col=col)
 
     # Set upper/lower thresholds for TDC data readout of TOA, TOT, Cal
     def set_data_TH(self, datatype, upper=None, lower=None, row=0, col=0, broadcast=True):
         if datatype not in ['TOA', 'TOT', 'Cal']:
-            raise Exception('type of data should be TOA, TOT or CAL.')
+            raise Exception('type of data should be TOA, TOT or Cal.')
         if upper is not None:
-            self.wr_reg('upper'+data, upper, row=row, col=col, broadcast=broadcast)
+            self.wr_reg('upper'+datatype, upper, row=row, col=col, broadcast=broadcast)
         if lower is not None:
-            self.wr_reg('lower'+data, lower, row=row, col=col, broadcast=broadcast)
+            self.wr_reg('lower'+datatype, lower, row=row, col=col, broadcast=broadcast)
 
     def get_data_TH(self, datatype, row=0, col=0):
         if datatype not in ['TOA', 'TOT', 'Cal']:
-            raise Exception('type of data should be TOA, TOT or CAL.')
-        upper = 'upper'+data
-        lower = 'lower'+data
+            raise Exception('type of data should be TOA, TOT or Cal.')
+        upper = 'upper'+datatype
+        lower = 'lower'+datatype
         return self.rd_reg(upper, row=row, col=col), self.rd_reg(lower, row=row, col=col)
 
     # Enable/disable circular buffer write address offset
