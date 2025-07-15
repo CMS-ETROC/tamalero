@@ -633,7 +633,6 @@ class ETROC():
     # =======================
     # === HIGH-LEVEL FUNC ===
     # =======================
-
     def QInj_set(self, charge, delay, L1Adelay, row=0, col=0, broadcast=True, reset=True):
         # FIXME this is a bad name, given that set_QInj also exists
         """
@@ -741,6 +740,8 @@ class ETROC():
         else:
             baseline = 0
             noise_width = 0
+
+        self.wr_reg("enable_TDC", 0, row=row, col=col, broadcast=broadcast)
         self.wr_reg("CLKEn_THCal", 1, row=row, col=col, broadcast=broadcast)
         self.wr_reg('Bypass_THCal', 0, row=row, col=col, broadcast=broadcast)
         self.wr_reg('BufEn_THCal', 1, row=row, col=col, broadcast=broadcast)
@@ -774,6 +775,9 @@ class ETROC():
                     timed_out = True
                     break
         self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg("CLKEn_THCal", 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('BufEn_THCal', 0, row=row, col=col, broadcast=broadcast)
+
         if offset == 'auto':
             if broadcast:
                 # Don't care about this, broken anyway
