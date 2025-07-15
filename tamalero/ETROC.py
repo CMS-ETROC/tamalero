@@ -35,6 +35,7 @@ class ETROC():
             no_init = False,
             hard_reset = False,
             no_hard_reset_on_init = False,
+            path_to_address_table = '../address_table/ETROC2_example.yaml'
     ):
         self.QINJ_delay = 504  # this is a fixed value for the default settings of ETROC2
         self.isfake = False
@@ -58,7 +59,7 @@ class ETROC():
         self.chip_id = chip_id
         self.module_id = chip_id >> 2
         self.chip_no = chip_id & 0x3
-        self.regs = load_yaml(os.path.join(here, '../address_table/ETROC2_example.yaml'))
+        self.regs = load_yaml(os.path.join(here, path_to_address_table))
 
         self.DAC_min  = 600  # in mV
         self.DAC_max  = 1000  # in mV
