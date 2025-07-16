@@ -361,7 +361,14 @@ def main(args):
     etroc_chips = initialize_etroc(rb)
 
     # ======================================================================================
-    # 4. Baseline and Noise Width calibration
+    # 4. Set preamp to high power mode
+    # ======================================================================================
+
+    for etroc in etroc_chips:
+        etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
+
+    # ======================================================================================
+    # 5. Baseline and Noise Width calibration
     # ======================================================================================
             
     all_pixels = [(row, col) for row in range(16) for col in range(16)]
@@ -381,20 +388,20 @@ def main(args):
                                             custom_note=NOTE_FOR_HISTORY)
 
     # ======================================================================================
-    # 5. Chip configuration
+    # 6. Chip configuration
     # ======================================================================================
     
     if not args.skip_etroc_config:
         config_etroc(all_pixels, etroc_configs, baseline_storage)
     
     # ======================================================================================
-    # 6. Prepare self-trigger system
+    # 7. Prepare self-trigger system
     # ======================================================================================   
     
     prepare_self_trigger_system(rb)
 
     # ======================================================================================
-    # 7. FIFO
+    # 8. FIFO
     # ======================================================================================   
     
     # Initialize FIFO and reset system
@@ -408,7 +415,7 @@ def main(args):
     rb.enable_etroc_trigger()
 
     # ======================================================================================
-    # 8. CONTINUOUS COSMIC RAY DETECTION
+    # 9. CONTINUOUS COSMIC RAY DETECTION
     # ======================================================================================
     
     print("\n8. Starting continuous cosmic run detection...")
@@ -484,7 +491,7 @@ def main(args):
     
 
     # ======================================================================================
-    # 9. CLEANUP SYSTEM
+    # 10. CLEANUP SYSTEM
     # ======================================================================================
 
     print("\n9. Cleaning up system...")
