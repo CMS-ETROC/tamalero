@@ -459,6 +459,9 @@ def main(args):
                 
                 # --- Read and write data ---
                 raw_data = fifo.read(dispatch=True)
+
+                time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
+
                 if raw_data:
                     packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
                     current_file.write(packed_data)
@@ -471,6 +474,8 @@ def main(args):
 
                         file_number += 1
                         current_file = None # Trigger opening a new file on the next loop
+
+                time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
 
             except Exception as e:
                 print(red(f"An error occurred: {e}"))
