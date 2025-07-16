@@ -484,8 +484,8 @@ def main(args):
         print(yellow("\nKeyboard interrupt detected, stopping..."))
 
     finally:
-        elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-        print(f"Running time: {elapsed_time:.1f} seconds")
+        elapsed_time = (datetime.now(timezone.utc) - start_time)
+        print(f"Running time: {str(elapsed_time).split('.')[0]}")
 
         if current_file and not current_file.closed:
             current_file.close()
