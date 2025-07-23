@@ -212,7 +212,7 @@ def measure_BL_and_NW(list_of_pixels,
     for key, val in baseline_storage.items():
         bl_nw_df = convert_dict_to_pandas(val, key)
         tmp_timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
-        my_note = tmp_timestamp + custom_note
+        my_note = tmp_timestamp + ' ' + custom_note
         save_baselines(bl_nw_df, key,
                        hist_dir=path_to_hist,
                        fig_dir=path_to_figure,
@@ -387,6 +387,9 @@ def main(args):
                                             path_to_figure=FIGURES_PATH,
                                             custom_note=NOTE_FOR_HISTORY)
 
+    if args.auto_calibration_only:
+        exit()
+
     # ======================================================================================
     # 6. Chip configuration
     # ======================================================================================
@@ -528,6 +531,13 @@ if __name__ == "__main__":
         action = 'store_true',
         help = 'If set, skip etroc initialziation and configuration',
         dest = 'skip_etroc_config',
+    )
+
+    parser.add_argument(
+        '--auto_calibration_only',
+        action = 'store_true',
+        help = 'If set, The script will stop after auto calibration',
+        dest = 'auto_calibration_only',
     )
     
     args = parser.parse_args()
