@@ -1,0 +1,22 @@
+<node id="PATTERN_CHECKER">
+
+
+  <node id="RESET"  address="0x0"  mask="0x00000001" permission="w" description="1 to Reset Pattern Checker"/>
+
+  <node id="CNT_RESET"  address="0x1"  mask="0x00000001" permission="w" description="1 to Reset Pattern Checker Counters"/>
+
+  <node id="CHECK_PRBS_EN_0"  address="0x2" mask="0xFFFFFFFF" permission="rw" parameters="default=0x00000000" description="Bitmask 1 to enable checking"/>
+  <node id="CHECK_UPCNT_EN_0" address="0x3" mask="0xFFFFFFFF" permission="rw" parameters="default=0x00000000" description="Bitmask 1 to enable checking"/>
+
+  <node id="CHECK_PRBS_EN_1"  address="0x4" mask="0xFFFFFFFF" permission="rw" parameters="default=0x00000000" description="Bitmask 1 to enable checking"/>
+  <node id="CHECK_UPCNT_EN_1" address="0x5" mask="0xFFFFFFFF" permission="rw" parameters="default=0x00000000" description="Bitmask 1 to enable checking"/>
+
+  <node id="TIMER_LSBS"  address="0x6"  mask="0xffffffff" permission="r" description="Timer of how long the counter has been running"/>
+  <node id="TIMER_MSBS"  address="0x7"  mask="0xffffffff" permission="r" description="Timer of how long the counter has been running"/>
+
+  <node id="SEL" address="0x8" mask="0xFFFF0000" permission="rw" parameters="default=0x0" description="Channel to select for error counting"/>
+
+  <node id="UPCNT_ERRORS"  address="0x9" mask="0xFFFFFFFF" permission="r" description="Errors on Upcnt"/>
+  <node id="PRBS_ERRORS"   address="0xA" mask="0xFFFFFFFF" permission="r" description="Errors on Prbs"/>
+
+</node>

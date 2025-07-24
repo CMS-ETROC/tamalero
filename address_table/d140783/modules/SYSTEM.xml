@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<node id="SYSTEM" fwinfo="endpoint; width=12">
+
+  <node id="MGT_TX_RESET" address="0x0" mask="0x0003FF" permission="rw" description=""/>
+  <node id="MGT_RX_RESET" address="0x0" mask="0x3FF000" permission="rw" description=""/>
+  <node id="MGT_TX_READY" address="0x1" mask="0x0003FF" permission="r" description=""/>
+  <node id="MGT_RX_READY" address="0x1" mask="0x3FF000" permission="r" description=""/>
+
+  <node id="SFP0_TX_DIS" address="0x40" mask="0x000001" permission="rw" description="Controls SFP0 Disable" parameters="default=0x0"/>
+  <node id="SFP1_TX_DIS" address="0x40" mask="0x000002" permission="rw" description="Controls SFP1 Disable" parameters="default=0x0"/>
+
+  <node id="L1A_PULSE"      address="0x500" mask="0x00000001" permission="w"  description="Write 1 to pulse L1A"/>
+  <node id="QINJ_PULSE"     address="0x500" mask="0x00001000" permission="w"  description="Write 1 to pulse QINJ"/>
+  <node id="L1A_DELAY"      address="0x500" mask="0x00000ff8" permission="rw" description="Number of clock cycles to delay the L1A after a QINJ" parameters="default=0x190"/>
+  <node id="L1A_DEADTIME"   address="0x507" mask="0x0ffff000" permission="rw" description="Number of clock cycles to delay the L1A after a previous L1A" parameters="default=0x0000"/>
+  <node id="QINJ_MAKES_L1A" address="0x500" mask="0x00000004" permission="rw" description="1 for QINJ to make L1As" parameters="default=0x1"/>
+  <node id="QINJ_DEADTIME"  address="0x500" mask="0xffff0000" permission="rw" description="Minimum deadtime between charge injections" parameters="default=0x000000ff"/>
+  <node id="QINJ_RATE"      address="0x501" mask="0xffffffff" permission="rw" description="Rate of generated qinj f_trig =(2^32-1) * clk_period * rate" parameters="default=0x00000000"/>
+  <node id="L1A_RATE"       address="0x502" mask="0xffffffff" permission="rw" description="Rate of generated triggers f_trig =(2^32-1) * clk_period * rate" parameters="default=0x00000000"/>
+  <node id="L1A_RATE_CNT"   address="0x503" mask="0xffffffff" permission="r"  description="Measured rate of generated triggers in Hz" />
+  <node id="EN_EXT_TRIGGER" address="0x507" mask="0x00000001" permission="rw" description="1 to enable the external SMA trigger" />
+
+</node>

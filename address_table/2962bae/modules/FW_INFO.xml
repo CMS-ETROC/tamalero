@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<node id="INFO" fwinfo="endpoint; width=8">
+
+      <node id="HOG_INFO" address="0x00000000">
+            <node id="GLOBAL_DATE" address="0x0"  permission="r" mask="0xFFFFFFFF"/>
+            <node id="GLOBAL_TIME" address="0x1"  permission="r" mask="0xFFFFFFFF"/>
+            <node id="GLOBAL_VER"  address="0x2"  permission="r" mask="0xFFFFFFFF"/>
+            <node id="GLOBAL_SHA"  address="0x3"  permission="r" mask="0xFFFFFFFF"/>
+            <node id="REPO_SHA"    address="0x4"  permission="r" mask="0xFFFFFFFF" description="This is the number you want to use, the rest are confusing and useless"/>
+            <node id="XML_SHA"     address="0x22"  permission="r" mask="0xFFFFFFFF" description="Last commit in which the XML address table was modified"/>
+      </node>
+
+      <node id="UPTIME_MSBS" address="0x5"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="UPTIME_LSBS" address="0x6"  permission="r" mask="0xFFFFFFFF"/>
+
+      <node id="CLK_40_FREQ" address="0x7"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="CLK320_FREQ" address="0x8"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="REFCLK_FREQ" address="0x9"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="IPBCLK_FREQ" address="0xA"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="CLK125_FREQ" address="0xB"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="CLK300_FREQ" address="0xC"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="CLKUSR_FREQ" address="0xD"  permission="r" mask="0xFFFFFFFF"/>
+
+      <node id="TXCLK0_FREQ" address="0xE"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK1_FREQ" address="0xF"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK2_FREQ" address="0x10"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK3_FREQ" address="0x11"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK4_FREQ" address="0x12"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK5_FREQ" address="0x13"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK6_FREQ" address="0x14"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK7_FREQ" address="0x15"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK8_FREQ" address="0x16"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="TXCLK9_FREQ" address="0x17"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK0_FREQ" address="0x18"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK1_FREQ" address="0x19"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK2_FREQ" address="0x1A"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK3_FREQ" address="0x1B"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK4_FREQ" address="0x1C"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK5_FREQ" address="0x1D"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK6_FREQ" address="0x1E"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK7_FREQ" address="0x1F"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK8_FREQ" address="0x20"  permission="r" mask="0xFFFFFFFF"/>
+      <node id="RXCLK9_FREQ" address="0x21"  permission="r" mask="0xFFFFFFFF"/>
+
+      <node id="DNA"     address="0x23"  permission="r" mask="0xFFFFFFFF" description="Device DNA [31:0]"/>
+
+</node>
