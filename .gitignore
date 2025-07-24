@@ -23,3 +23,12 @@ lpgbt_cal_*.json
 *.parquet
 tamalero.egg-info
 ETROC_output
+!address_table/aac574f
+!address_table/aac574f/*
+!address_table/aac574f/modules/*
+!address_table/28aa428
+!address_table/28aa428/*
+!address_table/2962bae
+!address_table/2962bae/*
+!address_table/d140783
+!address_table/d140783/*
