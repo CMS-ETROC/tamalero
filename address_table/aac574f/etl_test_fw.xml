@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<node id="TOP">
+  <node id="LOOPBACK"        module="file://modules/LOOPBACK.xml"      address="0x0000" />
+  <node id="FW_INFO"         module="file://modules/FW_INFO.xml"       address="0x1000" />
+
+  <node id="READOUT_BOARD_0" fwinfo="type=array" module="file://modules/READOUT_BOARD.xml" address="0x2000"/>
+  <node id="READOUT_BOARD_1" fwinfo="type=array" module="file://modules/READOUT_BOARD.xml" address="0x3000"/>
+  <node id="READOUT_BOARD_2" fwinfo="type=array" module="file://modules/READOUT_BOARD.xml" address="0x4000"/>
+  <node id="READOUT_BOARD_3" fwinfo="type=array" module="file://modules/READOUT_BOARD.xml" address="0x5000"/>
+  <node id="READOUT_BOARD_4" fwinfo="type=array" module="file://modules/READOUT_BOARD.xml" address="0x6000"/>
+
+  <node id="SYSTEM"          module="file://modules/SYSTEM.xml"        address="0xB000" />
+
+  <node id="DAQ_RB0" fwinfo="type=array" module="file://modules/DAQ.xml" address="0x0100000" />
+  <node id="DAQ_RB1" fwinfo="type=array" module="file://modules/DAQ.xml" address="0x0200000" />
+  <node id="DAQ_RB2" fwinfo="type=array" module="file://modules/DAQ.xml" address="0x0400000" />
+  <node id="DAQ_RB3" fwinfo="type=array" module="file://modules/DAQ.xml" address="0x0800000" />
+  <node id="DAQ_RB4" fwinfo="type=array" module="file://modules/DAQ.xml" address="0x1000000" />
+
+</node>
