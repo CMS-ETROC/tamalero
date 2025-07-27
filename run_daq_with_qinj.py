@@ -368,7 +368,8 @@ def main(args):
                 print(green("SUCCESS: Data is being generated!"))
                 print(f"   FIFO returned {occupancy} data items")
 
-                print(data)
+                for line in data:
+                    print(line)
 
         except Exception as e:
             print(red(f"Read failed: {e}"))
