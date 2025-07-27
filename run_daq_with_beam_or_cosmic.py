@@ -39,8 +39,6 @@ TH_OFFSET = run_config['parameters']['th_offset']
 TRIGGER_ENABLE_MASK = run_config['parameters']['trigger_enable_mask']
 TRIGGER_DATA_SIZE = run_config['parameters']['trigger_data_size']
 TRIGGER_DELAY_SEL = run_config['parameters']['trigger_delay_sel']
-CHARGE_FC = run_config['parameters']['charge_fc']
-QINJ_COUNT = run_config['parameters']['qinj_count']
 
 HISTORY_PATH = run_config['paths']['history_path']
 FIGURES_PATH = run_config['paths']['figures_path']
@@ -426,12 +424,6 @@ def main(args):
 
     # Setup terminal for non-blocking input
     old_settings = setup_terminal()
-
-    if QINJ_COUNT > 0:
-        print('Charge injection test run')
-        fifo.send_Qinj_only(count=QINJ_COUNT)
-        fifo.reset()
-
     time.sleep(1)
     
     try:
