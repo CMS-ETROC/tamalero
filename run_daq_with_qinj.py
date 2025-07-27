@@ -319,7 +319,7 @@ def main(args):
     # ======================================================================================
             
     all_pixels = [(randint(0, 15), randint(0, 15)) for _ in range(2)]
-    print(f'Random selected two set of pixels: {all_pixels}')
+    print(f'\nRandom selected two set of pixels: {all_pixels}')
 
     # 2. Build the configuration list, filtering for valid chips.
     etroc_configs = {
@@ -336,7 +336,6 @@ def main(args):
     # ======================================================================================
     
     config_etroc(all_pixels, etroc_configs, baseline_storage)
-
 
     if not args.self_trigger:
         df = DataFrame()
@@ -359,7 +358,7 @@ def main(args):
                 etroc.QInj_set(charge=30, delay=10, L1Adelay=delays[idx], row=pixel_row, col=pixel_col, broadcast=False, reset=True)
             
         print(green("Configuration complete."))
-        fifo.send_QInj(10, delay=etroc.QINJ_delay)
+        fifo.send_QInj(3, delay=etroc.QINJ_delay)
 
         try:
             data = fifo.pretty_read(df)
@@ -405,6 +404,13 @@ def main(args):
         time.sleep(0.2)
         rb.enable_etroc_trigger()
 
+        df = DataFrame()
+        fifo.send_Qinj_only(count = 3)
+        data = fifo.pretty_read(df)
+        # time.sleep(0.1)
+        if len(data) > 0:
+            for line in data:
+                print(line)
 
 if __name__ == "__main__":
     
