@@ -16,8 +16,6 @@ parameters:
   trigger_enable_mask: 0xF
   trigger_data_size: 1
   trigger_delay_sel: 469
-  charge_fc: 5
-  qinj_count: 0
 
 paths:
   history_path: '/home/daq/ETROC2_KCU105/ETROC-History'
