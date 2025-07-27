@@ -13,7 +13,7 @@ from datetime import datetime
 from random import randint
 import time, yaml
 
-run_config_path = 'run_config_yamls/qin_test.yaml'
+run_config_path = 'run_config_yamls/qinj_test.yaml'
 try:
     with open(run_config_path, 'r') as file:
         run_config = yaml.safe_load(file)
@@ -319,6 +319,7 @@ def main(args):
     # ======================================================================================
             
     all_pixels = [(randint(0, 15), randint(0, 15)) for _ in range(2)]
+    print(f'Random selected two set of pixels: {all_pixels}')
 
     # 2. Build the configuration list, filtering for valid chips.
     etroc_configs = {
@@ -327,19 +328,14 @@ def main(args):
         if etroc is not None
     }
 
-    if not args.skip_etroc_config:
-        print(f"4. Calibrating pixels' baselines...")
-        baseline_storage = measure_BL_and_NW(all_pixels, etroc_configs)
-
-    if args.auto_calibration_only:
-        exit()
+    print(f"4. Calibrating pixels' baselines...")
+    baseline_storage = measure_BL_and_NW(all_pixels, etroc_configs)
 
     # ======================================================================================
     # 6. Chip configuration
     # ======================================================================================
     
-    if not args.skip_etroc_config:
-        config_etroc(all_pixels, etroc_configs, baseline_storage)
+    config_etroc(all_pixels, etroc_configs, baseline_storage)
 
 
     if not args.self_trigger:
@@ -372,8 +368,7 @@ def main(args):
                 print(green("SUCCESS: Data is being generated!"))
                 print(f"   FIFO returned {occupancy} data items")
 
-                for key, val in data.items():
-                    print(key, val)
+                print(data)
 
         except Exception as e:
             print(red(f"Read failed: {e}"))
@@ -417,20 +412,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
             prog='PlaceHolder',
             description='Run Cable Eliminator DAQ!',
-    )
-
-    parser.add_argument(
-        '--skip_etroc_config',
-        action = 'store_true',
-        help = 'If set, skip etroc initialziation and configuration',
-        dest = 'skip_etroc_config',
-    )
-
-    parser.add_argument(
-        '--auto_calibration_only',
-        action = 'store_true',
-        help = 'If set, The script will stop after auto calibration',
-        dest = 'auto_calibration_only',
     )
 
     parser.add_argument(
