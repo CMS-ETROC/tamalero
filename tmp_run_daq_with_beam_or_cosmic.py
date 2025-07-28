@@ -12,7 +12,9 @@ import time
 import select
 import pickle
 import termios
+import struct
 import numpy as np
+from pathlib import Path
 from tqdm import tqdm
 from random import randint
 from datetime import datetime, timezone,timedelta
@@ -33,12 +35,12 @@ TRIGGER_ENABLE_MASK = 0x1
 TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 469
 
-CHARGE_FC = 30 
-QINJ_COUNT = 10
-CHUNK_SIZE = 500000     # number of events for each saved file
+CHARGE_FC = 5 
+QINJ_COUNT = 0
+CHUNK_SIZE = 10000     # number of events for each saved file
 running_time = 2       # minutes, None means no limit
 
-PIXEL_ROW = 1
+PIXEL_ROW = 2
 PIXEL_COL = 2
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 
@@ -357,7 +359,7 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
                 applied_dac = baseline + TH_OFFSET
                 etroc.wr_reg('DAC', applied_dac, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.wr_reg("QSel", CHARGE_FC - 1, row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('TOA', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('TOT', upper=0x1ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('Cal', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
@@ -408,7 +410,7 @@ def configure_trigger_system(rb):
 # DATA ACQUISITION FUNCTION
 # ======================================================================================
 
-def run_cosmic_detection(rb, max_running_time):
+def run_cosmic_detection(rb, max_running_time, args):
     """Run continuous cosmic ray detection with chunked data saving"""
     global stop_acquisition, hit_counter
     
@@ -451,10 +453,16 @@ def run_cosmic_detection(rb, max_running_time):
         trigger_cnt = 0
 
         end_time = None
-        if max_running_time:
-            end_time = start_time + timedelta(minutes=max_running_time)
-            print(f"Start time: {start_time.strftime('%H:%M:%S')}")
-            print(f"Estimate ending time: {end_time.strftime('%H:%M:%S')}")
+        # if max_running_time:
+        #     end_time = start_time + timedelta(minutes=max_running_time)
+        #     print(f"Start time: {start_time.strftime('%H:%M:%S')}")
+        #     print(f"Estimate ending time: {end_time.strftime('%H:%M:%S')}")
+
+        output_dir = Path(args.outdir)
+        output_dir.mkdir(exist_ok=True)
+        file_number = 0
+        counters_in_current_file = 0
+        current_file = None
 
         while not stop_acquisition:
             try:
@@ -462,59 +470,86 @@ def run_cosmic_detection(rb, max_running_time):
                 if check_for_quit():
                     break
                     
-                if max_running_time:
-                    current_time = datetime.now(timezone.utc)
-                    if current_time >= end_time:
-                        elapsed_time = (current_time - start_time).total_seconds() / 60
-                        print(yellow(f"Reached time setting ({elapsed_time:.1f} minutes), auto stopped"))
-                        break
+                # if max_running_time:
+                #     current_time = datetime.now(timezone.utc)
+                #     if current_time >= end_time:
+                #         elapsed_time = (current_time - start_time).total_seconds() / 60
+                #         print(yellow(f"Reached time setting ({elapsed_time:.1f} minutes), auto stopped"))
+                #         break
                 
-                fifo.send_Qinj_only(count=QINJ_COUNT)
-                data = fifo.pretty_read(df)
+                # --- Check if a new file needs to be created ---
+                if current_file is None:
+                    new_filename = output_dir / f"file_{file_number}_CE.dat"
+                    print(f"Opening new file: {new_filename}")
+                    current_file = open(new_filename, "wb")
+                    counters_in_current_file = 0
+
+                # --- Read and write data ---
+                raw_data = fifo.read(dispatch=True)
+
+                time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
+
+                if raw_data:
+                    packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
+                    current_file.write(packed_data)
+                    counters_in_current_file += 1
                 
-                if len(data) > 0:
-                    chunk_saver.add_events(data)
+                    # --- Check event count and roll over if needed ---
+                    if counters_in_current_file >= CHUNK_SIZE:
+                        current_file.close()
+                        print(f"Closed file: {current_file.name}")
+
+                        file_number += 1
+                        current_file = None # Trigger opening a new file on the next loop
+
+                time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
+
+                # fifo.send_Qinj_only(count=QINJ_COUNT)
+                # data = fifo.pretty_read(df)
+                
+                # if len(data) > 0:
+                #     chunk_saver.add_events(data)
                     
-                    # Count hits
-                    for event in data:
-                        if event and len(event) >= 2:
-                            if event[0] == 'header':
-                                trigger_cnt += 1
-                            elif event[0] == 'data':
-                                hit_counter += 1
+                #     # Count hits
+                #     for event in data:
+                #         if event and len(event) >= 2:
+                #             if event[0] == 'header':
+                #                 trigger_cnt += 1
+                #             elif event[0] == 'data':
+                #                 hit_counter += 1
                 
-                current_time = time.time()
+                # current_time = time.time()
                 
-                # Periodic status report
-                if current_time - last_report_time >= report_interval:
-                    elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-                    elapsed_minutes = elapsed_time / 60
+                # # Periodic status report
+                # if current_time - last_report_time >= report_interval:
+                #     elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+                #     elapsed_minutes = elapsed_time / 60
 
-                    print(f"\n--- Status Report ---")
-                    print(f"Running time: {elapsed_time:.1f} seconds")
-                    print(f"Total cosmic hits: {hit_counter}")
-                    print(f"Trigger count: {trigger_cnt}")
-                    print(f"current saved events: {chunk_saver.total_events:,}")
-                    print(f"Current chunk size: {len(chunk_saver.current_chunk):,}")
+                #     print(f"\n--- Status Report ---")
+                #     print(f"Running time: {elapsed_time:.1f} seconds")
+                #     print(f"Total cosmic hits: {hit_counter}")
+                #     print(f"Trigger count: {trigger_cnt}")
+                #     print(f"current saved events: {chunk_saver.total_events:,}")
+                #     print(f"Current chunk size: {len(chunk_saver.current_chunk):,}")
 
-                    if max_running_time:
-                        remaining_time = (max_running_time * 60) - elapsed_time
-                        if remaining_time > 60:
-                            remaining_min = int(remaining_time // 60)
-                            remaining_sec = int(remaining_time % 60)
-                            print(yellow(f"Press 'q' to stop acquisition earlier or wait {remaining_min} minutes and {remaining_sec} secs to auto stop"))
-                        elif remaining_time > 0:
-                            print(yellow(f"remaining time: {int(remaining_time)} sec"))
-                    else:
-                        print("Press 'q' to stop\n")
-                    last_report_time = current_time
+                #     if max_running_time:
+                #         remaining_time = (max_running_time * 60) - elapsed_time
+                #         if remaining_time > 60:
+                #             remaining_min = int(remaining_time // 60)
+                #             remaining_sec = int(remaining_time % 60)
+                #             print(yellow(f"Press 'q' to stop acquisition earlier or wait {remaining_min} minutes and {remaining_sec} secs to auto stop"))
+                #         elif remaining_time > 0:
+                #             print(yellow(f"remaining time: {int(remaining_time)} sec"))
+                #     else:
+                #         print("Press 'q' to stop\n")
+                #     last_report_time = current_time
 
-                if current_time - last_save_time >= save_interval:
-                    if chunk_saver.current_chunk: 
-                        chunk_saver._save_current_chunk()
-                    last_save_time = current_time
+                # if current_time - last_save_time >= save_interval:
+                #     if chunk_saver.current_chunk: 
+                #         chunk_saver._save_current_chunk()
+                #     last_save_time = current_time
                 
-                time.sleep(0.05)  # Small delay
+                # time.sleep(0.05)  # Small delay
                 
             except Exception as e:
                 print(red(f"Data acquisition error: {e}"))
@@ -525,10 +560,16 @@ def run_cosmic_detection(rb, max_running_time):
         print(yellow("\nKeyboard interrupt detected, stopping..."))
     
     finally:
+        # print(f"Running time: {str(elapsed_time).split('.')[0]}")
+
+        if current_file and not current_file.closed:
+            current_file.close()
+            print(f"Closed final file: {current_file.name}")
+
         # Restore terminal settings
         restore_terminal(old_settings)
         
-        chunk_saver.finalize()
+        # chunk_saver.finalize()
 
     end_time = datetime.now(timezone.utc)
     total_time = (end_time - start_time).total_seconds()
@@ -559,7 +600,7 @@ def cleanup_system(etroc_configs, rb):
 # MAIN FUNCTION
 # ======================================================================================
 
-def main(max_running_time = None):
+def main(max_running_time = None, args = None):
     global stop_acquisition, hit_counter
     
     # Hardware initialization
@@ -574,7 +615,7 @@ def main(max_running_time = None):
     configure_trigger_system(rb)
     
     # Data acquisition
-    run_cosmic_detection(rb,max_running_time)
+    run_cosmic_detection(rb,max_running_time, args)
     
     # Cleanup
     cleanup_system(etroc_configs, rb)
@@ -586,4 +627,23 @@ if __name__ == "__main__":
         max_running_time: max running time (minutes)
                         None means no limit(press 'q' to stop)
     """
-    main(running_time)
+    import argparse
+
+    parser = argparse.ArgumentParser(
+            prog='PlaceHolder',
+            description='Run Cable Eliminator DAQ!',
+    )
+
+    parser.add_argument(
+        '-o',
+        '--outdir',
+        metavar = 'NAME',
+        type = str,
+        help = 'output directory name',
+        required = True,
+        dest = 'outdir',
+    )
+
+    args = parser.parse_args()
+
+    main(running_time, args)
