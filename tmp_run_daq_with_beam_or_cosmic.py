@@ -464,6 +464,7 @@ def run_cosmic_detection(rb, max_running_time, args):
         counters_in_current_file = 0
         current_file = None
 
+        start_time = datetime.now(timezone.utc)
         while not stop_acquisition:
             try:
                 # Check for quit command
@@ -560,7 +561,8 @@ def run_cosmic_detection(rb, max_running_time, args):
         print(yellow("\nKeyboard interrupt detected, stopping..."))
     
     finally:
-        # print(f"Running time: {str(elapsed_time).split('.')[0]}")
+        elapsed_time = (datetime.now(timezone.utc) - start_time)
+        print(f"Running time: {str(elapsed_time).split('.')[0]}")
 
         if current_file and not current_file.closed:
             current_file.close()
