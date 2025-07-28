@@ -405,6 +405,8 @@ def main(args):
         rb.enable_etroc_trigger()
 
         df = DataFrame()
+        time.sleep(1)
+        print('Send qinj pulse')
         fifo.send_Qinj_only(count = 1)
 
         try:
