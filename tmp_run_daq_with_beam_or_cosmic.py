@@ -459,7 +459,7 @@ def run_cosmic_detection(rb, max_running_time, args):
         #     print(f"Estimate ending time: {end_time.strftime('%H:%M:%S')}")
 
         output_dir = Path(args.outdir)
-        output_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(exist_ok=True, parents=True)
         file_number = 0
         counters_in_current_file = 0
         current_file = None
