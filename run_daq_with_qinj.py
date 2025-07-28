@@ -358,7 +358,7 @@ def main(args):
                 etroc.QInj_set(charge=30, delay=10, L1Adelay=delays[idx], row=pixel_row, col=pixel_col, broadcast=False, reset=True)
             
         print(green("Configuration complete."))
-        fifo.send_QInj(3, delay=etroc.QINJ_delay)
+        fifo.send_QInj(1, delay=etroc.QINJ_delay)
 
         try:
             data = fifo.pretty_read(df)
@@ -405,12 +405,28 @@ def main(args):
         rb.enable_etroc_trigger()
 
         df = DataFrame()
-        fifo.send_Qinj_only(count = 3)
-        data = fifo.pretty_read(df)
-        # time.sleep(0.1)
-        if len(data) > 0:
-            for line in data:
-                print(line)
+        fifo.send_Qinj_only(count = 1)
+
+        try:
+            data = fifo.pretty_read(df)
+            time.sleep(0.1)
+
+            if len(data) > 0:
+                for line in data:
+                    print(line)
+
+        except Exception as e:
+            print(red(f"Read failed: {e}"))
+            exit()
+
+        finally:
+            print("\nCleaning up...")
+            for _, etroc in etroc_configs.items():
+                etroc.disable_QInj(broadcast=True)
+                etroc.disable_data_readout(broadcast=True)
+                etroc.disable_trigger_readout(broadcast=True)
+            print("Test complete!")
+
 
 if __name__ == "__main__":
     
