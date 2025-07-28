@@ -40,8 +40,8 @@ QINJ_COUNT = 0
 CHUNK_SIZE = 10000     # number of events for each saved file
 running_time = 2       # minutes, None means no limit
 
-PIXEL_ROW = 2
-PIXEL_COL = 2
+PIXEL_ROW = 4
+PIXEL_COL = 4
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 
 stop_acquisition = False
@@ -607,6 +607,9 @@ def main(max_running_time = None, args = None):
     kcu = initialize_kcu()
     rb = initialize_readout_board(kcu)
     etroc_chips, chip_names = initialize_etroc_chips(rb)
+
+    for etroc in etroc_chips:
+        etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
     
     # Setup and calibration
     print("\nETROC COSMIC RAY TEST - CONTINUOUS DETECTION")
