@@ -407,9 +407,9 @@ def main(args):
         df = DataFrame()
         time.sleep(1)
         print('Send qinj pulse')
-        fifo.send_Qinj_only(count = 1)
 
         try:
+            fifo.send_Qinj_only(count = 1)
             data = fifo.pretty_read(df)
             time.sleep(0.1)
 
