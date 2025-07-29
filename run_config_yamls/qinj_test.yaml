@@ -18,9 +18,9 @@ parameters:
   trigger_delay_sel: 469
 
 paths:
-  history_path: '/home/daq/ETROC2_KCU105/ETROC-History'
-  figures_path: '/home/daq/ETROC2_KCU105/ETROC-figures'
-  outputs_path: '/home/daq/ETROC2_KCU105/ETROC-Data-CE/cosmic_run'
+  history_path: '/home/daq/KCU105_NEW/ETROC-History'
+  figures_path: '/home/daq/KCU105_NEW/ETROC-figures'
+  outputs_path: '/home/daq/KCU105_NEW/ETROC-Data-CE/cosmic_run'
 
 extra:
   history_note: ''

@@ -4,18 +4,16 @@ from tamalero.ETROC import ETROC
 from tamalero.utils import get_kcu
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
+from tamalero.DataFrame import DataFrame
 from tamalero.FIFO import FIFO
 
 from tqdm import tqdm
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
+from random import randint
+import time, yaml
 
-import termios, tty, sys, select, time, yaml, struct
-
-### Custom function
-from etroc_utils import convert_dict_to_pandas, save_baselines
-
-run_config_path = 'run_config_yamls/test.yaml'
+run_config_path = 'run_config_yamls/qinj_test.yaml'
 try:
     with open(run_config_path, 'r') as file:
         run_config = yaml.safe_load(file)
@@ -39,14 +37,7 @@ TH_OFFSET = run_config['parameters']['th_offset']
 TRIGGER_ENABLE_MASK = run_config['parameters']['trigger_enable_mask']
 TRIGGER_DATA_SIZE = run_config['parameters']['trigger_data_size']
 TRIGGER_DELAY_SEL = run_config['parameters']['trigger_delay_sel']
-CHARGE_FC = run_config['parameters']['charge_fc']
-QINJ_COUNT = run_config['parameters']['qinj_count']
-
-HISTORY_PATH = run_config['paths']['history_path']
-FIGURES_PATH = run_config['paths']['figures_path']
-OUTPUTS_PATH = run_config['paths']['outputs_path']
-NOTE_FOR_HISTORY = run_config['extra']['history_note']
-
+CHARGE_FC = 30
 
 # --- Derived Variables ---
 # This variable is calculated from the loaded config, not stored in it.
@@ -55,38 +46,6 @@ NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 stop_acquisition = False
 cosmic_data = []
 hit_counter = 0
-
-def setup_terminal():
-    """Setup terminal for non-blocking input"""
-    try:
-        # Save old terminal settings
-        old_settings = termios.tcgetattr(sys.stdin)
-        tty.cbreak(sys.stdin.fileno())
-        return old_settings
-    except:
-        return None
-
-def restore_terminal(old_settings):
-    """Restore terminal settings"""
-    try:
-        if old_settings:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-    except:
-        pass
-
-def check_for_quit():
-    """Check if user pressed 'q' to quit"""
-    global stop_acquisition
-    try:
-        if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
-            char = sys.stdin.read(1)
-            if char.lower() == 'q':
-                print(yellow("\nUser pressed 'q', stopping daq..."))
-                stop_acquisition = True
-                return True
-    except:
-        pass
-    return False
 
 def initialize_etroc(rb):
     
@@ -207,17 +166,6 @@ def measure_BL_and_NW(list_of_pixels,
     else:
         print(green("All pixels passed baseline scan"))
 
-    print("Save Baseline and noise width plots")
-
-    for key, val in baseline_storage.items():
-        bl_nw_df = convert_dict_to_pandas(val, key)
-        tmp_timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
-        my_note = tmp_timestamp + ' ' + custom_note
-        save_baselines(bl_nw_df, key,
-                       hist_dir=path_to_hist,
-                       fig_dir=path_to_figure,
-                       save_notes=my_note)
-    
     return baseline_storage
 
 
@@ -241,7 +189,7 @@ def config_etroc(list_of_pixels,
         etroc.wr_reg("disDataReadout", 0, broadcast=True)
         etroc.wr_reg("disTrigPath", 0, broadcast=True)
         etroc.wr_reg("QSel", CHARGE_FC, broadcast=True)
-        etroc.wr_reg("QInjEn", 0, broadcast=True)
+        etroc.wr_reg("QInjEn", 1, broadcast=True)
 
         # Set universal thresholds for all pixels via broadcast
         etroc.set_trigger_TH('TOA', upper=0x3ff, lower=0, broadcast=True)
@@ -311,7 +259,6 @@ def prepare_self_trigger_system(rb):
 
 
 def main(args):
-    global stop_acquisition
     
     print('ETROC HARDWARE INITIALIZATION')
     
@@ -371,7 +318,8 @@ def main(args):
     # 5. Baseline and Noise Width calibration
     # ======================================================================================
             
-    all_pixels = [(row, col) for row in range(16) for col in range(16)]
+    all_pixels = [(randint(0, 15), randint(0, 15)) for _ in range(2)]
+    print(f'\nRandom selected two set of pixels: {all_pixels}')
 
     # 2. Build the configuration list, filtering for valid chips.
     etroc_configs = {
@@ -380,141 +328,106 @@ def main(args):
         if etroc is not None
     }
 
-    if not args.skip_etroc_config:
-        print(f"4. Calibrating pixels' baselines...")
-        baseline_storage = measure_BL_and_NW(all_pixels, etroc_configs,
-                                            path_to_hist=HISTORY_PATH,
-                                            path_to_figure=FIGURES_PATH,
-                                            custom_note=NOTE_FOR_HISTORY)
-
-    if args.auto_calibration_only:
-        exit()
+    print(f"4. Calibrating pixels' baselines...")
+    baseline_storage = measure_BL_and_NW(all_pixels, etroc_configs)
 
     # ======================================================================================
     # 6. Chip configuration
     # ======================================================================================
     
-    if not args.skip_etroc_config:
-        config_etroc(all_pixels, etroc_configs, baseline_storage)
-    
-    # ======================================================================================
-    # 7. Prepare self-trigger system
-    # ======================================================================================   
-    
-    prepare_self_trigger_system(rb)
+    config_etroc(all_pixels, etroc_configs, baseline_storage)
 
-    # ======================================================================================
-    # 8. FIFO
-    # ======================================================================================   
-    
-    # Initialize FIFO and reset system
-    fifo = FIFO(rb)
-    fifo.reset()
-    rb.reset_data_error_count()
-    rb.enable_etroc_readout()
-    rb.rerun_bitslip()
-    fifo.use_etroc_data()
-    time.sleep(0.2)
-    rb.enable_etroc_trigger()
+    if not args.self_trigger:
+        df = DataFrame()
+        fifo = FIFO(rb)
 
-    # ======================================================================================
-    # 9. CONTINUOUS COSMIC RAY DETECTION
-    # ======================================================================================
-    
-    print("\n8. Starting continuous cosmic run detection...")
-    print(yellow("Press 'q' to stop acquisition"))
-
-    # Setup terminal for non-blocking input
-    old_settings = setup_terminal()
-
-    if QINJ_COUNT > 0:
-        print('Charge injection test run')
-        fifo.send_Qinj_only(count=QINJ_COUNT)
         fifo.reset()
+        rb.reset_data_error_count()
+        rb.enable_etroc_readout()
+        rb.rerun_bitslip()  
+        fifo.use_etroc_data()
+        time.sleep(1)
 
-    time.sleep(1)
-    
-    try:
-        # --- Configuration for file splitting ---
-        output_dir = Path(OUTPUTS_PATH)
-        output_dir.mkdir(exist_ok=True)
+        delays = [501, 501, 501, 501]
 
-        max_counters_per_file = run_config['extra']['max_data_counter']
-        file_number = 0
-        counters_in_current_file = 0
-        current_file = None
-
-        print(f"Saving data to: {output_dir.resolve()}, splitting every {max_counters_per_file} counters")
-
-        start_time = datetime.now(timezone.utc)
-        while not stop_acquisition:
-            try:
-                # Check for quit command
-                if check_for_quit():
-                    break
-
-                # --- Check if a new file needs to be created ---
-                if current_file is None:
-                    new_filename = output_dir / f"file_{file_number}_CE.dat"
-                    print(f"Opening new file: {new_filename}")
-                    current_file = open(new_filename, "wb")
-                    counters_in_current_file = 0
-                
-                # --- Read and write data ---
-                raw_data = fifo.read(dispatch=True)
-
-                time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
-
-                if raw_data:
-                    packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
-                    current_file.write(packed_data)
-                    counters_in_current_file += 1
-                
-                    # --- Check event count and roll over if needed ---
-                    if counters_in_current_file >= max_counters_per_file:
-                        current_file.close()
-                        print(f"Closed file: {current_file.name}")
-
-                        file_number += 1
-                        current_file = None # Trigger opening a new file on the next loop
-
-                time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
-
-            except Exception as e:
-                print(red(f"An error occurred: {e}"))
+        rb.DAQ_LPGBT.set_uplink_group_data_source("normal") 
+        for _, etroc in etroc_configs.items():
+            etroc.reset()
             
-    except KeyboardInterrupt:
-        print(yellow("\nKeyboard interrupt detected, stopping..."))
+            for idx, (pixel_row, pixel_col) in enumerate(all_pixels):
+                etroc.QInj_set(charge=30, delay=10, L1Adelay=delays[idx], row=pixel_row, col=pixel_col, broadcast=False, reset=True)
+            
+        print(green("Configuration complete."))
+        fifo.send_QInj(1, delay=etroc.QINJ_delay)
 
-    finally:
-        elapsed_time = (datetime.now(timezone.utc) - start_time)
-        print(f"Running time: {str(elapsed_time).split('.')[0]}")
+        try:
+            data = fifo.pretty_read(df)
+            occupancy = len(data)
+            if occupancy > 0:
+                print(green("SUCCESS: Data is being generated!"))
+                print(f"   FIFO returned {occupancy} data items")
 
-        if current_file and not current_file.closed:
-            current_file.close()
-            print(f"Closed final file: {current_file.name}")
+                for line in data:
+                    print(line)
 
-        # Restore terminal settings
-        restore_terminal(old_settings)
+        except Exception as e:
+            print(red(f"Read failed: {e}"))
+
+        finally:
+            print("\nCleaning up...")
+            for _, etroc in etroc_configs.items():
+                etroc.disable_QInj(broadcast=True)
+                etroc.disable_data_readout(broadcast=True)
+                etroc.disable_trigger_readout(broadcast=True)
+            print("Test complete!")
+
+
+    else:
     
+        # ======================================================================================
+        # 7. Prepare self-trigger system
+        # ======================================================================================   
+        
+        prepare_self_trigger_system(rb)
 
-    # ======================================================================================
-    # 10. CLEANUP SYSTEM
-    # ======================================================================================
+        # ======================================================================================
+        # 8. FIFO
+        # ======================================================================================   
+        
+        # Initialize FIFO and reset system
+        fifo = FIFO(rb)
+        fifo.reset()
+        rb.reset_data_error_count()
+        rb.enable_etroc_readout()
+        rb.rerun_bitslip()
+        fifo.use_etroc_data()
+        time.sleep(0.2)
+        rb.enable_etroc_trigger()
 
-    print("\n9. Cleaning up system...")
+        df = DataFrame()
+        time.sleep(1)
+        print('Send qinj pulse')
 
-    for chip_name, etroc in etroc_configs.items():
-        print(f"Cleaning up {chip_name}...")
-        for _ in range(3):
-            fifo.reset()
-            rb.reset_data_error_count()
-            etroc.wr_reg("QInjEn", 0, broadcast=True)
-            etroc.wr_reg("disDataReadout", 1, broadcast=True)
+        try:
+            fifo.send_Qinj_only(count = 1)
+            data = fifo.pretty_read(df)
             time.sleep(0.1)
 
-    print(green("System cleanup completed"))
-    print(green("Cosmic ray test finished successfully!"))
+            if len(data) > 0:
+                for line in data:
+                    print(line)
+
+        except Exception as e:
+            print(red(f"Read failed: {e}"))
+            exit()
+
+        finally:
+            print("\nCleaning up...")
+            for _, etroc in etroc_configs.items():
+                etroc.disable_QInj(broadcast=True)
+                etroc.disable_data_readout(broadcast=True)
+                etroc.disable_trigger_readout(broadcast=True)
+            print("Test complete!")
 
 
 if __name__ == "__main__":
@@ -527,17 +440,10 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '--skip_etroc_config',
+        '--self_trigger',
         action = 'store_true',
-        help = 'If set, skip etroc initialziation and configuration',
-        dest = 'skip_etroc_config',
-    )
-
-    parser.add_argument(
-        '--auto_calibration_only',
-        action = 'store_true',
-        help = 'If set, The script will stop after auto calibration',
-        dest = 'auto_calibration_only',
+        help = 'If set, Run qinj as self trigger mode',
+        dest = 'self_trigger',
     )
     
     args = parser.parse_args()
