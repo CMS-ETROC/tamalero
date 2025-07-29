@@ -165,20 +165,21 @@ class FIFO:
                 print(f"uhal UDP error in FIFO.read_block, block size is {block}")
                 raise
 
-    def read(self, dispatch=False, verbose=False):
-        #occupancy = self.get_occupancy()*4 + 2  # FIXME don't know where factor of 4 comes from??
-        #if verbose: print(f"{occupancy=}")
-        #num_blocks_to_read = occupancy // self.block
-        #if verbose: print(f"{num_blocks_to_read=}")
-        #last_block = occupancy % self.block
-        #if verbose: print(f"{last_block=}")
-        data = []
-        while self.get_occupancy()>0:
-            # FIXME checking get_occupancy all the time is slow, but this is at least not broken.
-            try:
-               data += self.read_block(250, dispatch=dispatch).value()
-            except:
-               print('Data read failed')
+    # def read(self, dispatch=False, verbose=False):
+    #     #occupancy = self.get_occupancy()*4 + 2  # FIXME don't know where factor of 4 comes from??
+    #     #if verbose: print(f"{occupancy=}")
+    #     #num_blocks_to_read = occupancy // self.block
+    #     #if verbose: print(f"{num_blocks_to_read=}")
+    #     #last_block = occupancy % self.block
+    #     #if verbose: print(f"{last_block=}")
+    #     data = []
+    #     while self.get_occupancy()>0:
+    #         # FIXME checking get_occupancy all the time is slow, but this is at least not broken.
+    #         try:
+    #            data += self.read_block(128, dispatch=dispatch).value()
+    #         except uhal_exception:
+    #            print('uhal UDP error, Data read failed')
+    #     return data
 
         #if (num_blocks_to_read or last_block):
         #    if dispatch:
@@ -206,8 +207,29 @@ class FIFO:
 
         #        for read in reads:
         #            data += read.value()
-        return data
 
+    def read(self, dispatch=False, verbose=False):
+        data = []
+        block_size = 128
+        try:
+            occupancy = self.get_occupancy()
+            
+            while occupancy > 0:
+                chunk_size = min(occupancy, block_size)
+                try:
+                    chunk_data = self.read_block(chunk_size, dispatch=dispatch).value()
+                    data.extend(chunk_data)
+                    occupancy -= chunk_size
+
+                except uhal_exception:
+                    print(f'UDP error while reading chunk. Returning {len(data)} words read so far.')
+                    return data
+
+        except uhal_exception:
+            print(f"UDP error on initial get_occupancy. Returning empty list.")
+            return []
+
+        return data
 
     def get_occupancy(self):
         try:
