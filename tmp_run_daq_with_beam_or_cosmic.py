@@ -35,13 +35,13 @@ TRIGGER_ENABLE_MASK = 0x1
 TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 469
 
-CHARGE_FC = 5 
-QINJ_COUNT = 0
-CHUNK_SIZE = 10000     # number of events for each saved file
+CHARGE_FC = 5
+QINJ_COUNT = 10
+CHUNK_SIZE = 1000      # number of events for each saved file
 running_time = 2       # minutes, None means no limit
 
-PIXEL_ROW = 4
-PIXEL_COL = 4
+PIXEL_ROW = 16
+PIXEL_COL = 16
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 
 stop_acquisition = False
@@ -271,12 +271,21 @@ def calibrate_baselines(etroc_chips, chip_names):
     
     print("\n3. Generating test pixel configuration...")
     all_pixels_per_chip = []
-    for _ in range(NUM_ETROC):
-        chip_pixels = []
-        for row in range(PIXEL_ROW):
-            for col in range(PIXEL_COL):
-                chip_pixels.append((row, col))
-        all_pixels_per_chip.append(chip_pixels)
+
+    if args.qinj_only:
+        for _ in range(NUM_ETROC):
+            chip_pixels = []
+            for row in range(12, 14):
+                for col in range(6, 8):
+                    chip_pixels.append((row, col))
+            all_pixels_per_chip.append(chip_pixels)
+    else:
+        for _ in range(NUM_ETROC):
+            chip_pixels = []
+            for row in range(PIXEL_ROW):
+                for col in range(PIXEL_COL):
+                    chip_pixels.append((row, col))
+            all_pixels_per_chip.append(chip_pixels)
 
     for i, (etroc, chip_name) in enumerate(zip(etroc_chips, chip_names)):
         if etroc is not None and i < len(all_pixels_per_chip):
@@ -359,13 +368,16 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
                 applied_dac = baseline + TH_OFFSET
                 etroc.wr_reg('DAC', applied_dac, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.wr_reg("QSel", CHARGE_FC - 1, row=pixel_row, col=pixel_col, broadcast=False)
-                # etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('TOA', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('TOT', upper=0x1ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('Cal', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_data_TH('TOA', upper=0x3ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_data_TH('TOT', upper=0x1ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_data_TH('Cal', upper=0x3ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
+                
+                if args.qinj_only:
+                    etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
+
                 pbar.update(1)
                 pbar.set_postfix({
                     'pixel': f'({pixel_row},{pixel_col})', 
@@ -440,17 +452,19 @@ def run_cosmic_detection(rb, max_running_time, args):
     
     # Setup terminal for non-blocking input
     old_settings = setup_terminal()
-    # fifo.send_Qinj_only(count=QINJ_COUNT)
+    
+    if args.qinj_only:
+        fifo.send_Qinj_only(count=QINJ_COUNT)
     time.sleep(1)
     
     try:
         # Continuous data acquisition loop
         start_time = datetime.now(timezone.utc)
-        last_report_time = time.time()
-        last_save_time = time.time()
-        report_interval = 10  # seconds
-        save_interval = 300   # save data every 300 s
-        trigger_cnt = 0
+        # last_report_time = time.time()
+        # last_save_time = time.time()
+        # report_interval = 10  # seconds
+        # save_interval = 300   # save data every 300 s
+        # trigger_cnt = 0
 
         end_time = None
         # if max_running_time:
@@ -647,6 +661,13 @@ if __name__ == "__main__":
         help = 'output directory name',
         required = True,
         dest = 'outdir',
+    )
+
+    parser.add_argument(
+        '--qinj_only',
+        action = 'store_true',
+        help = 'If set, The script will run charge injection',
+        dest = 'qinj_only',
     )
 
     args = parser.parse_args()
