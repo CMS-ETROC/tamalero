@@ -973,14 +973,14 @@ class ReadoutBoard:
         #     print("Resetting self trigger...")
         #     self.reset_self_trigger()
         
-        print(f"Setting trigger delay to {delay_cycles} clock cycles...")
+        # print(f"Setting trigger delay to {delay_cycles} clock cycles...")sss
         self.set_trigger_delay(delay_cycles)
         
         if enable:
-            print("Enabling ETROC self trigger...")
+            # print("Enabling ETROC self trigger...")
             self.enable_etroc_trigger()
         else:
-            print("Disabling ETROC self trigger...")
+            # print("Disabling ETROC self trigger...")
             self.disable_etroc_trigger()
         
         print("Self trigger configuration complete.")

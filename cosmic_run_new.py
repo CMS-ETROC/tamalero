@@ -34,9 +34,9 @@ TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 472
 
 CHARGE_FC = 30 
-QINJ_COUNT = 1000
+QINJ_COUNT = 100
 CHUNK_SIZE = 500000     # number of events for each saved file
-running_time = 2       # minutes, None means no limit
+running_time = 1       # minutes, None means no limit
 
 PIXEL_ROW = 1
 PIXEL_COL = 2
@@ -374,15 +374,22 @@ def configure_trigger_system(rb):
     """Configure self-trigger system"""
     print("\n6. Configuring self-trigger system...")
     
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_0", TRIGGER_ENABLE_MASK)
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_1", TRIGGER_DATA_SIZE)
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_3", TRIGGER_DELAY_SEL)
+    # rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_0", TRIGGER_ENABLE_MASK)
+    # rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_1", TRIGGER_DATA_SIZE)
+    # rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_3", TRIGGER_DELAY_SEL)
+    
+    # print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
+    # print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
+    # print(f"Trigger DELAY SEL: {TRIGGER_DELAY_SEL}")
+    # time.sleep(0.1)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK", TRIGGER_ENABLE_MASK)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DATA_SIZE", TRIGGER_DATA_SIZE)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL", TRIGGER_DELAY_SEL)
     
     print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
     print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
     print(f"Trigger DELAY SEL: {TRIGGER_DELAY_SEL}")
     time.sleep(0.1)
-
     # check elink status
     for elink in [0,4,8,12]:
         locked = rb.etroc_locked(elink, slave=False)
@@ -432,7 +439,9 @@ def run_cosmic_detection(rb, max_running_time):
     
     # Setup terminal for non-blocking input
     old_settings = setup_terminal()
-    # fifo.send_Qinj_only(count=QINJ_COUNT)
+    fifo.send_Qinj_only(count=200)
+    # fifo.send_QInj(count = 10)
+    # fifo.reset()
     time.sleep(1)
     
     try:
@@ -440,7 +449,7 @@ def run_cosmic_detection(rb, max_running_time):
         start_time = datetime.now(timezone.utc)
         last_report_time = time.time()
         last_save_time = time.time()
-        report_interval = 10  # seconds
+        report_interval = 5  # seconds
         save_interval = 300   # save data every 300 s
         trigger_cnt = 0
 
@@ -463,8 +472,12 @@ def run_cosmic_detection(rb, max_running_time):
                         print(yellow(f"Reached time setting ({elapsed_time:.1f} minutes), auto stopped"))
                         break
                 
-                fifo.send_Qinj_only(count=QINJ_COUNT)
-                data = fifo.pretty_read(df)
+                # fifo.send_Qinj_only(count=QINJ_COUNT)
+                # fifo.send_QInj(count=1000)
+                # time.sleep(0.01)
+                # data = fifo.read(dispatch=True)
+                data = fifo.pretty_read(df, raw=True)
+                print(f"--- DEBUG: After merge_words, data length is: {len(data)} ---")
                 
                 if len(data) > 0:
                     chunk_saver.add_events(data)
@@ -482,9 +495,17 @@ def run_cosmic_detection(rb, max_running_time):
                 # Periodic status report
                 if current_time - last_report_time >= report_interval:
                     elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-                    elapsed_minutes = elapsed_time / 60
+                    # elapsed_minutes = elapsed_time / 60
+                    fifo_occupancy = fifo.get_occupancy()
+                    fifo_full = fifo.is_full()
+                    # trigger_rate= fifo.get_trigger_rate()
+                    lost_words = fifo.get_lost_word_count()
+                    # print(f"Trigger rate: {trigger_rate}")
 
                     print(f"\n--- Status Report ---")
+                    print(f"FIFO full :{fifo_full}")
+                    print(f"FIFO lost words: {lost_words}")
+                    print(f"FIFO Occupancy: {fifo_occupancy}")
                     print(f"Running time: {elapsed_time:.1f} seconds")
                     print(f"Total cosmic hits: {hit_counter}")
                     print(f"Trigger count: {trigger_cnt}")

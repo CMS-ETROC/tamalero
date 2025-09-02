@@ -165,8 +165,14 @@ class LPGBT(RegParser):
         #self.base_config = load_yaml(os.path.expandvars('./configs/lpgbt_config.yaml'))['base'][f'v{self.ver}']
         #self.ec_config = load_yaml(os.path.expandvars('./configs/lpgbt_config.yaml'))['ec'][f'v{self.ver}']
 
-        self.base_config = load_yaml(os.path.expandvars('./configs/lpgbt_smu_config.yaml'))['base'][f'v{self.ver}']
-        self.ec_config = load_yaml(os.path.expandvars('./configs/lpgbt_smu_config.yaml'))['ec'][f'v{self.ver}']
+        # self.base_config = load_yaml(os.path.expandvars('./configs/lpgbt_smu_config.yaml'))['base'][f'v{self.ver}']
+        # self.ec_config = load_yaml(os.path.expandvars('./configs/lpgbt_smu_config.yaml'))['ec'][f'v{self.ver}']
+
+        ## for Constellation use
+        here = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(here, '..', 'configs', 'lpgbt_smu_config.yaml')
+        self.base_config = load_yaml(config_path)['base'][f'v{self.ver}']
+        self.ec_config = load_yaml(config_path)['ec'][f'v{self.ver}']
         
         self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, self.ver)
         self.parse_xml(ver=self.ver)

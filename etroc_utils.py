@@ -53,8 +53,10 @@ def make_BL_NW_2D_maps(input_df: pd.DataFrame, given_chip_name: str, note: str, 
 
     bl_threshold = 0.55 * (input_df.baseline.values.max() - input_df.baseline.values.min()) + input_df.baseline.values.min()
 
-    for col in range(16):
-        for row in range(16):
+    # for col in range(16):
+    #     for row in range(16):
+    for col in range(2):
+        for row in range(2):
 
             bl_value = int(input_df.baseline[col][row])
             nw_value = int(input_df.noise_width[col][row])

@@ -17,6 +17,7 @@ import numpy as np
 from tqdm import tqdm
 from random import randint
 from datetime import datetime, timezone
+import threading
 
 KCU_IP = "192.168.0.10" ## If your KCU ip is diff, modify it.
 
@@ -29,13 +30,12 @@ ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
 # Test parameters
 TH_OFFSET = 50              # Threshold offset above baseline
-TRIGGER_ENABLE_MASK = 0x1
+TRIGGER_ENABLE_MASK = 0xf
 TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 472
 
 CHARGE_FC = 30 
 QINJ_COUNT = 1000
-
 PIXEL_ROW = 1
 PIXEL_COL = 2
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
@@ -43,6 +43,7 @@ NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 stop_acquisition = False
 cosmic_data = []
 hit_counter = 0
+
 
 def setup_terminal():
     """Setup terminal for non-blocking input"""
@@ -75,6 +76,17 @@ def check_for_quit():
     except:
         pass
     return False
+
+def qinj_sender(fifo, QINJ_COUNT, stop_event, send_interval=0.02):
+    print("Qinj sender thread started.")
+    while not stop_event.is_set():
+        try:
+            fifo.send_Qinj_only(count = QINJ_COUNT)
+            time.sleep(send_interval)
+        except Exception as e:
+            print(red(f"Error in qinj_sender thread: {e}"))
+            break
+    print('Qinj sender thread stopped')
 
 def main():
     global stop_acquisition, cosmic_data, hit_counter
@@ -192,7 +204,8 @@ def main():
     baseline_storage = {}
     etroc_configs = []
     failed_pixels = {}
-    
+    nw_storage ={}
+
     print("\n3. Generating test pixel configuration...")
     all_pixels_per_chip = []
     for _ in range(NUM_ETROC):
@@ -214,12 +227,13 @@ def main():
     for etroc, chip_name, test_pixels in etroc_configs:
         baseline_storage[chip_name] = {}
         failed_pixels[chip_name] = []
+        nw_storage[chip_name] = {}
         print(f"\nScanning {chip_name}...")
         
         for pixel_row, pixel_col in tqdm(test_pixels, desc = f"{chip_name} pixels"):
             # print(f"  Calibrating pixel ({pixel_row}, {pixel_col})...")
             try:
-                baseline, _ = etroc.auto_threshold_scan(
+                baseline, nw = etroc.auto_threshold_scan(
                     row=pixel_row,
                     col=pixel_col,
                     broadcast=False,
@@ -229,6 +243,7 @@ def main():
                 )
             
                 baseline_storage[chip_name][(pixel_row, pixel_col)] = baseline
+                nw_storage[chip_name][(pixel_row, pixel_col)] = nw
             except Exception as e:
                 print(red(f"  Pixel ({pixel_row},{pixel_col}): SCAN FAILED - {e}"))
                 failed_pixels[chip_name].append((pixel_row, pixel_col))
@@ -267,28 +282,28 @@ def main():
         etroc.wr_reg("disTrigPath", 1, broadcast=True)
         etroc.wr_reg("workMode", 0, broadcast=True)
         etroc.wr_reg('triggerGranularity', 1)
-        # time.sleep(0.1)
+        time.sleep(0.1)
         # etroc.wr_reg("enable_TDC", 1, broadcast=True)
         # etroc.wr_reg("disDataReadout", 0, broadcast=True)
         # etroc.wr_reg("disTrigPath", 0, broadcast=True)
-        time.sleep(0.1)
+        # time.sleep(0.1)
         # last_pixel = (15, 15)  
         # etroc.wr_reg("QInjEn", 0, row=last_pixel[0], col=last_pixel[1], broadcast=False)
         # etroc.wr_reg("enable_TDC", 0, row=last_pixel[0], col=last_pixel[1], broadcast=False)
         # etroc.wr_reg("disDataReadout", 1, row=last_pixel[0], col=last_pixel[1], broadcast=False)
         # etroc.wr_reg("disTrigPath", 1, row=last_pixel[0], col=last_pixel[1], broadcast=False)
-        if i > 5:
+        if i > 10:
             print(f"Configuring {chip_name}-pixels)...")
             trigger_pixel = (0,0)
-            baseline = baseline_storage[chip_name][(trigger_pixel[0], trigger_pixel[1])] + 5
+            baseline = baseline_storage[chip_name][(trigger_pixel[0], trigger_pixel[1])] + 4
             etroc.wr_reg("workMode", 0, row=trigger_pixel[0], col=trigger_pixel[1], broadcast=False)
             etroc.wr_reg("enable_TDC", 1, row=trigger_pixel[0], col=trigger_pixel[1], broadcast=False)
             etroc.wr_reg("disDataReadout", 0, row=trigger_pixel[0], col=trigger_pixel[1], broadcast=False)
             etroc.wr_reg("disTrigPath", 0, row=trigger_pixel[0], col=trigger_pixel[1], broadcast=False)
             etroc.wr_reg('DAC', baseline, row=trigger_pixel[0], col=trigger_pixel[1], broadcast=False)
 
-            print(f"Trigger pixel DAC: {baseline}")
-        # Configure all pixels for cosmic ray detection
+        #     print(f"Trigger pixel DAC: {baseline}")
+        # # Configure all pixels for cosmic ray detection
         else:
             with tqdm(total=len(all_pixels), desc=f"{chip_name} pixels", ncols=100) as pbar:
                 for pixel_row, pixel_col in all_pixels:
@@ -297,7 +312,7 @@ def main():
                     etroc.wr_reg("enable_TDC", 1, row=pixel_row, col=pixel_col, broadcast=False)
                     etroc.wr_reg("disDataReadout", 0, row=pixel_row, col=pixel_col, broadcast=False)
                     etroc.wr_reg("disTrigPath", 0, row=pixel_row, col=pixel_col, broadcast=False)
-                    time.sleep(0.1)
+                    # time.sleep(0.1)
                     baseline = baseline_storage[chip_name][(pixel_row, pixel_col)]
                     applied_dac = baseline + TH_OFFSET
                     etroc.wr_reg('DAC', applied_dac, row=pixel_row, col=pixel_col, broadcast=False)
@@ -309,12 +324,12 @@ def main():
                         'DAC': f'{applied_dac:.0f}'
                     })
                     
-                    # Small delay to prevent communication issues
-                    if (pixel_row * 16 + pixel_col) % 32 == 0:  # Every 32 pixels
-                        time.sleep(0.01)
-                    ibsel_value = etroc.rd_reg("IBSel", row=pixel_row, col=pixel_col)
-                    power_mode = etroc.get_power_mode(row=pixel_row, col=pixel_col)
-                    print(f"{chip_name} Pixel({pixel_row},{pixel_col}): IBSel={ibsel_value}, Mode={power_mode}")
+                # Small delay to prevent communication issues
+                # if (pixel_row * 16 + pixel_col) % 32 == 0:  # Every 32 pixels
+                #     time.sleep(0.01)
+                    # ibsel_value = etroc.rd_reg("IBSel", row=pixel_row, col=pixel_col)
+                    # power_mode = etroc.get_power_mode(row=pixel_row, col=pixel_col)
+                    # print(f"{chip_name} Pixel({pixel_row},{pixel_col}): IBSel={ibsel_value}, Mode={power_mode}")
             # NO charge injection for cosmic run
             # etroc.wr_reg("QInjEn", 0, broadcast=True)
             # etroc.wr_reg("QSel", CHARGE_FC, broadcast=True)
@@ -325,9 +340,9 @@ def main():
     
     print("\n6. Configuring self-trigger system...")
     
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_0", TRIGGER_ENABLE_MASK)
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_1", TRIGGER_DATA_SIZE)
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_3", TRIGGER_DELAY_SEL)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK", TRIGGER_ENABLE_MASK)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DATA_SIZE", TRIGGER_DATA_SIZE)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL", TRIGGER_DELAY_SEL)
     
     print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
     print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
@@ -354,10 +369,10 @@ def main():
     rb.enable_etroc_readout()
     rb.rerun_bitslip()
     fifo.use_etroc_data()
-    time.sleep(1)
+    time.sleep(0.1)
 
     rb.enable_etroc_trigger()
-    time.sleep(1)
+    time.sleep(0.1)
     
     print(green("Self-trigger system configured and enabled"))
     
@@ -370,94 +385,101 @@ def main():
     
     # Setup terminal for non-blocking input
     old_settings = setup_terminal()
-    TEST_DELAYS = [0]
-    TEST_DURATION = 60
-
-    # fifo.send_Qinj_only(count=QINJ_COUNT)
-    time.sleep(1)
+    # fifo.send_Qinj_only(count=100)
+    # time.sleep(0.1)
     try:
-        for delay_ms in TEST_DELAYS:
-            print(f"TESTING Qinj with delay: {delay_ms} ms ")
-            fifo.reset()
-            rb.reset_data_error_count()
-            time.sleep(0.1)
 
         # Continuous data acquisition loop
-            start_time = datetime.now(timezone.utc)
-            last_report_time = time.time()
-            report_interval = 10  # seconds
-            trigger_cnt = 0
+        start_time = datetime.now(timezone.utc)
+        last_report_time = time.time()
+        report_interval = 5  # seconds
+        trigger_cnt = 0
 
-            # while not stop_acquisition:
-            while (datetime.now(timezone.utc) - start_time).total_seconds() < TEST_DURATION:
-                try:
-                    # Check for quit command
-                    if check_for_quit():
-                        break
-                    # fifo.send_Qinj_only(count=QINJ_COUNT)
-                    fifo.send_Qinj_only(count = 1050)
-                    time.sleep(delay_ms/1000)
-                    data = fifo.pretty_read(df)
-                    # time.sleep(0.1)
-                    if len(data) > 0:
-                        cosmic_data.extend(data)
-                        
-                        # Count hits
-                        for event in data:
-                            if event and len(event) >= 2 and event[0] == 'header':
-                                trigger_cnt += 1
-                            if event and len(event) >= 2 and event[0] == 'data':
-                                hit_counter += 1
-                                hit_data = event[1]
-                                
-                                # Print hit information for monitoring
-                                row = hit_data.get('row_id', 'N/A')
-                                col = hit_data.get('col_id', 'N/A')
-                                toa = hit_data.get('toa', 'N/A')
-                                tot = hit_data.get('tot', 'N/A')
-                                elink = hit_data.get('elink', 'N/A')
-                                
-                                # print(green(f"Cosmic hit #{hit_counter}: Pixel({row},{col}) "
-                                #           f"elink={elink} ToA={toa} ToT={tot}"))
-                    
-                    # Periodic status report
-                    current_time = time.time()
-                    if current_time - last_report_time >= report_interval:
-                        elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-                        rate = hit_counter / elapsed_time if elapsed_time > 0 else 0
-                        manual_trigger_rate = trigger_cnt / elapsed_time if elapsed_time > 0 else 0
-                        fifo_occupancy = fifo.get_occupancy()
-                        fifo_full = fifo.is_full()
-                        trigger_rate= fifo.get_trigger_rate()
-                        lost_words = fifo.get_lost_word_count()
-                        print(f"Trigger rate: {trigger_rate}")
-                        print(f"FIFO lost words: {lost_words}")
-                        print(f"FIFO Occupancy: {fifo_occupancy}")
-                        print(f"FIFO full :{fifo_full}")
-                        print()
-                        print(f"\n--- Status Report ---")
-                        print(f"Running time: {elapsed_time:.1f} seconds")
-                        print(f"Total cosmic hits: {hit_counter}")
-                        print(f"Hit rate: {rate:.3f} hits/second")
-                        print(f"Trigger count: {trigger_cnt}")
-                        print(f"Manual calculated trigger rate: {manual_trigger_rate:.3f}")
-                        print(f"Total events: {len(cosmic_data)}")
+        # stop_event = threading.Event()
+        # sender_thread = threading.Thread(
+        # target=qinj_sender, 
+        # args=(fifo, QINJ_COUNT, stop_event)
+        #         )
+        # sender_thread.start()
+        while not stop_acquisition:
+        # while (datetime.now(timezone.utc) - start_time).total_seconds() < TEST_DURATION:
+            try:
 
-                        print("Press 'q' to stop\n")
-                        last_report_time = current_time
+                if check_for_quit():
+                    break
+                fifo.send_Qinj_only(count=QINJ_COUNT) 
+                # time.sleep(1)
+                data = fifo.pretty_read(df)
+
+                # remaining_occupancy = fifo.get_occupancy()
+                # if remaining_occupancy > 0:
+                #     print(yellow(f"Warning: FIFO was not empty after read operation! Remaining words: {remaining_occupancy}"))
+
+                # print(f"--- DEBUG: After merge_words, data length is: {len(data)} ---")
+                # time.sleep(1)
+                # if len(data) > 0:
+                if data:
+                    cosmic_data.extend(data)
                     
-                    time.sleep(0.1)  # Small delay to prevent excessive CPU usage
-                    
-                except Exception as e:
-                    print(red(f"Data acquisition error: {e}"))
-                    time.sleep(1)
-                    continue
+                    # Count hits
+                    for event in data:
+                        if event and len(event) >= 2 and event[0] == 'header':
+                            trigger_cnt += 1
+                        if event and len(event) >= 2 and event[0] == 'data':
+                            hit_counter += 1
+                            hit_data = event[1]
+                            
+                            # Print hit information for monitoring
+                            row = hit_data.get('row_id', 'N/A')
+                            col = hit_data.get('col_id', 'N/A')
+                            toa = hit_data.get('toa', 'N/A')
+                            tot = hit_data.get('tot', 'N/A')
+                            elink = hit_data.get('elink', 'N/A')
+                            
+                            # print(green(f"Cosmic hit #{hit_counter}: Pixel({row},{col}) "
+                            #           f"elink={elink} ToA={toa} ToT={tot}"))
+                else:
+                    time.sleep(0.1)
+                # Periodic status report
+                current_time = time.time()
+                if current_time - last_report_time >= report_interval:
+                    elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+                    rate = hit_counter / elapsed_time if elapsed_time > 0 else 0
+                    manual_trigger_rate = trigger_cnt / elapsed_time if elapsed_time > 0 else 0
+                    fifo_occupancy = fifo.get_occupancy()
+                    fifo_full = fifo.is_full()
+                    # trigger_rate= fifo.get_trigger_rate()
+                    lost_words = fifo.get_lost_word_count()
+                    # print(f"Trigger rate: {trigger_rate}")
+                    print()
+                    print(f"\n--- Status Report ---")
+                    print(f"FIFO full :{fifo_full}")
+                    print(f"FIFO lost words: {lost_words}")
+                    print(f"FIFO Occupancy: {fifo_occupancy}")
+                    print(f"Running time: {elapsed_time:.1f} seconds")
+                    print(f"Total cosmic hits: {hit_counter}")
+                    print(f"Hit rate: {rate:.3f} hits/second")
+                    print(f"Trigger count: {trigger_cnt}")
+                    print(f"Manual calculated trigger rate: {manual_trigger_rate:.3f}")
+                    print(f"Total events: {len(cosmic_data)}")
+
+                    print("Press 'q' to stop\n")
+                    last_report_time = current_time
+                
+                time.sleep(0.1)  # Small delay to prevent excessive CPU usage
+                
+            except Exception as e:
+                print(red(f"Data acquisition error: {e}"))
+                time.sleep(1)
+                continue
         
     except KeyboardInterrupt:
         print(yellow("\nKeyboard interrupt detected, stopping..."))
     
     finally:
         # Restore terminal settings
+        # stop_event.set()
+        # sender_thread.join(timeout=5)
         restore_terminal(old_settings)
     
     # ======================================================================================

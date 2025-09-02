@@ -532,20 +532,20 @@ class ETROC():
 
             ## opening TOA / TOT / Cal windows
             self.wr_reg("upperTOA", 0x3ff, broadcast=True)  # this also fixes the half-chip readout with internal test data
-            self.wr_reg("lowerTOA", 0x3ff, broadcast=True)
+            self.wr_reg("lowerTOA", 0, broadcast=True)
             self.wr_reg("upperTOT", 0x1ff, broadcast=True)
-            self.wr_reg("lowerTOT", 0x1ff, broadcast=True)
+            self.wr_reg("lowerTOT", 0, broadcast=True)
             self.wr_reg("upperCal", 0x3ff, broadcast=True)
-            self.wr_reg("lowerCal", 0x3ff, broadcast=True)
+            self.wr_reg("lowerCal", 0, broadcast=True)
 
             ## Configuring the trigger stream
             self.wr_reg("disTrigPath", 1, broadcast=True)
             self.wr_reg("upperTOATrig", 0x3ff, broadcast=True)
-            self.wr_reg("lowerTOATrig", 0x3ff, broadcast=True)
+            self.wr_reg("lowerTOATrig", 0, broadcast=True)
             self.wr_reg("upperTOTTrig", 0x1ff, broadcast=True)
-            self.wr_reg("lowerTOTTrig", 0x1ff, broadcast=True)
+            self.wr_reg("lowerTOTTrig", 0, broadcast=True)
             self.wr_reg("upperCalTrig", 0x3ff, broadcast=True)
-            self.wr_reg("lowerCalTrig", 0x3ff, broadcast=True)
+            self.wr_reg("lowerCalTrig", 0, broadcast=True)
 
             self.reset()  # soft reset of the global readout, 2nd reset needed for some ETROCs
             self.reset_fast_command()

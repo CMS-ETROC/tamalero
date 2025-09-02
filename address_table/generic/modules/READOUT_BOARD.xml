@@ -45,7 +45,8 @@
 
   <node id="RX_FIFO_LOST_WORD_CNT" address="0x312" mask="0xffffffff"   permission="r" description="# of words lost to a full FIFO"/>
   <node id="RX_FIFO_FULL" address="0x313" mask="0x00000001"   permission="r" description="RX FIFO is full"/>
-  <node id="RX_FIFO_OCCUPANCY" address="0x314" mask="0xffffffff"   permission="r" description="RX FIFO occupancy"/>
+  <!-- <node id="RX_FIFO_OCCUPANCY" address="0x314" mask="0xffffffff"   permission="r" description="RX FIFO occupancy"/> -->
+  <node id="RX_FIFO_OCCUPANCY" address="0x314" mask="0xffffffff" permission="r" description="TEST_SUCCESSFUL_RX FIFO occupancy"/>
 
   <node id="RX_FIFO_DATA_SRC"     address="0x420" mask="0x00000001"   permission="rw" description="0=etroc data, 1=fixed pattern for ETROC data fifo"/>
   <node id="ETROC_LOCKED"         address="0x421" mask="0x0fffffff"   permission="r"  description="ETROC Link Locked"/>
@@ -74,15 +75,23 @@
   <node id="ERR_CNT_RESET"    address="0x506" mask="0x00000002" permission="w"  description="Write 1 to reset error counters"/>
   <node id="DATA_CNT_RESET"   address="0x506" mask="0x00000004" permission="w"  description="Write 1 to reset data counters"/>
 
-  <!-- SELF TRIGGER  -->
-  <node id="SELF_TRIG_RESET" address="0x518" mask="0x00000001" permission="w" description="Write 1 to refreash self trigger + flashing bits"/>
-  <node id="TRIG_ENABLE"   address="0x50f" mask="0x10000000" permission="rw" description="Set to 1 to enable ETROC self trigger."/>
-  <node id="TRIGGER_RATES" address="0x515" mask="0x0000001f" permission="r" description="Trigger rate cnt of selected ETROC (muxed accross elinks)"/>
-  <node id="TRIG_DLY_SEL" address="0x514" mask="0x01f00000" permission="rw" description="Select Delay in terms of clock cycles"/>
+  <!-- FlASHING BITS -->
+  <node id="FLASH_RESET" address="0x518" mask="0x00000001" permission="w" description="Write 1 to refreash the count of clock and flashing bits seen"/>
+  <node id="FLASH_SET_CNT" address="0x520" mask="0xffffffff" permission="w" description="Write clock cycle of flashing bit"/>
 
+  <!-- SELF TRIGGER  -->
+
+  <node id="TRIG_ENABLE_MASK" address="0x508" mask="0x0000000f" permission="rw" description="Bitmask to enable any ETROC boards for trigger. Bits 3 downto 0."/>
+  <node id="TRIG_DATA_SIZE" address="0x509" mask="0x0000001f" permission="rw" description="Trigger data size for all four boards"/>
+  <node id="TRIG_COMBINATION_LOGIC" address="0x50a" mask="0x00000001" permission="rw" description="The combinational logic for multiple trigger boards. It is OR logic if it is zero, AND logic for one."/>
+  <node id="TRIG_DLY_SEL" address="0x50b" mask="0x0000ffff" permission="rw" description="Select Delay in terms of clock cycles for self-trigger, from 0 to 511"/>
+
+  <node id="TRIGGER_RATES" address="0x515" mask="0x0000001f" permission="r" description="Trigger rate cnt of selected ETROC (muxed accross elinks)"/>
+  <node id="TRIG_ENABLE"   address="0x50f" mask="0x10000000" permission="rw" description="Set to 1 to enable ETROC self trigger."/>
+
+  
   <!-- EVENT COUNTER  -->
   <node id="EVENT_CNT_RESET" address="0x516" mask="0x00000001" permission="w" description="Reset event counter"/>
   <node id="EVENT_CNT" address="0x517" mask="0xffffffff" permission="r" description="Read counts on event counter"/>
-
 
 </node>

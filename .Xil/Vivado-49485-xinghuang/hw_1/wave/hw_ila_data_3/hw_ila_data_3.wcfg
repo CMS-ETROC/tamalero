@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<wave_config>
+	<wave_state>
+	</wave_state>
+	<db_ref_list>
+		<db_ref path="/home/roy/yf_temp/tamalero/.Xil/Vivado-49485-xinghuang/hw_1/wave/hw_ila_data_3/hw_ila_data_3.wdb" id="1" type="auto">
+			<top_modules>
+				<top_module name="top">
+				</top_module>
+			</top_modules>
+		</db_ref>
+	</db_ref_list>
+	<WVObjectSize size="4">
+	</WVObjectSize>
+	<wvobject fp_name="rbgen[0].readout_board_inst/ila_self_trigger_o" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/ila_self_trigger_o</obj_property>
+		<obj_property name="ObjectShortName">ila_self_trigger_o</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/ila_self_trigger_delayed" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/ila_self_trigger_delayed</obj_property>
+		<obj_property name="ObjectShortName">ila_self_trigger_delayed</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/ila_l1a" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/ila_l1a</obj_property>
+		<obj_property name="ObjectShortName">ila_l1a</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/ila_data_in" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/ila_data_in[223:0]</obj_property>
+		<obj_property name="ObjectShortName">ila_data_in[223:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+</wave_config>
+

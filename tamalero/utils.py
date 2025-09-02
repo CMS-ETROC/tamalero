@@ -316,7 +316,7 @@ def get_kcu(kcu_address, control_hub=True, host='localhost', verbose=False, quie
         ipb_path = f"ipbusudp-2.0://{kcu_address}:50001"
     if not quiet:
         print (f"IPBus address: {ipb_path}")
-
+    
     trycnt = 0
     while (True):
         try:
@@ -356,7 +356,7 @@ def get_kcu(kcu_address, control_hub=True, host='localhost', verbose=False, quie
     xml_sha = download_address_table(xml_sha, quiet=quiet)
     #else:
     #    xml_sha = last_commit
-
+    print(f"DEBUG: uHAL is loading address table from: {os.path.expandvars(f'$TAMALERO_BASE/address_table/{xml_sha}/etl_test_fw.xml')}")
     kcu = KCU(name="my_device",
               ipb_path=ipb_path,
               adr_table=os.path.expandvars(f"$TAMALERO_BASE/address_table/{xml_sha}/etl_test_fw.xml"))

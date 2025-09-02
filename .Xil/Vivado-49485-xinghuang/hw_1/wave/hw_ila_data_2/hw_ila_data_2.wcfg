@@ -1,0 +1,130 @@
+<?xml version="1.0"?>
+<wave_config>
+	<wave_state>
+	</wave_state>
+	<db_ref_list>
+		<db_ref path="/home/roy/yf_temp/tamalero/.Xil/Vivado-49485-xinghuang/hw_1/wave/hw_ila_data_2/hw_ila_data_2.wdb" id="1" type="auto">
+			<top_modules>
+				<top_module name="top">
+				</top_module>
+			</top_modules>
+		</db_ref>
+	</db_ref_list>
+	<WVObjectSize size="19">
+	</WVObjectSize>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_ADDRESS]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_ADDRESS][7:0]</obj_property>
+		<obj_property name="ObjectShortName">mon[RX][RX_ADDRESS][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_CHANNEL]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_CHANNEL][7:0]</obj_property>
+		<obj_property name="ObjectShortName">mon[RX][RX_CHANNEL][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_CONTROL]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_CONTROL][7:0]</obj_property>
+		<obj_property name="ObjectShortName">mon[RX][RX_CONTROL][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_DATA]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_DATA][31:0]</obj_property>
+		<obj_property name="ObjectShortName">mon[RX][RX_DATA][31:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_ERR]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_ERR][7:0]</obj_property>
+		<obj_property name="ObjectShortName">mon[RX][RX_ERR][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_LEN]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_LEN][7:0]</obj_property>
+		<obj_property name="ObjectShortName">mon[RX][RX_LEN][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_RECEIVED]" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_RECEIVED]</obj_property>
+		<obj_property name="ObjectShortName">mon[RX][RX_RECEIVED]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_TRANSID]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/mon[RX][RX_TRANSID][7:0]</obj_property>
+		<obj_property name="ObjectShortName">mon[RX][RX_TRANSID][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[SCA_ENABLE]" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[SCA_ENABLE]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[SCA_ENABLE]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[START_RESET]" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[START_RESET]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[START_RESET]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[START_CONNECT]" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[START_CONNECT]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[START_CONNECT]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[INJ_CRC_ERR]" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[INJ_CRC_ERR]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[INJ_CRC_ERR]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[TX_TRANSID]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[TX_TRANSID][7:0]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[TX_TRANSID][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[TX_CHANNEL]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[TX_CHANNEL][7:0]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[TX_CHANNEL][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[TX_CMD]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[TX_CMD][7:0]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[TX_CMD][7:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[TX_DATA]" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[TX_DATA][31:0]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[TX_DATA][31:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/sca0_data_o_int" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/sca0_data_o_int[1:0]</obj_property>
+		<obj_property name="ObjectShortName">sca0_data_o_int[1:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/sca0_data_i_int" type="array" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/sca0_data_i_int[1:0]</obj_property>
+		<obj_property name="ObjectShortName">sca0_data_i_int[1:0]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+	<wvobject fp_name="rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[START_COMMAND]" type="logic" db_ref_id="1">
+		<obj_property name="ElementShortName">rbgen[0].readout_board_inst/sc_gen.gbt_controller_wrapper_inst/ctrl[START_COMMAND]</obj_property>
+		<obj_property name="ObjectShortName">ctrl[START_COMMAND]</obj_property>
+		<obj_property name="DisplayName">FullPathName</obj_property>
+		<obj_property name="Radix">HEXRADIX</obj_property>
+	</wvobject>
+</wave_config>
+

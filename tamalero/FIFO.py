@@ -6,6 +6,8 @@ from tamalero.utils import chunk
 from yaml import load, dump
 from tamalero.DataFrame import DataFrame
 from uhal._core import exception as uhal_exception
+from tamalero.colors import green, red, yellow
+import logging
 
 try:
     from yaml import CLoader as Loader, CDumper as Dumper
@@ -20,6 +22,10 @@ def merge_words(res):
     this function merges 32 bit words from the fifo into 64 bit words (40bit ETROC2 + added meta data in the DAQ)
     it strips empty entries and removes orphan 32 bit words that could be present at the end of a FIFO read
     '''
+    # if len(res) % 2 != 0:
+    #     res = res[:-1]
+    # if not res:
+    #     return []
     if len(res) > 0:
         # offset is only needed when zero suppression is turned off, and packet boundaries are not defined
         # it relies on the fact that the second 32 bit word is half empty (8 bit ETROC data + 12 bits meta data)
@@ -32,15 +38,30 @@ def merge_words(res):
         #empty_frame_mask = np.array(res[0::2]) > (2**8)  # masking empty fifo entries
         #print(res)
         empty_frame_mask = np.array(res[0::2]) > 0  # masking empty fifo entries FIXME verify that this does not cause troubles! remove mask if possible
+        
+        # words_part1 = np.array(res[0::2])
+        # words_part2 = np.array(res[1::2])
+
+        # valid_words_part1 = words_part1[empty_frame_mask]
+        # valid_words_part2 = words_part2[empty_frame_mask]
+
+        # return list(valid_words_part1 | (valid_words_part2 << 32))
+        
         len_cut = min(len(res[0::2]), len(res[1::2]))  # ensuring equal length of arrays downstream
         return list (np.array(res[0::2])[:len_cut][empty_frame_mask[:len_cut]] | (np.array(res[1::2]) << 32)[:len_cut][empty_frame_mask[:len_cut]])
     else:
         return []
 
 class FIFO:
-    def __init__(self, rb, block=255):
+    # def __init__(self, rb, block=255):
+    #     self.rb = rb
+    #     self.block = block
+    #     if rb != None:
+    #         self.reset()
+    def __init__(self, rb, block=255, logger = None):
         self.rb = rb
         self.block = block
+        self.logger = logger if logger else logging.getLogger(__name__)
         if rb != None:
             self.reset()
 
@@ -153,17 +174,23 @@ class FIFO:
         while success == False:
             try:
                 if dispatch:
-                    reads = self.rb.kcu.hw.getNode(f"DAQ_RB{self.rb.rb}").readBlock(block)
-
-                    # this was tested with 5M pulses
-                    self.rb.kcu.dispatch()  # changed from more udp error prone self.rb.kcu.hw.dispatch()
-
+                    try:
+                        reads = self.rb.kcu.hw.getNode(f"DAQ_RB{self.rb.rb}").readBlock(block)
+                    except Exception as e:
+                        print(f"Exception {e}")
+                        print('read block error')
+                    try:
+                        self.rb.kcu.dispatch()  # changed from more udp error prone self.rb.kcu.hw.dispatch()
+                    except Exception as e:
+                        print(f'Dispatch Error {e}')
                     return reads
                 else:
+                    print("not dispatched~~~")
                     return self.rb.kcu.hw.getNode(f"DAQ_RB{self.rb.rb}").readBlock(block)
             except uhal_exception:
                 print(f"uhal UDP error in FIFO.read_block, block size is {block}")
                 raise
+            
 
     # def read(self, dispatch=False, verbose=False):
     #     #occupancy = self.get_occupancy()*4 + 2  # FIXME don't know where factor of 4 comes from??
@@ -173,13 +200,32 @@ class FIFO:
     #     #last_block = occupancy % self.block
     #     #if verbose: print(f"{last_block=}")
     #     data = []
+        
     #     while self.get_occupancy()>0:
     #         # FIXME checking get_occupancy all the time is slow, but this is at least not broken.
     #         try:
-    #            data += self.read_block(128, dispatch=dispatch).value()
-    #         except uhal_exception:
-    #            print('uhal UDP error, Data read failed')
+    #             data += self.read_block(250, dispatch=dispatch).value()
+    #         except uhal_exception as e:
+    #             print(f"[READ ERROR] Caught uHAL exception: {type(e).__name__}: {e}")
+    #             print('uhal UDP error, Data read failed')
     #     return data
+
+    def read(self, dispatch=False, verbose=False):
+        
+        data = []
+        try:
+            while self.get_occupancy()>0:
+                try:
+                    data += self.read_block(250, dispatch=dispatch).value()
+                except uhal_exception as e:
+                    self.logger.error(f"[READ ERROR] Caught uHAL exception: {type(e).__name__}: {e}")
+                    self.logger.error('uhal UDP error, Data read failed')
+                    print(f"[READ ERROR] Caught uHAL exception: {type(e).__name__}: {e}")
+                    print('uhal UDP error, Data read failed')
+        except Exception as e:
+            self.logger.error(f"Occupancy error: {e}")
+            print(f"Error: {e}")
+        return data
 
         #if (num_blocks_to_read or last_block):
         #    if dispatch:
@@ -208,28 +254,36 @@ class FIFO:
         #        for read in reads:
         #            data += read.value()
 
-    def read(self, dispatch=False, verbose=False):
-        data = []
-        block_size = 128
-        try:
-            occupancy = self.get_occupancy()
-            
-            while occupancy > 0:
-                chunk_size = min(occupancy, block_size)
-                try:
-                    chunk_data = self.read_block(chunk_size, dispatch=dispatch).value()
-                    data.extend(chunk_data)
-                    occupancy -= chunk_size
 
-                except uhal_exception:
-                    print(f'UDP error while reading chunk. Returning {len(data)} words read so far.')
-                    return data
+    def stream(self,dispatch=False):
+    
+        while True:
+            try:
+                # if self.get_occupancy() > 0:
+                data_this_round = []
+                while self.get_occupancy() > 0:
+                    try:
+                        data_this_round += self.read_block(250, dispatch=dispatch).value()
+                        # if chunk_data:
+                        #     data_this_round.extend(chunk_data)
+                        # else:
+                        #     break
+                    except uhal_exception as e:
+                        print(red(f"[STREAM INNER LOOP ERROR] Caught uHAL exception: {type(e).__name__}: {e}"))
+                #         break
+                # if data_this_round:
+                yield data_this_round
 
-        except uhal_exception:
-            print(f"UDP error on initial get_occupancy. Returning empty list.")
-            return []
+                # else:
+                #     time.sleep(0.01)
+                #     yield []
 
-        return data
+            except uhal_exception as e:
+                print(red(f"[STREAM OUTER LOOP ERROR] Hardware exception caught: {e}"))
+                self.rb.rerun_bitslip()
+                time.sleep(0.5)
+                yield [] 
+    
 
     def get_occupancy(self):
         try:
@@ -254,22 +308,30 @@ class FIFO:
 
     def get_l1a_rate(self):
         return self.rb.kcu.read_node(f"SYSTEM.L1A_RATE_CNT").value()
-
+    
+    # def pretty_read(self, df, dispatch=True, raw=False, expected_words = 8000,timeout = 2):
     def pretty_read(self, df, dispatch=True, raw=False):
-        merged = merge_words(self.read(dispatch=dispatch))
-        if raw:
-            return merged
-        else:
-            return list(map(df.read, merged))
+        try:
+            merged = merge_words(self.read(dispatch=dispatch))
+            if raw:
+                return merged
+            else:
+                return list(map(df.read, merged))
+        except TypeError as e:
+            print(f"Error Message {e}")
+            return []
+        except uhal_exception as e:
+            print(f"[Pretty READ ERROR] Caught uHAL exception: {type(e).__name__}: {e}")
+            return []
 
-    def stream(self, f_out, timeout=10):
-        # FIXME this is WIP
-        start = time.time()
-        with open(f_out, mode="wb") as f:
-            while True:
-                data = self.read()
-                f.write(struct.pack('<{}I'.format(len(data)), *data))
+    # def stream(self, f_out, timeout=10):
+    #     # FIXME this is WIP
+    #     start = time.time()
+    #     with open(f_out, mode="wb") as f:
+    #         while True:
+    #             data = self.read()
+    #             f.write(struct.pack('<{}I'.format(len(data)), *data))
 
-                timediff = time.time() - start
-                if timediff > timeout:
-                    break
+    #             timediff = time.time() - start
+    #             if timediff > timeout:
+    #                 break
