@@ -5,6 +5,7 @@ from tamalero.utils import get_kcu
 from tamalero.DataFrame import DataFrame
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
+from tamalero.KCU import KCU
 import os
 import sys
 import tty
@@ -19,6 +20,8 @@ from tqdm import tqdm
 from random import randint
 from datetime import datetime, timezone,timedelta
 
+### Custom function
+from etroc_utils import convert_dict_to_pandas, save_baselines
 
 KCU_IP = "192.168.0.10" 
 
@@ -26,23 +29,28 @@ READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
 
 ETROC_I2C_ADDRESSES = [0x60, 0x61, 0x62, 0x63]
+ETROC_NAMES = ['ET2p02_PT_NH39_CE', 'ET2p02_PT_NH42_CE', 'ET2p02_PT_NH41_CE', 'ET2p02_PT_NH47_CE']
 ETROC_I2C_CHANNEL = 1
 ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
 # Test parameters
-TH_OFFSET = 20              # Threshold offset above baseline
-TRIGGER_ENABLE_MASK = 0x1
+TH_OFFSET = 10              # 20 DAC Threshold offset above baseline
+TRIGGER_ENABLE_MASK = 0x1 # 0001, 0x1 (0x63, 0x62, 0x61, 0x60) - trigger now the last plane NH39
 TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 469
 
 CHARGE_FC = 5 
 QINJ_COUNT = 0
-CHUNK_SIZE = 10000     # number of events for each saved file
-running_time = 2       # minutes, None means no limit
+CHUNK_SIZE = 500     # number of events for each saved file
+running_time = 480       # 8 hours in minute, None means no limit, please use the maximum for 24 hrs = 60*24 = 1440
 
-PIXEL_ROW = 4
-PIXEL_COL = 4
+PIXEL_ROW = 16
+PIXEL_COL = 16
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
+
+### Variables for plot
+path_to_figure = '/home/daq/KCU105_NEW/ETROC-figures'
+path_to_hist = '/home/daq/KCU105_NEW/ETROC-History'
 
 stop_acquisition = False
 hit_counter = 0
@@ -162,13 +170,21 @@ def check_for_quit():
 def initialize_kcu():
     """Initialize KCU connection"""
     print('ETROC COSMIC RUN TEST - HARDWARE INITIALIZATION')
+    ipb_path = f"chtcp-2.0://localhost:10203?target={KCU_IP}:50001"
+    generic_xml_path = os.path.expandvars("$TAMALERO_BASE/address_table/generic/etl_test_fw.xml")
     
-    kcu = get_kcu(
-        KCU_IP,
-        control_hub=True,
-        host='localhost',
-        verbose=False
+    kcu = KCU(
+        name="kcu",
+        ipb_path=ipb_path,
+        adr_table=generic_xml_path
     )
+    
+    #kcu = get_kcu(
+    #    KCU_IP,
+    #    control_hub=True,
+    #    host='localhost',
+    #    verbose=False
+    #)
     print(green("Successfully connected to KCU."))
 
     kcu.status()
@@ -201,11 +217,9 @@ def initialize_etroc_chips(rb):
     """Initialize all ETROC chips"""
     print("\n3. Initializing ETROC chips...")
     etroc_chips = []
-    chip_names = []
 
     for i, addr in enumerate(ETROC_I2C_ADDRESSES):
-        chip_name = f"Chip{i+1}"
-        chip_names.append(chip_name)
+        chip_name = ETROC_NAMES[i]
         
         print(f"\nInitializing {chip_name} (I2C: 0x{addr:02X})...")
         
@@ -255,13 +269,13 @@ def initialize_etroc_chips(rb):
             status = "Failed"
         print(f"  {chip_name} (I2C: 0x{addr:02X}) <-> E-link {elink} - {status}")
     
-    return etroc_chips, chip_names
+    return etroc_chips
 
 # ======================================================================================
 # CALIBRATION AND CONFIGURATION FUNCTIONS
 # ======================================================================================
 
-def calibrate_baselines(etroc_chips, chip_names):
+def calibrate_baselines(etroc_chips, chip_names, custom_note):
     """Calibrate baseline for all pixels"""
     print(f"\n2. Calibrating {PIXEL_ROW * PIXEL_COL} pixel baselines...")
     
@@ -287,13 +301,16 @@ def calibrate_baselines(etroc_chips, chip_names):
         print(f"  {chip_name}: {len(pixels)} pixels")
 
     for etroc, chip_name, test_pixels in etroc_configs:
-        baseline_storage[chip_name] = {}
+        baseline_storage[chip_name] = {
+            'row': [], 'col': [], 'baseline': [],
+            'noise_width': [], 'timestamp': []
+        }
         failed_pixels[chip_name] = []
         print(f"\nScanning {chip_name}...")
         
         for pixel_row, pixel_col in tqdm(test_pixels, desc = f"{chip_name} pixels"):
             try:
-                baseline, _ = etroc.auto_threshold_scan(
+                baseline, noise_width = etroc.auto_threshold_scan(
                     row=pixel_row,
                     col=pixel_col,
                     broadcast=False,
@@ -301,26 +318,49 @@ def calibrate_baselines(etroc_chips, chip_names):
                     use=False,
                     verbose=True
                 )
+
+                time.sleep(0.03)
             
                 baseline_storage[chip_name][(pixel_row, pixel_col)] = baseline
             except Exception as e:
                 print(red(f"  Pixel ({pixel_row},{pixel_col}): SCAN FAILED - {e}"))
-                failed_pixels[chip_name].append((pixel_row, pixel_col))
+                # failed_pixels[chip_name].append((pixel_row, pixel_col))
 
-        if failed_pixels[chip_name]:
-            print(red(f"  Found {len(failed_pixels[chip_name])} pixels with scan failures during sampling"))
+            # 4. Append data for EVERY pixel (values are None on failure)
+            baseline_storage[chip_name]['row'].append(pixel_row)
+            baseline_storage[chip_name]['col'].append(pixel_col)
+            baseline_storage[chip_name]['baseline'].append(baseline)
+            baseline_storage[chip_name]['noise_width'].append(noise_width)
+            baseline_storage[chip_name]['timestamp'].append(datetime.now().isoformat(sep=' '))
+
+    for key, val in baseline_storage.items():
+
+        ## Only making BL and NW plot when all 256 pixels are calibrated
+        if not len(val['baseline']) != 256:
+            continue
+
+        bl_nw_df = convert_dict_to_pandas(val, key)
+        tmp_timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
+        my_note = tmp_timestamp + ' ' + custom_note
+        save_baselines(bl_nw_df, key,
+                       hist_dir=path_to_hist,
+                       fig_dir=path_to_figure,
+                       save_notes=my_note)  
     
-    # Print summary of baseline calibration
-    total_failed_pixels = sum(len(failed_list) for failed_list in failed_pixels.values())
-    print(green("Baseline calibration completed"))
+    #     if failed_pixels[chip_name]:
+    #         print(red(f"  Found {len(failed_pixels[chip_name])} pixels with scan failures during sampling"))
+    
+    # # Print summary of baseline calibration
+    # total_failed_pixels = sum(len(failed_list) for failed_list in failed_pixels.values())
+    # print(green("Baseline calibration completed"))
 
-    if total_failed_pixels > 0:
-        print(yellow(f"WARNING: Found {total_failed_pixels} pixels with baseline scan failures:"))
-        for chip_name, failed_list in failed_pixels.items():
-            if failed_list:
-                print(f"  {chip_name}: {failed_list}")
-    else:
-        print(green("All pixels passed baseline scan"))
+    # if total_failed_pixels > 0:
+    #     print(yellow(f"WARNING: Found {total_failed_pixels} pixels with baseline scan failures:"))
+    #     for chip_name, failed_list in failed_pixels.items():
+    #         if failed_list:
+    #             print(f"  {chip_name}: {failed_list}")
+    # else:
+    #     print(green("All pixels passed baseline scan"))
 
     time.sleep(1)
     print(green("Baseline calibration completed"))
@@ -345,6 +385,14 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
         etroc.wr_reg("workMode", 0, broadcast=True)
         etroc.wr_reg('triggerGranularity', 1)
         time.sleep(0.1)
+
+        chip_data = baseline_storage[chip_name]
+        
+        # Create a dict mapping (row, col) -> baseline for fast O(1) lookups
+        baseline_lookup = {
+            (r, c): bl 
+            for r, c, bl in zip(chip_data['row'], chip_data['col'], chip_data['baseline'])
+        }
         
         # Configure all pixels for cosmic ray detection
         with tqdm(total=len(all_pixels), desc=f"{chip_name} pixels", ncols=100) as pbar:
@@ -355,7 +403,7 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
                 etroc.wr_reg("disDataReadout", 0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.wr_reg("disTrigPath", 0, row=pixel_row, col=pixel_col, broadcast=False)
                 time.sleep(0.1)
-                baseline = baseline_storage[chip_name][(pixel_row, pixel_col)]
+                baseline = baseline_lookup.get((pixel_row, pixel_col))
                 applied_dac = baseline + TH_OFFSET
                 etroc.wr_reg('DAC', applied_dac, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.wr_reg("QSel", CHARGE_FC - 1, row=pixel_row, col=pixel_col, broadcast=False)
@@ -382,9 +430,9 @@ def configure_trigger_system(rb):
     """Configure self-trigger system"""
     print("\n6. Configuring self-trigger system...")
     
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_0", TRIGGER_ENABLE_MASK)
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_1", TRIGGER_DATA_SIZE)
-    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_3", TRIGGER_DELAY_SEL)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK", TRIGGER_ENABLE_MASK)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DATA_SIZE", TRIGGER_DATA_SIZE)
+    rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL", TRIGGER_DELAY_SEL)
     
     print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
     print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
@@ -415,6 +463,11 @@ def run_cosmic_detection(rb, max_running_time, args):
     global stop_acquisition, hit_counter
     
     print("\n7. Starting continuous cosmic run detection...")
+
+    if max_running_time > 1440:
+        max_running_time = 1440
+        print('DAQ maximum time is set to over 24 hrs. Current DAQ may not stable after 24 hrs.')
+        print('So, reducing maximum running time to 24 hrs.')
 
     if max_running_time:
         print(yellow(f"Maximum running time being set: {max_running_time} minutes"))
@@ -453,10 +506,10 @@ def run_cosmic_detection(rb, max_running_time, args):
         trigger_cnt = 0
 
         end_time = None
-        # if max_running_time:
-        #     end_time = start_time + timedelta(minutes=max_running_time)
-        #     print(f"Start time: {start_time.strftime('%H:%M:%S')}")
-        #     print(f"Estimate ending time: {end_time.strftime('%H:%M:%S')}")
+        if max_running_time:
+            end_time = start_time + timedelta(minutes=max_running_time)
+            print(f"Start time: {start_time.strftime('%H:%M:%S')}")
+            print(f"Estimate ending time: {end_time.strftime('%H:%M:%S')}")
 
         output_dir = Path(args.outdir)
         output_dir.mkdir(exist_ok=True, parents=True)
@@ -471,12 +524,12 @@ def run_cosmic_detection(rb, max_running_time, args):
                 if check_for_quit():
                     break
                     
-                # if max_running_time:
-                #     current_time = datetime.now(timezone.utc)
-                #     if current_time >= end_time:
-                #         elapsed_time = (current_time - start_time).total_seconds() / 60
-                #         print(yellow(f"Reached time setting ({elapsed_time:.1f} minutes), auto stopped"))
-                #         break
+                if max_running_time:
+                    current_time = datetime.now(timezone.utc)
+                    if current_time >= end_time:
+                        elapsed_time = (current_time - start_time).total_seconds() / 60
+                        print(yellow(f"Reached time setting ({elapsed_time:.1f} minutes), auto stopped"))
+                        break
                 
                 # --- Check if a new file needs to be created ---
                 if current_file is None:
@@ -504,7 +557,6 @@ def run_cosmic_detection(rb, max_running_time, args):
                         current_file = None # Trigger opening a new file on the next loop
 
                 time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
-
                 # fifo.send_Qinj_only(count=QINJ_COUNT)
                 # data = fifo.pretty_read(df)
                 
@@ -567,7 +619,6 @@ def run_cosmic_detection(rb, max_running_time, args):
         if current_file and not current_file.closed:
             current_file.close()
             print(f"Closed final file: {current_file.name}")
-
         # Restore terminal settings
         restore_terminal(old_settings)
         
@@ -608,19 +659,19 @@ def main(max_running_time = None, args = None):
     # Hardware initialization
     kcu = initialize_kcu()
     rb = initialize_readout_board(kcu)
-    etroc_chips, chip_names = initialize_etroc_chips(rb)
+    etroc_chips = initialize_etroc_chips(rb)
 
     for etroc in etroc_chips:
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
     
     # Setup and calibration
     print("\nETROC COSMIC RAY TEST - CONTINUOUS DETECTION")
-    etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, chip_names)
+    etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, ETROC_NAMES, args.note)
     configure_etroc_for_cosmic(etroc_configs, baseline_storage)
     configure_trigger_system(rb)
     
     # Data acquisition
-    run_cosmic_detection(rb,max_running_time, args)
+    run_cosmic_detection(rb, max_running_time, args)
     
     # Cleanup
     cleanup_system(etroc_configs, rb)
@@ -649,6 +700,24 @@ if __name__ == "__main__":
         dest = 'outdir',
     )
 
+    parser.add_argument(
+        '--note',
+        metavar = 'NAME',
+        type = str,
+        help = 'note for BL and NW history',
+        default = '',
+        dest = 'note',
+    )
+
+    parser.add_argument(
+        '--max_run_time',
+        metavar = 'NUM',
+        type = int,
+        help = 'Maximum running time of DAQ in minutes, default is 8 hours',
+        default = 480,
+        dest = 'max_run_time',
+    )
+
     args = parser.parse_args()
 
-    main(running_time, args)
+    main(args.max_run_time, args)
