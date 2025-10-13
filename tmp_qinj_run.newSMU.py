@@ -5,6 +5,7 @@ from tamalero.utils import get_kcu
 from tamalero.DataFrame import DataFrame
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
+from tamalero.KCU import KCU
 import os
 import sys
 import tty
@@ -25,7 +26,11 @@ KCU_IP = "192.168.0.10"
 READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
 
-ETROC_I2C_ADDRESSES = [0x60, 0x61]
+# 0x60 far board, 0x63 facing beam
+# CH0 HV - 0x60
+# CH3 HV - 0x63
+ETROC_I2C_ADDRESSES = [0x60, 0x61, 0x62, 0x63]
+ETROC_NAMES = ['ET2p02_PT_NH39_CE', 'ET2p02_PT_NH42_CE', 'ET2p02_PT_NH41_CE', 'ET2p02_PT_NH47_CE']
 ETROC_I2C_CHANNEL = 1
 ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
@@ -162,13 +167,22 @@ def check_for_quit():
 def initialize_kcu():
     """Initialize KCU connection"""
     print('ETROC COSMIC RUN TEST - HARDWARE INITIALIZATION')
+
+    ipb_path = f"chtcp-2.0://localhost:10203?target={KCU_IP}:50001"
+    generic_xml_path = os.path.expandvars("$TAMALERO_BASE/address_table/generic/etl_test_fw.xml")
     
-    kcu = get_kcu(
-        KCU_IP,
-        control_hub=True,
-        host='localhost',
-        verbose=False
+    kcu = KCU(
+        name="kcu",
+        ipb_path=ipb_path,
+        adr_table=generic_xml_path
     )
+
+    #kcu = get_kcu(
+    #    KCU_IP,
+    #    control_hub=True,
+    #    host='localhost',
+    #    verbose=False
+    #)
     print(green("Successfully connected to KCU."))
 
     kcu.status()
@@ -201,11 +215,9 @@ def initialize_etroc_chips(rb):
     """Initialize all ETROC chips"""
     print("\n3. Initializing ETROC chips...")
     etroc_chips = []
-    chip_names = []
 
     for i, addr in enumerate(ETROC_I2C_ADDRESSES):
-        chip_name = f"Chip{i+1}"
-        chip_names.append(chip_name)
+        chip_name = ETROC_NAMES[i]
         
         print(f"\nInitializing {chip_name} (I2C: 0x{addr:02X})...")
         
@@ -255,7 +267,7 @@ def initialize_etroc_chips(rb):
             status = "Failed"
         print(f"  {chip_name} (I2C: 0x{addr:02X}) <-> E-link {elink} - {status}")
     
-    return etroc_chips, chip_names
+    return etroc_chips
 
 # ======================================================================================
 # CALIBRATION AND CONFIGURATION FUNCTIONS
@@ -385,7 +397,10 @@ def configure_trigger_system(rb):
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK", TRIGGER_ENABLE_MASK)
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DATA_SIZE", TRIGGER_DATA_SIZE)
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL", TRIGGER_DELAY_SEL)
-    
+    #rb.kcu.hw.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_0", TRIGGER_ENABLE_MASK)
+    #rb.kcu.hw.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_1", TRIGGER_DATA_SIZE)
+    #rb.kcu.hw.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_3", TRIGGER_DELAY_SEL)
+
     print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
     print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
     print(f"Trigger DELAY SEL: {TRIGGER_DELAY_SEL}")
@@ -607,14 +622,14 @@ def main(max_running_time = None, args = None):
     # Hardware initialization
     kcu = initialize_kcu()
     rb = initialize_readout_board(kcu)
-    etroc_chips, chip_names = initialize_etroc_chips(rb)
+    etroc_chips = initialize_etroc_chips(rb)
 
     for etroc in etroc_chips:
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
     
     # Setup and calibration
     print("\nETROC COSMIC RAY TEST - CONTINUOUS DETECTION")
-    etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, chip_names)
+    etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, ETROC_NAMES)
     configure_etroc_for_cosmic(etroc_configs, baseline_storage)
     configure_trigger_system(rb)
     
