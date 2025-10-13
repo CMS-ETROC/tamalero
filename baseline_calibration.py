@@ -2,6 +2,7 @@ from tamalero.ETROC import ETROC
 from tamalero.utils import get_kcu
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
+from tamalero.KCU import KCU
 import time
 import numpy as np
 from pathlib import Path
@@ -17,7 +18,7 @@ READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
 
 ETROC_I2C_ADDRESSES = [0x60, 0x61, 0x62, 0x63]
-ETROC_NAMES = ['ET2p02_PT_NH39_CE', 'ET2p02_PT_NH42_CE', 'ET2p02_PT_NH41_CE', 'ET2p02_PT_NH36_CE']
+ETROC_NAMES = ['ET2p02_PT_NH39_CE', 'ET2p02_PT_NH42_CE', 'ET2p02_PT_NH41_CE', 'ET2p02_PT_NH47_CE']
 
 ETROC_I2C_CHANNEL = 1
 ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
@@ -37,13 +38,15 @@ custom_note = ''
 def initialize_kcu():
     """Initialize KCU connection"""
     print('ETROC COSMIC RUN TEST - HARDWARE INITIALIZATION')
+    ipb_path = f"chtcp-2.0://localhost:10203?target={KCU_IP}:50001"
+    generic_xml_path = os.path.expandvars("$TAMALERO_BASE/address_table/generic/etl_test_fw.xml")
     
-    kcu = get_kcu(
-        KCU_IP,
-        control_hub=True,
-        host='localhost',
-        verbose=False
+    kcu = KCU(
+        name="kcu",
+        ipb_path=ipb_path,
+        adr_table=generic_xml_path
     )
+
     print(green("Successfully connected to KCU."))
 
     kcu.status()
