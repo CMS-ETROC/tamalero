@@ -43,27 +43,29 @@ logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
 
-
-OUTPUTS_PATH = '/home/roy/yf_temp/tamalero/cosmic_run'
+timeStamp = datetime.now().strftime("%m-%d_%H-%M-%S")
+OUTPUTS_PATH = f'/home/roy/yf_temp/tamalero/cosmic_run/{timeStamp}'
 KCU_IP = "192.168.0.10" ## If your KCU ip is diff, modify it.
+
 
 READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
 
-ETROC_I2C_ADDRESSES = [0x60, 0x61, 0x62, 0x63]
+# ETROC_I2C_ADDRESSES = [0x60,0x61, 0x62, 0x63]
+ETROC_I2C_ADDRESSES = [0x60]
 ETROC_I2C_CHANNEL = 1
 ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
 # Test parameters
-TH_OFFSET = 50              # Threshold offset above baseline
-TRIGGER_ENABLE_MASK = 0xf
+TH_OFFSET = 20                  # Threshold offset above baseline
+TRIGGER_ENABLE_MASK = 0x1
 TRIGGER_DATA_SIZE = 1
-TRIGGER_DELAY_SEL = 472
+TRIGGER_DELAY_SEL = 469
 
-CHARGE_FC = 30 
-QINJ_COUNT = 50
-PIXEL_ROW = 1
-PIXEL_COL = 2
+# CHARGE_FC = 30 
+# QINJ_COUNT = 10
+PIXEL_ROW = 16
+PIXEL_COL = 16
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 
 stop_acquisition = False
@@ -115,6 +117,7 @@ def qinj_sender(fifo, QINJ_COUNT, stop_event, send_interval=0.05):
     print('Qinj sender thread stopped')
 
 def main():
+    from tamalero.KCU import KCU
     global stop_acquisition, cosmic_data, hit_counter
     
     print('ETROC COSMIC RAY TEST - HARDWARE INITIALIZATION')
@@ -123,12 +126,21 @@ def main():
     # 1. INITIALIZE KCU
     # ======================================================================================
 
-    kcu = get_kcu(
-        KCU_IP,
-        control_hub=True,
-        host='localhost',
-        verbose=False
+    ipb_path = f'chtcp-2.0://localhost:10203?target={KCU_IP}:50001'
+    generic_path = os.path.expandvars('$TAMALERO_BASE/address_table/generic/etl_test_fw.xml')
+    
+    kcu = KCU(
+        name = 'kcu',
+        ipb_path = ipb_path,
+        adr_table = generic_path
     )
+
+    # kcu = get_kcu(
+    #     KCU_IP,
+    #     control_hub=True,
+    #     host='localhost',
+    #     verbose=False
+    # )
     print(green("Successfully connected to KCU."))
 
     kcu.status() # Prints LpGBT link statuses from KCU 
@@ -157,6 +169,8 @@ def main():
     )
     print(green(f"Readout Board version detected: {rb.ver}"))
 
+    combination_val = rb.kcu.read_node("READOUT_BOARD_%s.TRIG_COMBINATION_LOGIC"%rb.rb).value()
+    print(f"combination logic value: {combination_val}")
     # ======================================================================================
     # 3. INITIALIZE FOUR ETROC
     # ======================================================================================
@@ -204,7 +218,7 @@ def main():
         except Exception as e:
             print(red(f"✗ Failed to initialize {chip_name}: {e}"))
             etroc_chips.append(None)
-
+   
     print(green("\n✓ Hardware initialization completed successfully!"))
     print(f"Initialized {len([c for c in etroc_chips if c is not None])} ETROC chips")
     print("\nETROC to E-link Mapping:")
@@ -231,6 +245,23 @@ def main():
     etroc_configs = []
     failed_pixels = {}
     nw_storage ={}
+
+    def save_to_pickle():
+        data_to_save = {
+        'baseline': baseline_storage,
+        'NW' : nw_storage,
+        'chip_name':chip_names
+        }
+
+        with open(f'etroc_NW_scan_sensor_HV230_1uF_modMB_ET202_PT_IH11_9_7_12.pkl', 'wb') as f:
+            pickle.dump(data_to_save,f)
+
+        print('Data saved')
+
+    # combination_val = rb.kcu.
+    
+    # read_node("TRIG_COMBINATION_LOGIC")
+    # print(f"Trig_combination_val is {combination_val}")
 
     print("\n3. Generating test pixel configuration...")
     all_pixels_per_chip = []
@@ -273,6 +304,7 @@ def main():
             except Exception as e:
                 print(red(f"  Pixel ({pixel_row},{pixel_col}): SCAN FAILED - {e}"))
                 failed_pixels[chip_name].append((pixel_row, pixel_col))
+    save_to_pickle() 
 
     if failed_pixels[chip_name]:
         print(red(f"  Found {len(failed_pixels[chip_name])} pixels with scan failures during sampling"))
@@ -343,8 +375,8 @@ def main():
                     baseline = baseline_storage[chip_name][(pixel_row, pixel_col)]
                     applied_dac = baseline + TH_OFFSET
                     etroc.wr_reg('DAC', applied_dac, row=pixel_row, col=pixel_col, broadcast=False)
-                    etroc.wr_reg("QSel", CHARGE_FC, row=pixel_row, col=pixel_col, broadcast=False)
-                    etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
+                    # etroc.wr_reg("QSel", CHARGE_FC, row=pixel_row, col=pixel_col, broadcast=False)
+                    # etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
                     pbar.update(1)
                     pbar.set_postfix({
                         'pixel': f'({pixel_row},{pixel_col})', 
@@ -359,6 +391,9 @@ def main():
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK", TRIGGER_ENABLE_MASK)
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DATA_SIZE", TRIGGER_DATA_SIZE)
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL", TRIGGER_DELAY_SEL)
+
+    # combination_val = rb.kcu.read_node("TRIG_COMBINATION_LOGIC").value()
+    # print(f"Trig_combination_val is {combination_val}")
     
     print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
     print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
@@ -407,14 +442,14 @@ def main():
         output_dir = Path(OUTPUTS_PATH)
         output_dir.mkdir(exist_ok=True)
 
-        max_counters_per_file = 200000
+        max_counters_per_file = 500000
         file_number = 0
         counters_in_current_file = 0
         current_file = None
 
         start_time = datetime.now(timezone.utc)
         last_report_time = time.time()
-        report_interval = 5  # seconds
+        report_interval = 60  # seconds
         trigger_cnt = 0
         hit_counter = 0
         total_raw_words = 0
@@ -422,12 +457,12 @@ def main():
 
         print(f"Saving data to: {output_dir.resolve()}, splitting every {max_counters_per_file} counters")
 
-        stop_event = threading.Event()
-        sender_thread = threading.Thread(
-        target=qinj_sender, 
-        args=(fifo, QINJ_COUNT, stop_event)
-                )
-        sender_thread.start()
+        # stop_event = threading.Event()
+        # sender_thread = threading.Thread(
+        # target=qinj_sender, 
+        # args=(fifo, QINJ_COUNT, stop_event)
+        #         )
+        # sender_thread.start()
         
         start_time = datetime.now(timezone.utc)
         while not stop_acquisition:
@@ -442,13 +477,15 @@ def main():
                     current_file = open(new_filename, "wb")
                     counters_in_current_file = 0
 
-                # fifo.send_Qinj_only(count=1000)
-                # time.sleep(0.1)
+                # fifo.send_Qinj_only(count=10)
+                time.sleep(0.01)
                 raw_data = fifo.read(dispatch=True)
                 if raw_data:
                     
                     packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
                     current_file.write(packed_data)
+                    current_file.flush()
+                    os.fsync(current_file.fileno())
                     counters_in_current_file += len(raw_data)
 
                     total_raw_words += len(raw_data)
@@ -458,7 +495,7 @@ def main():
                         merged_64bit_chunk = merge_words(raw_data)
                         parsed_data_chunk = list(map(df.read, merged_64bit_chunk))
                         if parsed_data_chunk:
-                            cosmic_data.extend(parsed_data_chunk)
+                            # cosmic_data.extend(parsed_data_chunk)
 
                             for event in parsed_data_chunk:
                                 if event and len(event) >= 2 and event[0] == 'header':
@@ -513,7 +550,7 @@ def main():
                     logger.info(f"Hit rate: {rate:.3f} hits/second")
                     logger.info(f"Trigger count: {trigger_cnt}")
                     logger.info(f"Manual calculated trigger rate: {manual_trigger_rate:.3f}")
-                    logger.info(f"Total events: {len(cosmic_data)}")
+                    # logger.info(f"Total events: {len(cosmic_data)}")
 
                     # print(f"\n--- Status Report ---")
                     # print(f"FIFO full :{fifo_full}")
@@ -538,8 +575,8 @@ def main():
 
     finally:
         print("Stopping QInj sender thread...")
-        stop_event.set() 
-        sender_thread.join(timeout=5)
+        # stop_event.set() 
+        # sender_thread.join(timeout=5)
         elapsed_time = (datetime.now(timezone.utc) - start_time)
         print(f"Running time: {str(elapsed_time).split('.')[0]}")
 
@@ -562,52 +599,52 @@ def main():
     print("\n9. Analyzing cosmic ray data...")
     
     # Analyze the collected data
-    header_count = hit_count = filler_count = trailer_count = 0
-    pixel_hits = {}
-    elink_hits = {}
+    # header_count = hit_count = filler_count = trailer_count = 0
+    # pixel_hits = {}
+    # elink_hits = {}
     
-    for event in cosmic_data:
-        if event is None or len(event) < 2:
-            continue
+    # for event in cosmic_data:
+    #     if event is None or len(event) < 2:
+    #         continue
         
-        data_type, event_data = event[0], event[1]
+    #     data_type, event_data = event[0], event[1]
         
-        if data_type == 'header':
-            header_count += 1
-        elif data_type == 'filler':
-            filler_count += 1
-        elif data_type == 'trailer':
-            trailer_count += 1
-        elif data_type == 'data':
-            hit_count += 1
+    #     if data_type == 'header':
+    #         header_count += 1
+    #     elif data_type == 'filler':
+    #         filler_count += 1
+    #     elif data_type == 'trailer':
+    #         trailer_count += 1
+    #     elif data_type == 'data':
+    #         hit_count += 1
             
-            # Extract hit information
-            row = event_data.get('row_id', 'N/A')
-            col = event_data.get('col_id', 'N/A')
-            elink = event_data.get('elink', 'N/A')
+    #         # Extract hit information
+    #         row = event_data.get('row_id', 'N/A')
+    #         col = event_data.get('col_id', 'N/A')
+    #         elink = event_data.get('elink', 'N/A')
             
-            # Count hits per pixel
-            pixel_key = f"({row},{col})"
-            pixel_hits[pixel_key] = pixel_hits.get(pixel_key, 0) + 1
+    #         # Count hits per pixel
+    #         pixel_key = f"({row},{col})"
+    #         pixel_hits[pixel_key] = pixel_hits.get(pixel_key, 0) + 1
             
-            # Count hits per elink
-            elink_hits[elink] = elink_hits.get(elink, 0) + 1
+    #         # Count hits per elink
+    #         elink_hits[elink] = elink_hits.get(elink, 0) + 1
     
-    print(f"\nCosmic Run Analysis Summary:")
-    print(f"  Total events: {len(cosmic_data)}")
-    print(f"  Headers: {header_count}")
-    print(f"  Cosmic hits: {hit_count}")
-    print(f"  Trailers: {trailer_count}")
-    print(f"  Fillers: {filler_count}")
+    # print(f"\nCosmic Run Analysis Summary:")
+    # print(f"  Total events: {len(cosmic_data)}")
+    # print(f"  Headers: {header_count}")
+    # print(f"  Cosmic hits: {hit_count}")
+    # print(f"  Trailers: {trailer_count}")
+    # print(f"  Fillers: {filler_count}")
     
-    print(f"\nHits by E-link:")
-    for elink in sorted(elink_hits.keys()):
-        print(f"  Elink {elink}: {elink_hits[elink]} hits")
+    # print(f"\nHits by E-link:")
+    # for elink in sorted(elink_hits.keys()):
+    #     print(f"  Elink {elink}: {elink_hits[elink]} hits")
     
-    print(f"\nTop 10 pixels:")
-    sorted_pixels = sorted(pixel_hits.items(), key=lambda x: x[1], reverse=True)
-    for i, (pixel, count) in enumerate(sorted_pixels[:10]):
-        print(f"  {i+1}. Pixel {pixel}: {count} hits")
+    # print(f"\nTop 10 pixels:")
+    # sorted_pixels = sorted(pixel_hits.items(), key=lambda x: x[1], reverse=True)
+    # for i, (pixel, count) in enumerate(sorted_pixels[:10]):
+    #     print(f"  {i+1}. Pixel {pixel}: {count} hits")
     
 
     print("\n9. Cleaning up system...")

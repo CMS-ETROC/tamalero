@@ -331,9 +331,10 @@ SCA:
             flavor: small
             comment: SCA LED indicator
 
+
 LPGBT:
-    adc:
-        LPGBT:
+    # adc:
+    #     LPGBT:
     adc:
         Vref1m:
             pin: 0x02
@@ -343,6 +344,8 @@ LPGBT:
             max: 1.05
             flavor: small
             comment: Vref from ETROC B1 (B2)
+            lpgbt: daq
+
         Vref2m:
             pin: 0x06
             current: 0
@@ -351,6 +354,8 @@ LPGBT:
             max: 1.05
             flavor: small
             comment: Vref from ETROC B2 (C1)
+            lpgbt: daq
+
         Vref3m:
             pin: 0x04
             current: 0
@@ -359,6 +364,8 @@ LPGBT:
             max: 1.05
             flavor: small
             comment: Vref from ETROC B3 (C3)
+            lpgbt: daq
+
         Vref4m:
             pin: 0x00
             current: 0
@@ -367,6 +374,8 @@ LPGBT:
             max: 1.05
             flavor: small
             comment: Vref from ETROC B4 (A2)
+            lpgbt: daq
+
         VTEMP1:
             pin: 0x03
             current: 0
@@ -375,6 +384,8 @@ LPGBT:
             max: 1.2
             flavor: small
             comment: VTEMP from ETROC B1 (B1)
+            lpgbt: daq
+
         VTEMP2:
             pin: 0x07
             current: 0
@@ -383,6 +394,8 @@ LPGBT:
             max: 1.2
             flavor: small
             comment: VTEMP from ETROC B2 (D1)
+            lpgbt: daq
+
         VTEMP3:
             pin: 0x05
             current: 0
@@ -391,6 +404,8 @@ LPGBT:
             max: 1.2
             flavor: small
             comment: VTEMP from ETROC B3 (C2)
+            lpgbt: daq
+
         VTEMP4:
             pin: 0x01
             current: 0
@@ -399,6 +414,8 @@ LPGBT:
             max: 1.2
             flavor: small
             comment: VTEMP from ETROC B4 (A1)
+            lpgbt: daq
+
         V1V2HM1_current:
             pin_pos: 0x00
             pin_neg: 0x01
@@ -409,6 +426,8 @@ LPGBT:
             flavor: small
             comment: 1.2V supply current measurement CH1-CH2 differential
             differential: True
+            lpgbt: trigger
+
         V1V2HM2_current:
             pin_pos: 0x02
             pin_neg: 0x03
@@ -419,17 +438,9 @@ LPGBT:
             flavor: small
             comment: 1.2V supply current measurement CH3-CH4 differential
             differential: True
+            lpgbt: trigger
+
         V1V2HM3_current:
-            pin_pos: 0x06
-            pin_neg: 0x07
-            current: 0
-            conv: 15.037
-            min: 0.35
-            max: 0.75
-            flavor: small
-            comment: 1.2V supply current measurement CH5-CH6 differential
-            differential: True
-        V1V2HM4_current:
             pin_pos: 0x04
             pin_neg: 0x05
             current: 0
@@ -437,8 +448,21 @@ LPGBT:
             min: 0.35
             max: 0.75
             flavor: small
+            comment: 1.2V supply current measurement CH5-CH6 differential
+            differential: True
+            lpgbt: trigger
+
+        V1V2HM4_current:
+            pin_pos: 0x06
+            pin_neg: 0x07
+            current: 0
+            conv: 15.037
+            min: 0.35
+            max: 0.75
+            flavor: small
             comment: 1.2V supply current measurement CH7-CH8 differential
             differential: True
+            lpgbt: trigger
 
     gpio:
         SCA_RESETB:

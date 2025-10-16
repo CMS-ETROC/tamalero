@@ -460,13 +460,14 @@ def main(args):
                 if raw_data:
                     packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
                     current_file.write(packed_data)
+                    current_file.flush()
                     counters_in_current_file += 1
                 
                     # --- Check event count and roll over if needed ---
                     if counters_in_current_file >= max_counters_per_file:
                         current_file.close()
                         print(f"Closed file: {current_file.name}")
-
+                        
                         file_number += 1
                         current_file = None # Trigger opening a new file on the next loop
 

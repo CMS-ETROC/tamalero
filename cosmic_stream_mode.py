@@ -61,7 +61,7 @@ TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 472
 
 CHARGE_FC = 30 
-QINJ_COUNT = 1000
+QINJ_COUNT = 200
 PIXEL_ROW = 1
 PIXEL_COL = 2
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
@@ -404,14 +404,14 @@ def main():
         output_dir = Path(OUTPUTS_PATH)
         output_dir.mkdir(exist_ok=True)
 
-        max_counters_per_file = 100000
+        max_counters_per_file = 1000000
         file_number = 0
         counters_in_current_file = 0
         current_file = None
 
         start_time = datetime.now(timezone.utc)
         last_report_time = time.time()
-        report_interval = 5  # seconds
+        report_interval = 300  # seconds
         trigger_cnt = 0
         hit_counter = 0
         total_raw_words = 0
@@ -446,6 +446,8 @@ def main():
                         
                         packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
                         current_file.write(packed_data)
+                        current_file.flush()
+                        os.fsync(current_file.fileno())
                         counters_in_current_file += len(raw_data)
 
                         total_raw_words += len(raw_data)
@@ -455,7 +457,7 @@ def main():
                             merged_64bit_chunk = merge_words(raw_data)
                             parsed_data_chunk = list(map(df.read, merged_64bit_chunk))
                             if parsed_data_chunk:
-                                cosmic_data.extend(parsed_data_chunk)
+                                # cosmic_data.extend(parsed_data_chunk)
 
                                 for event in parsed_data_chunk:
                                     if event and len(event) >= 2 and event[0] == 'header':
@@ -509,7 +511,7 @@ def main():
                         logger.info(f"Hit rate: {rate:.3f} hits/second")
                         logger.info(f"Trigger count: {trigger_cnt}")
                         logger.info(f"Manual calculated trigger rate: {manual_trigger_rate:.3f}")
-                        logger.info(f"Total events: {len(cosmic_data)}")
+                        # logger.info(f"Total events: {len(cosmic_data)}")
                         # print(f"\n--- Status Report ---")
                         # print(f"FIFO full :{fifo_full}")
                         # print(f"FIFO lost words: {lost_words}")
@@ -556,52 +558,52 @@ def main():
     print("\n9. Analyzing cosmic ray data...")
     
     # Analyze the collected data
-    header_count = hit_count = filler_count = trailer_count = 0
-    pixel_hits = {}
-    elink_hits = {}
+    # header_count = hit_count = filler_count = trailer_count = 0
+    # pixel_hits = {}
+    # elink_hits = {}
     
-    for event in cosmic_data:
-        if event is None or len(event) < 2:
-            continue
+    # for event in cosmic_data:
+    #     if event is None or len(event) < 2:
+    #         continue
         
-        data_type, event_data = event[0], event[1]
+    #     data_type, event_data = event[0], event[1]
         
-        if data_type == 'header':
-            header_count += 1
-        elif data_type == 'filler':
-            filler_count += 1
-        elif data_type == 'trailer':
-            trailer_count += 1
-        elif data_type == 'data':
-            hit_count += 1
+    #     if data_type == 'header':
+    #         header_count += 1
+    #     elif data_type == 'filler':
+    #         filler_count += 1
+    #     elif data_type == 'trailer':
+    #         trailer_count += 1
+    #     elif data_type == 'data':
+    #         hit_count += 1
             
-            # Extract hit information
-            row = event_data.get('row_id', 'N/A')
-            col = event_data.get('col_id', 'N/A')
-            elink = event_data.get('elink', 'N/A')
+    #         # Extract hit information
+    #         row = event_data.get('row_id', 'N/A')
+    #         col = event_data.get('col_id', 'N/A')
+    #         elink = event_data.get('elink', 'N/A')
             
-            # Count hits per pixel
-            pixel_key = f"({row},{col})"
-            pixel_hits[pixel_key] = pixel_hits.get(pixel_key, 0) + 1
+    #         # Count hits per pixel
+    #         pixel_key = f"({row},{col})"
+    #         pixel_hits[pixel_key] = pixel_hits.get(pixel_key, 0) + 1
             
-            # Count hits per elink
-            elink_hits[elink] = elink_hits.get(elink, 0) + 1
+    #         # Count hits per elink
+    #         elink_hits[elink] = elink_hits.get(elink, 0) + 1
     
-    print(f"\nCosmic Run Analysis Summary:")
-    print(f"  Total events: {len(cosmic_data)}")
-    print(f"  Headers: {header_count}")
-    print(f"  Cosmic hits: {hit_count}")
-    print(f"  Trailers: {trailer_count}")
-    print(f"  Fillers: {filler_count}")
+    # print(f"\nCosmic Run Analysis Summary:")
+    # print(f"  Total events: {len(cosmic_data)}")
+    # print(f"  Headers: {header_count}")
+    # print(f"  Cosmic hits: {hit_count}")
+    # print(f"  Trailers: {trailer_count}")
+    # print(f"  Fillers: {filler_count}")
     
-    print(f"\nHits by E-link:")
-    for elink in sorted(elink_hits.keys()):
-        print(f"  Elink {elink}: {elink_hits[elink]} hits")
+    # print(f"\nHits by E-link:")
+    # for elink in sorted(elink_hits.keys()):
+    #     print(f"  Elink {elink}: {elink_hits[elink]} hits")
     
-    print(f"\nTop 10 pixels:")
-    sorted_pixels = sorted(pixel_hits.items(), key=lambda x: x[1], reverse=True)
-    for i, (pixel, count) in enumerate(sorted_pixels[:10]):
-        print(f"  {i+1}. Pixel {pixel}: {count} hits")
+    # print(f"\nTop 10 pixels:")
+    # sorted_pixels = sorted(pixel_hits.items(), key=lambda x: x[1], reverse=True)
+    # for i, (pixel, count) in enumerate(sorted_pixels[:10]):
+    #     print(f"  {i+1}. Pixel {pixel}: {count} hits")
     
 
     print("\n9. Cleaning up system...")

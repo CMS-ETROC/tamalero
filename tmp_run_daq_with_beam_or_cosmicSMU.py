@@ -5,7 +5,6 @@ from tamalero.utils import get_kcu
 from tamalero.DataFrame import DataFrame
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
-from tamalero.KCU import KCU
 import os
 import sys
 import tty
@@ -19,6 +18,15 @@ from pathlib import Path
 from tqdm import tqdm
 from random import randint
 from datetime import datetime, timezone,timedelta
+from tamalero.FIFO import merge_words
+
+import logging
+from logging.handlers import RotatingFileHandler
+
+from pathlib import Path
+
+logger = logging.getLogger('DAQLogger')
+logger.setLevel(logging.DEBUG)
 
 
 KCU_IP = "192.168.0.10" 
@@ -26,27 +34,24 @@ KCU_IP = "192.168.0.10"
 READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
 
-# 0x60 far board, 0x63 facing beam
-# CH0 HV - 0x60
-# CH3 HV - 0x63
 ETROC_I2C_ADDRESSES = [0x60, 0x61, 0x62, 0x63]
-ETROC_NAMES = ['ET2p02_PT_NH39_CE', 'ET2p02_PT_NH42_CE', 'ET2p02_PT_NH41_CE', 'ET2p02_PT_NH47_CE']
+# ETROC_I2C_ADDRESSES = [0x60,0x61]
 ETROC_I2C_CHANNEL = 1
 ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
 # Test parameters
 TH_OFFSET = 20              # Threshold offset above baseline
-TRIGGER_ENABLE_MASK = 0x1
+TRIGGER_ENABLE_MASK = 0x8
 TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 469
 
-CHARGE_FC = 30 
-QINJ_COUNT = 100
-CHUNK_SIZE = 50000    # number of events for each saved file
-running_time = 2       # minutes, None means no limit
+# CHARGE_FC = 30 
+# QINJ_COUNT = 100
+CHUNK_SIZE = 10000     # number of events for each saved file
+running_time = None  # minutes, None means no limit
 
-PIXEL_ROW = 1
-PIXEL_COL = 2
+PIXEL_ROW = 16
+PIXEL_COL = 16
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 
 stop_acquisition = False
@@ -167,22 +172,22 @@ def check_for_quit():
 def initialize_kcu():
     """Initialize KCU connection"""
     print('ETROC COSMIC RUN TEST - HARDWARE INITIALIZATION')
+    from tamalero.KCU import KCU
+    # kcu = get_kcu(
+    #     KCU_IP,
+    #     control_hub=True,
+    #     host='localhost',
+    #     verbose=False
+    # )
 
-    ipb_path = f"chtcp-2.0://localhost:10203?target={KCU_IP}:50001"
-    generic_xml_path = os.path.expandvars("$TAMALERO_BASE/address_table/generic/etl_test_fw.xml")
+    ipb_path = f'chtcp-2.0://localhost:10203?target={KCU_IP}:50001'
+    generic_path = os.path.expandvars('$TAMALERO_BASE/address_table/generic/etl_test_fw.xml')
     
     kcu = KCU(
-        name="kcu",
-        ipb_path=ipb_path,
-        adr_table=generic_xml_path
+        name = 'kcu',
+        ipb_path = ipb_path,
+        adr_table = generic_path
     )
-
-    #kcu = get_kcu(
-    #    KCU_IP,
-    #    control_hub=True,
-    #    host='localhost',
-    #    verbose=False
-    #)
     print(green("Successfully connected to KCU."))
 
     kcu.status()
@@ -215,9 +220,11 @@ def initialize_etroc_chips(rb):
     """Initialize all ETROC chips"""
     print("\n3. Initializing ETROC chips...")
     etroc_chips = []
+    chip_names = []
 
     for i, addr in enumerate(ETROC_I2C_ADDRESSES):
-        chip_name = ETROC_NAMES[i]
+        chip_name = f"Chip{i+1}"
+        chip_names.append(chip_name)
         
         print(f"\nInitializing {chip_name} (I2C: 0x{addr:02X})...")
         
@@ -267,7 +274,7 @@ def initialize_etroc_chips(rb):
             status = "Failed"
         print(f"  {chip_name} (I2C: 0x{addr:02X}) <-> E-link {elink} - {status}")
     
-    return etroc_chips
+    return etroc_chips, chip_names
 
 # ======================================================================================
 # CALIBRATION AND CONFIGURATION FUNCTIONS
@@ -370,8 +377,8 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
                 baseline = baseline_storage[chip_name][(pixel_row, pixel_col)]
                 applied_dac = baseline + TH_OFFSET
                 etroc.wr_reg('DAC', applied_dac, row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.wr_reg("QSel", CHARGE_FC - 1, row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.wr_reg("QSel", CHARGE_FC , row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('TOA', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('TOT', upper=0x1ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.set_trigger_TH('Cal', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
@@ -394,13 +401,21 @@ def configure_trigger_system(rb):
     """Configure self-trigger system"""
     print("\n6. Configuring self-trigger system...")
     
+    # rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_0", TRIGGER_ENABLE_MASK)
+    # rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_1", TRIGGER_DATA_SIZE)
+    # rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_3", TRIGGER_DELAY_SEL)
+    
+    # print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
+    # print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
+    # print(f"Trigger DELAY SEL: {TRIGGER_DELAY_SEL}")
+
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK", TRIGGER_ENABLE_MASK)
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DATA_SIZE", TRIGGER_DATA_SIZE)
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL", TRIGGER_DELAY_SEL)
-    #rb.kcu.hw.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_0", TRIGGER_ENABLE_MASK)
-    #rb.kcu.hw.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_1", TRIGGER_DATA_SIZE)
-    #rb.kcu.hw.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK_3", TRIGGER_DELAY_SEL)
 
+    # combination_val = rb.kcu.read_node("TRIG_COMBINATION_LOGIC").value()
+    # print(f"Trig_combination_val is {combination_val}")
+    
     print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
     print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
     print(f"Trigger DELAY SEL: {TRIGGER_DELAY_SEL}")
@@ -451,7 +466,7 @@ def run_cosmic_detection(rb, max_running_time, args):
     time.sleep(1)
     
     # Initialize chunked data saver
-    chunk_saver = ChunkedDataSaver(chunk_size=CHUNK_SIZE)
+    # chunk_saver = ChunkedDataSaver(chunk_size=CHUNK_SIZE)
     
     # Setup terminal for non-blocking input
     old_settings = setup_terminal()
@@ -463,7 +478,7 @@ def run_cosmic_detection(rb, max_running_time, args):
         start_time = datetime.now(timezone.utc)
         last_report_time = time.time()
         last_save_time = time.time()
-        report_interval = 10  # seconds
+        report_interval = 60  # seconds
         save_interval = 300   # save data every 300 s
         trigger_cnt = 0
 
@@ -478,6 +493,14 @@ def run_cosmic_detection(rb, max_running_time, args):
         file_number = 0
         counters_in_current_file = 0
         current_file = None
+
+        start_time = datetime.now(timezone.utc)
+        last_report_time = time.time()
+        report_interval = 60  # seconds
+        trigger_cnt = 0
+        hit_counter = 0
+        total_raw_words = 0
+        total_events = 0
 
         start_time = datetime.now(timezone.utc)
         while not stop_acquisition:
@@ -501,26 +524,62 @@ def run_cosmic_detection(rb, max_running_time, args):
                     counters_in_current_file = 0
 
                 # --- Read and write data ---
-                fifo.send_Qinj_only(count=QINJ_COUNT)
                 raw_data = fifo.read(dispatch=True)
 
-                time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
+                # time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
 
                 if raw_data:
                     packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
                     current_file.write(packed_data)
                     current_file.flush()
+                    os.fsync(current_file.fileno())
                     counters_in_current_file += 1
-                
-                    # --- Check event count and roll over if needed ---
+                    counters_in_current_file += len(raw_data)
+
+                    total_raw_words += len(raw_data)
+                    total_events += 1
+
+                    try:
+                        merged_64bit_chunk = merge_words(raw_data)
+                        parsed_data_chunk = list(map(df.read, merged_64bit_chunk))
+                        if parsed_data_chunk:
+                            # cosmic_data.extend(parsed_data_chunk)
+
+                            for event in parsed_data_chunk:
+                                if event and len(event) >= 2 and event[0] == 'header':
+                                    trigger_cnt += 1
+                                if event and len(event) >= 2 and event[0] == 'data':
+                                    hit_counter += 1
+                                    hit_data = event[1]
+                                    
+                                    # Print hit information for monitoring
+                                    row = hit_data.get('row_id', 'N/A')
+                                    col = hit_data.get('col_id', 'N/A')
+                                    elink = hit_data.get('elink', 'N/A')
+                        else:
+                            time.sleep(0.1)
+                    except Exception as parse_error:
+                        print(f"parsed error {parse_error}")
+                        pass
                     if counters_in_current_file >= CHUNK_SIZE:
                         current_file.close()
                         print(f"Closed file: {current_file.name}")
-
                         file_number += 1
-                        current_file = None # Trigger opening a new file on the next loop
+                        # current_file = None # Trigger opening a new file on the next loop
+                        new_filename = output_dir / f"file_{file_number}_CE.dat"
+                        print(f"Opening new file: {new_filename}")
+                        current_file = open(new_filename, "wb")
+                        counters_in_current_file = 0
+                    # --- Check event count and roll over if needed ---
+                    # if counters_in_current_file >= CHUNK_SIZE:
+                    #     current_file.close()
+                    #     print(f"Closed file: {current_file.name}")
+
+                    #     file_number += 1
+                    #     current_file = None # Trigger opening a new file on the next loop
 
                 time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
+
                 # fifo.send_Qinj_only(count=QINJ_COUNT)
                 # data = fifo.pretty_read(df)
                 
@@ -534,6 +593,27 @@ def run_cosmic_detection(rb, max_running_time, args):
                 #                 trigger_cnt += 1
                 #             elif event[0] == 'data':
                 #                 hit_counter += 1
+
+                current_time = time.time()
+                if current_time - last_report_time >= report_interval:
+                    elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+                    rate = hit_counter / elapsed_time if elapsed_time > 0 else 0
+                    manual_trigger_rate = trigger_cnt / elapsed_time if elapsed_time > 0 else 0
+                    fifo_occupancy = fifo.get_occupancy()
+                    fifo_full = fifo.is_full()
+                    # trigger_rate= fifo.get_trigger_rate()
+                    lost_words = fifo.get_lost_word_count()
+                    # print(f"Trigger rate: {trigger_rate}")
+                    # print()
+                    print(f"\n--- Status Report ---")
+                    # logger.info(f"FIFO full :{fifo_full}")
+                    # logger.info(f"FIFO lost words: {lost_words}")
+                    # logger.info(f"FIFO Occupancy: {fifo_occupancy}")
+                    print(f"Running time: {elapsed_time:.1f} seconds")
+                    print(f"Total cosmic hits: {hit_counter}")
+                    print(f"Hit rate: {rate:.3f} hits/second")
+                    print(f"Trigger count: {trigger_cnt}")
+                    print(f"Manual calculated trigger rate: {manual_trigger_rate:.3f}")
                 
                 # current_time = time.time()
                 
@@ -559,7 +639,7 @@ def run_cosmic_detection(rb, max_running_time, args):
                 #             print(yellow(f"remaining time: {int(remaining_time)} sec"))
                 #     else:
                 #         print("Press 'q' to stop\n")
-                #     last_report_time = current_time
+                    last_report_time = current_time
 
                 # if current_time - last_save_time >= save_interval:
                 #     if chunk_saver.current_chunk: 
@@ -583,6 +663,7 @@ def run_cosmic_detection(rb, max_running_time, args):
         if current_file and not current_file.closed:
             current_file.close()
             print(f"Closed final file: {current_file.name}")
+
         # Restore terminal settings
         restore_terminal(old_settings)
         
@@ -623,14 +704,14 @@ def main(max_running_time = None, args = None):
     # Hardware initialization
     kcu = initialize_kcu()
     rb = initialize_readout_board(kcu)
-    etroc_chips = initialize_etroc_chips(rb)
+    etroc_chips, chip_names = initialize_etroc_chips(rb)
 
     for etroc in etroc_chips:
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
     
     # Setup and calibration
     print("\nETROC COSMIC RAY TEST - CONTINUOUS DETECTION")
-    etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, ETROC_NAMES)
+    etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, chip_names)
     configure_etroc_for_cosmic(etroc_configs, baseline_storage)
     configure_trigger_system(rb)
     

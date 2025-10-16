@@ -5,6 +5,7 @@ from tamalero.utils import get_kcu
 from tamalero.DataFrame import DataFrame
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
+from tamalero.KCU import KCU
 import os
 import sys
 import tty
@@ -160,13 +161,20 @@ def check_for_quit():
 def initialize_kcu():
     """Initialize KCU connection"""
     print('ETROC COSMIC RUN TEST - HARDWARE INITIALIZATION')
+    ipb_path = f'chtcp-2.0://localhost:10203?target={KCU_IP}:50001'
+    generic_path = os.path.expandvars('$TAMALERO_BASE/address_table/generic/etl_test_fw.xml')
     
-    kcu = get_kcu(
-        KCU_IP,
-        control_hub=True,
-        host='localhost',
-        verbose=False
+    kcu = KCU(
+        name = 'kcu',
+        ipb_path = ipb_path,
+        adr_table = generic_path
     )
+    # kcu = get_kcu(
+    #     KCU_IP,
+    #     control_hub=True,
+    #     host='localhost',
+    #     verbose=False
+    # )
     print(green("Successfully connected to KCU."))
 
     kcu.status()

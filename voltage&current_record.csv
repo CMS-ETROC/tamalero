@@ -1,0 +1,2 @@
+timestamp,Vref1m_raw,Vref1m_volts,Vref2m_raw,Vref2m_volts,Vref3m_raw,Vref3m_volts,Vref4m_raw,Vref4m_volts,VTEMP1_raw,VTEMP1_volts,VTEMP2_raw,VTEMP2_volts,VTEMP3_raw,VTEMP3_volts,VTEMP4_raw,VTEMP4_volts,V1V2HM1_current_raw,V1V2HM1_current_volts,V1V2HM2_current_raw,V1V2HM2_current_volts,V1V2HM3_current_raw,V1V2HM3_current_volts,V1V2HM4_current_raw,V1V2HM4_current_volts
+2025-10-16 13:01:12,72,0.0878,800,0.9752,799,0.9740,800,0.9752,638,0.6237,542,0.5298,583,0.5699,577,0.5640,31,0.4557,36,0.5292,37,0.5439,38,0.5586

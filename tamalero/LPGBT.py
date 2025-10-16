@@ -177,6 +177,38 @@ class LPGBT(RegParser):
         self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, self.ver)
         self.parse_xml(ver=self.ver)
 
+        self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
+        self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
+
+        i2cM1Ctrl = self.rd_reg('LPGBT.RO.I2CREAD.I2CM1CTRL')
+    
+        freq_bits = i2cM1Ctrl & 0b11
+
+        if freq_bits == 0b00:
+            print("100khz")
+        elif freq_bits == 0b01:
+            print("200khz")
+        elif freq_bits == 0b10:
+            print("400khz")
+        elif freq_bits == 0b11:
+            print("1 Mhz")
+
+        self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
+        self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
+        
+
+        I2CM1SCLPULLUPENABLE = self.rd_reg('LPGBT.RW.I2C.I2CM1SCLPULLUPENABLE')
+        # print(f'I2C M1SCLPULLUPENABLE value: {I2CM1SCLPULLUPENABLE}')
+        I2CM1SCLDRIVESTRENGTH = self.rd_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH')
+        # print(f'I2C M1SCLDRIVESTRENGTH value: {I2CM1SCLDRIVESTRENGTH}')
+        I2CM1SDAPULLUPENABLE = self.rd_reg('LPGBT.RW.I2C.I2CM1SDAPULLUPENABLE')
+        # print(f'I2C M1SDAPULLUPENABLE value: {I2CM1SDAPULLUPENABLE}')
+        I2CM1SDADRIVESTRENGTH = self.rd_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH')
+        # print(f'I2C M1SDADRIVESTRENGTH value: {I2CM1SDADRIVESTRENGTH}')
+        I2CM1ADDRESSEXT = self.rd_reg('LPGBT.RW.I2C.I2CM1ADDRESSEXT')
+        # print(f'I2C M1 addrESSEXT value: {I2CM1ADDRESSEXT}')
+        
+
         if self.trigger:
             self.init_trigger_links()
             if self.rb == 0 and False:
