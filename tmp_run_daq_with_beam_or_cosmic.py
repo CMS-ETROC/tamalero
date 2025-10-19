@@ -416,43 +416,58 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
                 etroc.set_data_TH('Cal', upper=0x3ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
                 pbar.update(1)
                 pbar.set_postfix({
-                    'pixel': f'({pixel_row},{pixel_col})', 
+                    'pixel': f'({pixel_row},{pixel_col})',
                     'DAC': f'{applied_dac:.0f}'
                 })
-                
+
                 # Small delay to prevent communication issues
                 if (pixel_row * 16 + pixel_col) % 32 == 0:  # Every 32 pixels
                     time.sleep(0.01)
-    
+
     print(green(f"All {PIXEL_ROW * PIXEL_COL} pixel configuration completed"))
 
 def configure_trigger_system(rb):
     """Configure self-trigger system"""
     print("\n6. Configuring self-trigger system...")
-    
+
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK", TRIGGER_ENABLE_MASK)
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DATA_SIZE", TRIGGER_DATA_SIZE)
     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL", TRIGGER_DELAY_SEL)
-    
+
     print(f"Trigger ENABLE Mask: 0x{TRIGGER_ENABLE_MASK:X}")
     print(f"Trigger DATA SIZE: {TRIGGER_DATA_SIZE}")
     print(f"Trigger DELAY SEL: {TRIGGER_DELAY_SEL}")
     time.sleep(0.1)
 
+    max_retries = 10
+    retry_delay_sec = 0.5
+    all_links_locked = True
     # check elink status
     for elink in [0,4,8,12]:
         locked = rb.etroc_locked(elink, slave=False)
         print(f"elink: {elink} locked status: {locked}")
-        if not locked:
-            print(yellow(f"Warning: E-link {elink} is NOT locked after configuration. Attempting to re-lock..."))
-            rb.rerun_bitslip() 
-            time.sleep(0.5)
-            locked = rb.etroc_locked(elink, slave=False) 
-            print(f"After re-lock, elink {elink} locked status : {locked}")
-            if not locked:
-                print(red(f"FATAL: E-link {elink} failed to lock. Stopping."))
 
-    print(green("Self-trigger system configured and enabled"))
+        retries = 0
+        while not locked and retries < max_retries:
+            retries += 1
+            print(yellow(f"  Warning: E-link {elink} NOT locked. Retrying... (Attempt {retries}/{max_retries})"))
+
+            rb.rerun_bitslip()
+            time.sleep(retry_delay_sec)
+
+            locked = rb.etroc_locked(elink, slave=False)
+            print(f"  E-link {elink} status after retry: {locked}")
+
+        if not locked:
+            print(red(f"FATAL: E-link {elink} failed to lock after {max_retries} attempts. Stopping."))
+            all_links_locked = False
+
+    if all_links_locked:
+        print(green("Success: All E-links are locked."))
+        print(green("Self-trigger system configured and enabled"))
+    else:
+        print(red("Script terminating due to E-link lock failure."))
+        sys.exit(1)
 
 # ======================================================================================
 # DATA ACQUISITION FUNCTION
