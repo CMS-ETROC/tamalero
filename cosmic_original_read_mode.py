@@ -51,16 +51,16 @@ KCU_IP = "192.168.0.10" ## If your KCU ip is diff, modify it.
 READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
 
-# ETROC_I2C_ADDRESSES = [0x60,0x61, 0x62, 0x63]
-ETROC_I2C_ADDRESSES = [0x60]
+ETROC_I2C_ADDRESSES = [0x60,0x61, 0x62, 0x63]
+# ETROC_I2C_ADDRESSES = [0x63]
 ETROC_I2C_CHANNEL = 1
 ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
 # Test parameters
 TH_OFFSET = 20                  # Threshold offset above baseline
-TRIGGER_ENABLE_MASK = 0x1
+TRIGGER_ENABLE_MASK = 0x8
 TRIGGER_DATA_SIZE = 1
-TRIGGER_DELAY_SEL = 469
+TRIGGER_DELAY_SEL = 472
 
 # CHARGE_FC = 30 
 # QINJ_COUNT = 10
@@ -435,7 +435,56 @@ def main():
     print("\n7. Starting continuous cosmic run detection...")
     print(yellow("Press 'q' to stop acquisition"))
     
-    # Setup terminal for non-blocking input
+    # scan_range = range(468, 474)
+    # scan_duration = 120
+
+    # results = {}
+    # fifo.reset()
+    # rb.reset_data_error_count()
+    # for delay in scan_range:
+    #     print(f"\n--- Testing TRIGGER_DELAY_SEL = {delay} for {scan_duration} seconds ---")
+    #     rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL", delay)
+    #     time.sleep(0.1)
+
+    #     hit_count_for_this_delay = 0
+    #     start_time = time.time()
+
+    #     while time.time() - start_time < scan_duration:
+    #         raw_data = fifo.read(dispatch=True)
+    #         if raw_data:
+    #             try:
+    #                 from tamalero.FIFO import merge_words
+    #                 merged_64bit_chunk = merge_words(raw_data)
+    #                 parsed_data_chunk = list(map(df.read, merged_64bit_chunk))
+
+    #                 for event in parsed_data_chunk:
+    #                     if event and len(event) >= 2 and event[0] == 'data':
+    #                         hit_count_for_this_delay += 1
+    #             except Exception as e:
+    #                 print(red(f"  - Data parsing error: {e}"))
+    #         time.sleep(0.01)
+    #     results[delay] = hit_count_for_this_delay
+    #     print(green(f"  >>> Found {hit_count_for_this_delay} hits for delay = {delay}"))
+
+    # print("\n\n--- Trigger Delay Scan Complete ---")
+    # print("Delay | Number of Hits")
+    # print("----------------------")
+    
+    # best_delay = -1
+    # max_hits = -1
+    
+    # for delay, hits in sorted(results.items()):
+    #     print(f" {delay:<5}| {hits}")
+    #     if hits > max_hits:
+    #         max_hits = hits
+    #         best_delay = delay
+    # if max_hits > 0:
+    #     print(green(f"\nOptimal delay found: {best_delay} with {max_hits} hits."))
+    # else:
+    #     print(red("\nScan finished, but no hits were found in the tested range."))
+
+
+    # # Setup terminal for non-blocking input
     old_settings = setup_terminal()
     try:
         # --- Configuration for file splitting ---
@@ -463,7 +512,8 @@ def main():
         # args=(fifo, QINJ_COUNT, stop_event)
         #         )
         # sender_thread.start()
-        
+        # fifo.send_Qinj_only(count=200)
+        time.sleep(0.1)
         start_time = datetime.now(timezone.utc)
         while not stop_acquisition:
         # while (datetime.now(timezone.utc) - start_time).total_seconds() < TEST_DURATION:

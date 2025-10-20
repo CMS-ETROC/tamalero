@@ -41,7 +41,7 @@ ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
 # Test parameters
 TH_OFFSET = 20              # Threshold offset above baseline
-TRIGGER_ENABLE_MASK = 0x8
+TRIGGER_ENABLE_MASK = 0x1
 TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 469
 
