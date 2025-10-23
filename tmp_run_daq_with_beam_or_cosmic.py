@@ -23,7 +23,7 @@ from datetime import datetime, timezone,timedelta
 ### Custom function
 from etroc_utils import convert_dict_to_pandas, save_baselines
 
-KCU_IP = "192.168.0.10" 
+KCU_IP = "192.168.0.10"
 
 READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
@@ -35,11 +35,18 @@ ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
 # Test parameters
 TH_OFFSET = 10              # 20 DAC Threshold offset above baseline
+TH_OFFSETS = {
+    'ET2p02_PT_NH39_CE': 20,
+    'ET2p02_PT_NH42_CE': 10,
+    'ET2p02_PT_NH41_CE': 20,
+    'ET2p02_PT_NH47_CE': 20,
+}
+
 TRIGGER_ENABLE_MASK = 0x1 # 0001, 0x1 (0x63, 0x62, 0x61, 0x60) - trigger now the last plane NH39
 TRIGGER_DATA_SIZE = 1
 TRIGGER_DELAY_SEL = 469
 
-CHARGE_FC = 5 
+CHARGE_FC = 5
 QINJ_COUNT = 0
 CHUNK_SIZE = 500     # number of events for each saved file
 running_time = 480       # 8 hours in minute, None means no limit, please use the maximum for 24 hrs = 60*24 = 1440
@@ -67,49 +74,49 @@ class ChunkedDataSaver:
         self.current_chunk = []
         self.chunk_number = 0
         self.total_events = 0
-        
+
         # 创建输出目录
         self.session_dir = os.path.join(base_dir, f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         os.makedirs(self.session_dir, exist_ok=True)
-        
+
         print(f"Data will be saved into: {self.session_dir}")
         print(f"Every chunk size: {chunk_size} events")
-    
+
     def add_events(self, events):
         if not events:
             return
-            
+
         self.current_chunk.extend(events)
         self.total_events += len(events)
-        
+
         if len(self.current_chunk) >= self.chunk_size:
             self._save_current_chunk()
-    
+
     def _save_current_chunk(self):
         if not self.current_chunk:
             return
-            
+
         filename = f"chunk_{self.chunk_number:04d}.pkl"
         filepath = os.path.join(self.session_dir, filename)
-        
+
         try:
             with open(filepath, 'wb') as f:
                 pickle.dump(self.current_chunk, f)
-            
+
             print(f"Already saved chunks {self.chunk_number}: {len(self.current_chunk)} events -> {filename}")
-            
+
             # empty current chunk and prepare for the next
             self.current_chunk = []
             self.chunk_number += 1
-            
+
         except Exception as e:
             print(f" Saving chunk {self.chunk_number} failed: {e}")
-    
+
     def finalize(self):
         # save the last chunk if exist
         if self.current_chunk:
             self._save_current_chunk()
-        
+
         metadata = {
             "total_events": self.total_events,
             "total_chunks": self.chunk_number,
@@ -117,11 +124,11 @@ class ChunkedDataSaver:
             "session_dir": self.session_dir,
             "timestamp": datetime.now().isoformat()
         }
-        
+
         metadata_file = os.path.join(self.session_dir, "metadata.pkl")
         with open(metadata_file, 'wb') as f:
             pickle.dump(metadata, f)
-        
+
         print(f"\nData dumping completed:")
         print(f"- Total events: {self.total_events:,}")
         print(f"- Total chunks: {self.chunk_number}")
@@ -172,13 +179,13 @@ def initialize_kcu():
     print('ETROC COSMIC RUN TEST - HARDWARE INITIALIZATION')
     ipb_path = f"chtcp-2.0://localhost:10203?target={KCU_IP}:50001"
     generic_xml_path = os.path.expandvars("$TAMALERO_BASE/address_table/generic/etl_test_fw.xml")
-    
+
     kcu = KCU(
         name="kcu",
         ipb_path=ipb_path,
         adr_table=generic_xml_path
     )
-    
+
     #kcu = get_kcu(
     #    KCU_IP,
     #    control_hub=True,
@@ -198,7 +205,7 @@ def initialize_kcu():
         print(green(f"KCU Loopback test PASSED: Wrote 0x{loopback_val:X}, Read 0x{read_val:X}"))
     else:
         print(red(f"KCU Loopback test FAILED: Wrote 0x{loopback_val:X}, Read 0x{read_val:X}"))
-    
+
     return kcu
 
 def initialize_readout_board(kcu):
@@ -206,8 +213,8 @@ def initialize_readout_board(kcu):
     rb = ReadoutBoard(
         rb=READOUTBOARD_ID,
         kcu=kcu,
-        config=READOUTBOARD_CONFIG, 
-        trigger=False,     
+        config=READOUTBOARD_CONFIG,
+        trigger=False,
         verbose=False
     )
     print(green(f"Readout Board version detected: {rb.ver}"))
@@ -220,9 +227,9 @@ def initialize_etroc_chips(rb):
 
     for i, addr in enumerate(ETROC_I2C_ADDRESSES):
         chip_name = ETROC_NAMES[i]
-        
+
         print(f"\nInitializing {chip_name} (I2C: 0x{addr:02X})...")
-        
+
         try:
             etroc = ETROC(
                 rb,
@@ -234,25 +241,25 @@ def initialize_etroc_chips(rb):
                 verbose=False
             )
             etroc_chips.append(etroc)
-            
+
             # Verify communication
             if etroc.is_connected():
                 # Check key registers
                 scrambler_status = etroc.rd_reg("disScrambler")
                 controller_state = etroc.rd_reg("controllerState")
                 pll_unlock_count = etroc.rd_reg("pllUnlockCount")
-                
+
                 print(green(f"✓ {chip_name} connected successfully"))
                 print(f"  Controller state: {controller_state} (should be 11)")
                 print(f"  PLL unlock count: {pll_unlock_count}")
-                
+
                 if scrambler_status == 1:
                     print(green("  Register communication verified"))
                 else:
                     print(red("   Register communication issue"))
             else:
                 print(red(f"✗ {chip_name} not responding"))
-                
+
         except Exception as e:
             print(red(f"Failed to initialize {chip_name}: {e}"))
             etroc_chips.append(None)
@@ -268,7 +275,7 @@ def initialize_etroc_chips(rb):
         else:
             status = "Failed"
         print(f"  {chip_name} (I2C: 0x{addr:02X}) <-> E-link {elink} - {status}")
-    
+
     return etroc_chips
 
 # ======================================================================================
@@ -278,11 +285,11 @@ def initialize_etroc_chips(rb):
 def calibrate_baselines(etroc_chips, chip_names, custom_note):
     """Calibrate baseline for all pixels"""
     print(f"\n2. Calibrating {PIXEL_ROW * PIXEL_COL} pixel baselines...")
-    
+
     baseline_storage = {}
     etroc_configs = []
     failed_pixels = {}
-    
+
     print("\n3. Generating test pixel configuration...")
     all_pixels_per_chip = []
     for _ in range(NUM_ETROC):
@@ -307,7 +314,7 @@ def calibrate_baselines(etroc_chips, chip_names, custom_note):
         }
         failed_pixels[chip_name] = []
         print(f"\nScanning {chip_name}...")
-        
+
         for pixel_row, pixel_col in tqdm(test_pixels, desc = f"{chip_name} pixels"):
             try:
                 baseline, noise_width = etroc.auto_threshold_scan(
@@ -320,7 +327,7 @@ def calibrate_baselines(etroc_chips, chip_names, custom_note):
                 )
 
                 time.sleep(0.03)
-            
+
                 baseline_storage[chip_name][(pixel_row, pixel_col)] = baseline
             except Exception as e:
                 print(red(f"  Pixel ({pixel_row},{pixel_col}): SCAN FAILED - {e}"))
@@ -345,11 +352,11 @@ def calibrate_baselines(etroc_chips, chip_names, custom_note):
         save_baselines(bl_nw_df, key,
                        hist_dir=path_to_hist,
                        fig_dir=path_to_figure,
-                       save_notes=my_note)  
-    
+                       save_notes=my_note)
+
     #     if failed_pixels[chip_name]:
     #         print(red(f"  Found {len(failed_pixels[chip_name])} pixels with scan failures during sampling"))
-    
+
     # # Print summary of baseline calibration
     # total_failed_pixels = sum(len(failed_list) for failed_list in failed_pixels.values())
     # print(green("Baseline calibration completed"))
@@ -364,13 +371,13 @@ def calibrate_baselines(etroc_chips, chip_names, custom_note):
 
     time.sleep(1)
     print(green("Baseline calibration completed"))
-    
+
     return etroc_configs, baseline_storage
 
 def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
     """Configure all ETROC chips for cosmic run detection"""
     print(f"\n4. Configuring all {PIXEL_ROW * PIXEL_COL} pixels for cosmic run detection...")
-    
+
     # Reset and configure all chips
     for _, (etroc, chip_name, all_pixels) in enumerate(etroc_configs):
         print(f"Configuring {chip_name}-{PIXEL_ROW * PIXEL_COL} pixels pixels)...")
@@ -379,7 +386,7 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
         etroc.wr_reg("singlePort", 1)
         # Disable all pixels initially
         etroc.wr_reg("disDataReadout", 1, broadcast=True)
-        etroc.wr_reg("QInjEn", 0, broadcast=True) 
+        etroc.wr_reg("QInjEn", 0, broadcast=True)
         etroc.wr_reg("enable_TDC", 0, broadcast=True)
         etroc.wr_reg("disTrigPath", 1, broadcast=True)
         etroc.wr_reg("workMode", 0, broadcast=True)
@@ -387,13 +394,13 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
         time.sleep(0.1)
 
         chip_data = baseline_storage[chip_name]
-        
+
         # Create a dict mapping (row, col) -> baseline for fast O(1) lookups
         baseline_lookup = {
-            (r, c): bl 
+            (r, c): bl
             for r, c, bl in zip(chip_data['row'], chip_data['col'], chip_data['baseline'])
         }
-        
+
         # Configure all pixels for cosmic ray detection
         with tqdm(total=len(all_pixels), desc=f"{chip_name} pixels", ncols=100) as pbar:
             for pixel_row, pixel_col in all_pixels:
@@ -404,7 +411,7 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
                 etroc.wr_reg("disTrigPath", 0, row=pixel_row, col=pixel_col, broadcast=False)
                 time.sleep(0.1)
                 baseline = baseline_lookup.get((pixel_row, pixel_col))
-                applied_dac = baseline + TH_OFFSET
+                applied_dac = baseline + TH_OFFSETS[chip_name]
                 etroc.wr_reg('DAC', applied_dac, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.wr_reg("QSel", CHARGE_FC - 1, row=pixel_row, col=pixel_col, broadcast=False)
                 # etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
@@ -476,7 +483,7 @@ def configure_trigger_system(rb):
 def run_cosmic_detection(rb, max_running_time, args):
     """Run continuous cosmic ray detection with chunked data saving"""
     global stop_acquisition, hit_counter
-    
+
     print("\n7. Starting continuous cosmic run detection...")
 
     if max_running_time > 1440:
@@ -489,7 +496,7 @@ def run_cosmic_detection(rb, max_running_time, args):
         print(yellow(f"Press 'q' to stop acquisition or wait {max_running_time} minutes to auto stop"))
     else:
         print(yellow("Press 'q' to stop acquisition"))
-                
+
     # Initialize FIFO and reset system
     df = DataFrame()
     fifo = FIFO(rb)
@@ -502,15 +509,15 @@ def run_cosmic_detection(rb, max_running_time, args):
 
     rb.enable_etroc_trigger()
     time.sleep(1)
-    
+
     # Initialize chunked data saver
     chunk_saver = ChunkedDataSaver(chunk_size=CHUNK_SIZE)
-    
+
     # Setup terminal for non-blocking input
     old_settings = setup_terminal()
     # fifo.send_Qinj_only(count=QINJ_COUNT)
     time.sleep(1)
-    
+
     try:
         # Continuous data acquisition loop
         start_time = datetime.now(timezone.utc)
@@ -538,14 +545,14 @@ def run_cosmic_detection(rb, max_running_time, args):
                 # Check for quit command
                 if check_for_quit():
                     break
-                    
+
                 if max_running_time:
                     current_time = datetime.now(timezone.utc)
                     if current_time >= end_time:
                         elapsed_time = (current_time - start_time).total_seconds() / 60
                         print(yellow(f"Reached time setting ({elapsed_time:.1f} minutes), auto stopped"))
                         break
-                
+
                 # --- Check if a new file needs to be created ---
                 if current_file is None:
                     new_filename = output_dir / f"file_{file_number}_CE.dat"
@@ -562,7 +569,7 @@ def run_cosmic_detection(rb, max_running_time, args):
                     packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
                     current_file.write(packed_data)
                     counters_in_current_file += 1
-                
+
                     # --- Check event count and roll over if needed ---
                     if counters_in_current_file >= CHUNK_SIZE:
                         current_file.close()
@@ -574,10 +581,10 @@ def run_cosmic_detection(rb, max_running_time, args):
                 time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
                 # fifo.send_Qinj_only(count=QINJ_COUNT)
                 # data = fifo.pretty_read(df)
-                
+
                 # if len(data) > 0:
                 #     chunk_saver.add_events(data)
-                    
+
                 #     # Count hits
                 #     for event in data:
                 #         if event and len(event) >= 2:
@@ -585,9 +592,9 @@ def run_cosmic_detection(rb, max_running_time, args):
                 #                 trigger_cnt += 1
                 #             elif event[0] == 'data':
                 #                 hit_counter += 1
-                
+
                 # current_time = time.time()
-                
+
                 # # Periodic status report
                 # if current_time - last_report_time >= report_interval:
                 #     elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
@@ -613,20 +620,20 @@ def run_cosmic_detection(rb, max_running_time, args):
                 #     last_report_time = current_time
 
                 # if current_time - last_save_time >= save_interval:
-                #     if chunk_saver.current_chunk: 
+                #     if chunk_saver.current_chunk:
                 #         chunk_saver._save_current_chunk()
                 #     last_save_time = current_time
-                
+
                 # time.sleep(0.05)  # Small delay
-                
+
             except Exception as e:
                 print(red(f"Data acquisition error: {e}"))
                 time.sleep(1)
                 continue
-        
+
     except KeyboardInterrupt:
         print(yellow("\nKeyboard interrupt detected, stopping..."))
-    
+
     finally:
         elapsed_time = (datetime.now(timezone.utc) - start_time)
         print(f"Running time: {str(elapsed_time).split('.')[0]}")
@@ -636,12 +643,12 @@ def run_cosmic_detection(rb, max_running_time, args):
             print(f"Closed final file: {current_file.name}")
         # Restore terminal settings
         restore_terminal(old_settings)
-        
+
         # chunk_saver.finalize()
 
     end_time = datetime.now(timezone.utc)
     total_time = (end_time - start_time).total_seconds()
-    
+
     print(f"\n8. Cosmic ray detection completed!")
     print(f"Total running time: {total_time:.1f} seconds")
     print(f"Total cosmic hits detected: {hit_counter}")
@@ -649,18 +656,18 @@ def run_cosmic_detection(rb, max_running_time, args):
 def cleanup_system(etroc_configs, rb):
     """Cleanup system"""
     print("\n11. Cleaning up system...")
-    
+
     fifo = FIFO(rb)
-    
+
     for etroc, chip_name, _ in etroc_configs:
         print(f"Cleaning up {chip_name}...")
-        for _ in range(2):  
+        for _ in range(2):
             fifo.reset()
             rb.reset_data_error_count()
             etroc.wr_reg("QInjEn", 0, broadcast=True)
             etroc.wr_reg("disDataReadout", 1, broadcast=True)
             time.sleep(0.1)
-    
+
     print(green("System cleanup completed"))
     print(green("Cosmic ray test finished successfully!"))
 
@@ -670,7 +677,7 @@ def cleanup_system(etroc_configs, rb):
 
 def main(max_running_time = None, args = None):
     global stop_acquisition, hit_counter
-    
+
     # Hardware initialization
     kcu = initialize_kcu()
     rb = initialize_readout_board(kcu)
@@ -678,16 +685,16 @@ def main(max_running_time = None, args = None):
 
     for etroc in etroc_chips:
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
-    
+
     # Setup and calibration
     print("\nETROC COSMIC RAY TEST - CONTINUOUS DETECTION")
     etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, ETROC_NAMES, args.note)
     configure_etroc_for_cosmic(etroc_configs, baseline_storage)
     configure_trigger_system(rb)
-    
+
     # Data acquisition
     run_cosmic_detection(rb, max_running_time, args)
-    
+
     # Cleanup
     cleanup_system(etroc_configs, rb)
 
