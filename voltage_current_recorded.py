@@ -11,7 +11,7 @@ from tamalero.utils import get_kcu
 
 KCU_IP = '192.168.0.10'
 READOUT_BOARD_ID = 0
-MONITORING_INTERVAL_SECONDS = 60   ## default time interval
+MONITORING_INTERVAL_SECONDS = 10   ## default time interval
 READOUTBOARD_CONFIG = 'default'
 CONFIG_FILE_PATH = 'configs/rb_default_v2_smu.yaml'
 LOG_FILE = 'voltage&current_record.csv'

@@ -158,8 +158,8 @@ def plot_hitmap(hit_maps, output_dir):
     plt.show()
 
 def main():
-    DATA_DIR = '/home/roy/yf_temp/tamalero/cj1015'
-    OUTPUT_DIR = '/home/roy/yf_temp/tamalero/cosmic_run/plots/10-15'
+    DATA_DIR = '/home/roy/yf_temp/tamalero/cosmic_run/10-17_14-16-59'
+    OUTPUT_DIR = '/home/roy/yf_temp/tamalero/cosmic_run/plots/10-20'
     
     print("ETROC Pixel Hit Map Plotter")
     print("=" * 50)

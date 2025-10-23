@@ -178,8 +178,8 @@ def plot_tdc_analysis(hits, output_dir, chip_name="ETROC"):
         plt.close()
 
 def main():
-    DATA_DIR = '/home/roy/yf_temp/tamalero/cosmic_run/1009'
-    OUTPUT_DIR = '/home/roy/yf_temp/tamalero/cosmic_run/plots/1009'
+    DATA_DIR = '/home/roy/yf_temp/tamalero/cosmic_run/10-17_14-16-59'
+    OUTPUT_DIR = '/home/roy/yf_temp/tamalero/cosmic_run/plots/10-20-tdc' 
     
     print("TDC Analysis")
     print("=" * 50)

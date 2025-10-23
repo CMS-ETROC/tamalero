@@ -449,6 +449,12 @@ class ReadoutBoard:
         First check DAQ link, then trigger link.
         '''
         for link in ['DAQ', 'Trigger'] if self.trigger else ['DAQ']:
+            ## skip trigger link for now
+            if link == "Trigger":
+                if self.verbose:
+                    print('Skipping uplink stability check for Trigger LPGBT for now')
+                continue
+            ## below keeps same
             for i in range(max_retries):
                 sleep(0.01)  # this is actually needed for low error rates
                 if link == 'DAQ':

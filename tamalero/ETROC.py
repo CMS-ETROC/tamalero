@@ -723,7 +723,7 @@ class ETROC():
             fig.savefig(f'{outdir}/module_{self.module_id}_etroc_{self.chip_no}_baseline.png')
 
 
-    def auto_threshold_scan(self, row=0, col=0, broadcast=False, offset='auto', time_out=3, verbose=False, use=True):
+    def auto_threshold_scan(self, row=0, col=0, broadcast=False, offset='auto', time_out=5, verbose=False, use=True):
         '''
         From the manual:
         1. set "Bypass" low.
@@ -751,6 +751,7 @@ class ETROC():
         self.wr_reg('RSTn_THCal', 0, row=row, col=col, broadcast=broadcast)
         self.wr_reg('RSTn_THCal', 1, row=row, col=col, broadcast=broadcast)
         self.wr_reg('ScanStart_THCal', 1, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
         done = False
         start_time = time.time()
         timed_out = False
@@ -777,7 +778,7 @@ class ETROC():
                         print(f"Auto threshold scan timed out for pixel {row=}, {col=}")
                     timed_out = True
                     break
-        self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast)
+        # self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
         self.wr_reg("CLKEn_THCal", 0, row=row, col=col, broadcast=broadcast)
         self.wr_reg('BufEn_THCal', 0, row=row, col=col, broadcast=broadcast)
 
