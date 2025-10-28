@@ -3,7 +3,7 @@ from tamalero.utils import get_kcu
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
 from tamalero.KCU import KCU
-import time
+import time,os 
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -18,7 +18,7 @@ READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
 
 ETROC_I2C_ADDRESSES = [0x60, 0x61, 0x62, 0x63]
-ETROC_NAMES = ['ET2p02_PT_NH39_CE', 'ET2p02_PT_NH42_CE', 'ET2p02_PT_NH41_CE', 'ET2p02_PT_NH47_CE']
+ETROC_NAMES = ['ET2p01_PT_LF8', 'ET2p01_PT_LF6', 'ET2p02_PT_IH8', 'ET2p02_PT_IH6']
 
 ETROC_I2C_CHANNEL = 1
 ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
@@ -27,8 +27,8 @@ NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 
 
 ### Variables for plot
-path_to_figure = '/home/daq/KCU105_NEW/ETROC-figures'
-path_to_hist = '/home/daq/KCU105_NEW/ETROC-History'
+path_to_figure = '/home/daq/ETROC2_KCU105/ETROC-figures'
+path_to_hist = '/home/daq/ETROC2_KCU105/ETROC-History'
 custom_note = ''
 
 # ======================================================================================
