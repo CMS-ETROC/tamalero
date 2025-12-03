@@ -11,7 +11,7 @@ from settings import DAQConfig
 from hardware_init import ETROCSystem
 from calibration import CalibrationManager
 from data_handler import DataWriter
-from utils import TerminalHandler
+from daq_utils import TerminalHandler
 
 def run_daq_loop(system, config):
     """
