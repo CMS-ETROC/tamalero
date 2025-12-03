@@ -188,25 +188,54 @@ class CalibrationManager:
             print(red(f"Error saving history for {chip_name}: {e}"))
 
     def _fetch_latest_run_df(self, chip_name):
-        """Replaces read_BLNW_history_chip_measurements."""
         with sqlite3.connect(self.db_path) as conn:
+            # 1. Get the LATEST timestamp for the end of the run (15, 15)
+            # We use ORDER BY and LIMIT 1 to get just the single latest value immediately.
+            q_max = """
+                SELECT timestamp
+                FROM baselines
+                WHERE chip_name = ? AND ROW = 15 AND COL = 15
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """
+            end_time_df = pd.read_sql_query(q_max, conn, params=(chip_name,))
 
-            # Replicating your exact logic:
-            q_min = f"SELECT timestamp, save_notes FROM baselines WHERE chip_name='{chip_name}' AND ROW=0 AND COL=0"
-            q_max = f"SELECT timestamp FROM baselines WHERE chip_name='{chip_name}' AND ROW=15 AND COL=15"
-            df_min = pd.read_sql_query(q_min, conn)
-            df_max = pd.read_sql_query(q_max, conn)
+            if end_time_df.empty:
+                raise ValueError("No history found (End of run missing)")
 
-            if df_min.empty or df_max.empty:
-                raise ValueError("No history found")
+            max_ts_str = end_time_df.iloc[0]['timestamp']
 
-            min_timestamp = pd.to_datetime(df_min['timestamp'])
-            max_timestamp = pd.to_datetime(df_max['timestamp'])
+            # 2. Get the LATEST timestamp for the start of the run (0, 0)
+            # We look for the latest (0,0) that happened BEFORE or AT the max_ts
+            q_min = """
+                SELECT timestamp
+                FROM baselines
+                WHERE chip_name = ? AND ROW = 0 AND COL = 0 AND timestamp <= ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """
+            start_time_df = pd.read_sql_query(q_min, conn, params=(chip_name, max_ts_str))
 
-            q_data = f"SELECT * FROM baselines WHERE chip_name='{chip_name}"
-            bl_data_df = pd.read_sql_query(q_data, conn)
+            if start_time_df.empty:
+                raise ValueError("No history found (Start of run missing)")
+
+            min_ts_str = start_time_df.iloc[0]['timestamp']
+
+            # 3. Fetch ONLY the data within that window
+            # We bind the specific start and end times to the query.
+            q_data = """
+                SELECT * FROM baselines
+                WHERE chip_name = ?
+                AND timestamp BETWEEN ? AND ?
+            """
+
+            bl_data_df = pd.read_sql_query(
+                q_data,
+                conn,
+                params=(chip_name, min_ts_str, max_ts_str)
+            )
+
+            # Convert to datetime only for the small result set
             bl_data_df['timestamp'] = pd.to_datetime(bl_data_df['timestamp'])
-            bl_data_df = bl_data_df.loc[bl_data_df.timestamp >= min_timestamp]
-            bl_data_df = bl_data_df.loc[bl_data_df.timestamp <= max_timestamp]
 
             return bl_data_df
