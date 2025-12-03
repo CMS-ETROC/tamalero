@@ -1,8 +1,5 @@
 from tamalero.FIFO import FIFO
 from tamalero.ETROC import ETROC
-from tamalero.LPGBT import LPGBT
-from tamalero.utils import get_kcu
-from tamalero.DataFrame import DataFrame
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
 from tamalero.KCU import KCU
@@ -11,9 +8,10 @@ import sys
 import tty
 import time
 import select
-import pickle
 import termios
 import struct
+import sqlite3
+import pandas as pd
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -29,110 +27,38 @@ READOUTBOARD_ID = 0
 READOUTBOARD_CONFIG = 'default'
 
 ETROC_I2C_ADDRESSES = [0x60, 0x61, 0x62, 0x63]
-ETROC_NAMES = ['ET2p02_PT_NH39_CE', 'ET2p02_PT_NH42_CE', 'ET2p02_PT_NH41_CE', 'ET2p02_PT_NH47_CE']
+ETROC_NAMES = ['ET2p02_PT_IH2', 'ET2p02_PT_IH3', 'ET2p02_PT_IH5', 'ET2p02_PT_IH24']
 ETROC_I2C_CHANNEL = 1
 ETROC_ELINKS_MAP = {0: [0, 4, 8, 12]}
 
 # Test parameters
 TH_OFFSET = 10              # 20 DAC Threshold offset above baseline
 TH_OFFSETS = {
-    'ET2p02_PT_NH39_CE': 20,
-    'ET2p02_PT_NH42_CE': 10,
-    'ET2p02_PT_NH41_CE': 20,
-    'ET2p02_PT_NH47_CE': 20,
+    'ET2p02_PT_IH2': 20,
+    'ET2p02_PT_IH3': 20,
+    'ET2p02_PT_IH5': 20,
+    'ET2p02_PT_IH24': 20,
 }
 
 TRIGGER_ENABLE_MASK = 0x1 # 0001, 0x1 (0x63, 0x62, 0x61, 0x60) - trigger now the last plane NH39
 TRIGGER_DATA_SIZE = 1
-TRIGGER_DELAY_SEL = 469
+TRIGGER_DELAY_SEL = 470
 
 CHARGE_FC = 5
 QINJ_COUNT = 0
 CHUNK_SIZE = 500     # number of events for each saved file
-running_time = 480       # 8 hours in minute, None means no limit, please use the maximum for 24 hrs = 60*24 = 1440
+MAX_FILE_SIZE_BYTES = 120*1024*1024
 
 PIXEL_ROW = 16
 PIXEL_COL = 16
 NUM_ETROC = len(ETROC_I2C_ADDRESSES)
 
 ### Variables for plot
-path_to_figure = '/home/daq/KCU105_NEW/ETROC-figures'
-path_to_hist = '/home/daq/KCU105_NEW/ETROC-History'
+path_to_figure = '/home/daq/ETROC2_KCU105/ETROC-figures'
+path_to_hist = '/home/daq/ETROC2_KCU105/ETROC-History'
 
 stop_acquisition = False
 hit_counter = 0
-
-# ======================================================================================
-# CHUNKED DATA SAVER CLASS
-# ======================================================================================
-
-class ChunkedDataSaver:
-    def __init__(self, base_dir="Cosmic_Data_Chunks", chunk_size=50000):
-
-        self.base_dir = base_dir
-        self.chunk_size = chunk_size
-        self.current_chunk = []
-        self.chunk_number = 0
-        self.total_events = 0
-
-        # 创建输出目录
-        self.session_dir = os.path.join(base_dir, f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        os.makedirs(self.session_dir, exist_ok=True)
-
-        print(f"Data will be saved into: {self.session_dir}")
-        print(f"Every chunk size: {chunk_size} events")
-
-    def add_events(self, events):
-        if not events:
-            return
-
-        self.current_chunk.extend(events)
-        self.total_events += len(events)
-
-        if len(self.current_chunk) >= self.chunk_size:
-            self._save_current_chunk()
-
-    def _save_current_chunk(self):
-        if not self.current_chunk:
-            return
-
-        filename = f"chunk_{self.chunk_number:04d}.pkl"
-        filepath = os.path.join(self.session_dir, filename)
-
-        try:
-            with open(filepath, 'wb') as f:
-                pickle.dump(self.current_chunk, f)
-
-            print(f"Already saved chunks {self.chunk_number}: {len(self.current_chunk)} events -> {filename}")
-
-            # empty current chunk and prepare for the next
-            self.current_chunk = []
-            self.chunk_number += 1
-
-        except Exception as e:
-            print(f" Saving chunk {self.chunk_number} failed: {e}")
-
-    def finalize(self):
-        # save the last chunk if exist
-        if self.current_chunk:
-            self._save_current_chunk()
-
-        metadata = {
-            "total_events": self.total_events,
-            "total_chunks": self.chunk_number,
-            "chunk_size": self.chunk_size,
-            "session_dir": self.session_dir,
-            "timestamp": datetime.now().isoformat()
-        }
-
-        metadata_file = os.path.join(self.session_dir, "metadata.pkl")
-        with open(metadata_file, 'wb') as f:
-            pickle.dump(metadata, f)
-
-        print(f"\nData dumping completed:")
-        print(f"- Total events: {self.total_events:,}")
-        print(f"- Total chunks: {self.chunk_number}")
-        print(f"- Directory: {self.session_dir}")
 
 # ======================================================================================
 # TERMINAL CONTROL FUNCTIONS
@@ -186,12 +112,6 @@ def initialize_kcu():
         adr_table=generic_xml_path
     )
 
-    #kcu = get_kcu(
-    #    KCU_IP,
-    #    control_hub=True,
-    #    host='localhost',
-    #    verbose=False
-    #)
     print(green("Successfully connected to KCU."))
 
     kcu.status()
@@ -342,10 +262,6 @@ def calibrate_baselines(etroc_chips, chip_names, custom_note):
 
     for key, val in baseline_storage.items():
 
-        ## Only making BL and NW plot when all 256 pixels are calibrated
-        if not len(val['baseline']) != 256:
-            continue
-
         bl_nw_df = convert_dict_to_pandas(val, key)
         tmp_timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
         my_note = tmp_timestamp + ' ' + custom_note
@@ -354,22 +270,6 @@ def calibrate_baselines(etroc_chips, chip_names, custom_note):
                        fig_dir=path_to_figure,
                        save_notes=my_note)
 
-    #     if failed_pixels[chip_name]:
-    #         print(red(f"  Found {len(failed_pixels[chip_name])} pixels with scan failures during sampling"))
-
-    # # Print summary of baseline calibration
-    # total_failed_pixels = sum(len(failed_list) for failed_list in failed_pixels.values())
-    # print(green("Baseline calibration completed"))
-
-    # if total_failed_pixels > 0:
-    #     print(yellow(f"WARNING: Found {total_failed_pixels} pixels with baseline scan failures:"))
-    #     for chip_name, failed_list in failed_pixels.items():
-    #         if failed_list:
-    #             print(f"  {chip_name}: {failed_list}")
-    # else:
-    #     print(green("All pixels passed baseline scan"))
-
-    time.sleep(1)
     print(green("Baseline calibration completed"))
 
     return etroc_configs, baseline_storage
@@ -391,7 +291,13 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
         etroc.wr_reg("disTrigPath", 1, broadcast=True)
         etroc.wr_reg("workMode", 0, broadcast=True)
         etroc.wr_reg('triggerGranularity', 1)
-        time.sleep(0.1)
+
+        etroc.set_trigger_TH('TOA', upper=0x3ff, lower=0, row=0, col=0, broadcast=True)
+        etroc.set_trigger_TH('TOT', upper=0x1ff, lower=0, row=0, col=0, broadcast=True)
+        etroc.set_trigger_TH('Cal', upper=0x3ff, lower=0, row=0, col=0, broadcast=True)
+        etroc.set_data_TH('TOA', upper=0x3ff, lower=0 ,row=0, col=0, broadcast=True)
+        etroc.set_data_TH('TOT', upper=0x1ff, lower=0 ,row=0, col=0, broadcast=True)
+        etroc.set_data_TH('Cal', upper=0x3ff, lower=0 ,row=0, col=0, broadcast=True)
 
         chip_data = baseline_storage[chip_name]
 
@@ -405,22 +311,19 @@ def configure_etroc_for_cosmic(etroc_configs, baseline_storage):
         with tqdm(total=len(all_pixels), desc=f"{chip_name} pixels", ncols=100) as pbar:
             for pixel_row, pixel_col in all_pixels:
                 # Set DAC threshold (baseline + Offset)
-                etroc.wr_reg("workMode", 0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.wr_reg("enable_TDC", 1, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.wr_reg("disDataReadout", 0, row=pixel_row, col=pixel_col, broadcast=False)
                 etroc.wr_reg("disTrigPath", 0, row=pixel_row, col=pixel_col, broadcast=False)
-                time.sleep(0.1)
                 baseline = baseline_lookup.get((pixel_row, pixel_col))
                 applied_dac = baseline + TH_OFFSETS[chip_name]
                 etroc.wr_reg('DAC', applied_dac, row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.wr_reg("QSel", CHARGE_FC - 1, row=pixel_row, col=pixel_col, broadcast=False)
-                # etroc.wr_reg("QInjEn", 1, row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.set_trigger_TH('TOA', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.set_trigger_TH('TOT', upper=0x1ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.set_trigger_TH('Cal', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.set_data_TH('TOA', upper=0x3ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.set_data_TH('TOT', upper=0x1ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
-                etroc.set_data_TH('Cal', upper=0x3ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.wr_reg("QSel", CHARGE_FC - 1, row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.set_trigger_TH('TOA', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.set_trigger_TH('TOT', upper=0x1ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.set_trigger_TH('Cal', upper=0x3ff, lower=0, row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.set_data_TH('TOA', upper=0x3ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.set_data_TH('TOT', upper=0x1ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
+                # etroc.set_data_TH('Cal', upper=0x3ff, lower=0 ,row=pixel_row, col=pixel_col, broadcast=False)
                 pbar.update(1)
                 pbar.set_postfix({
                     'pixel': f'({pixel_row},{pixel_col})',
@@ -480,12 +383,12 @@ def configure_trigger_system(rb):
 # DATA ACQUISITION FUNCTION
 # ======================================================================================
 
-def run_cosmic_detection(rb, max_running_time, args):
+def run_cosmic_detection(rb, args):
     """Run continuous cosmic ray detection with chunked data saving"""
     global stop_acquisition, hit_counter
 
     print("\n7. Starting continuous cosmic run detection...")
-
+    max_running_time = args.max_run_time
     if max_running_time > 1440:
         max_running_time = 1440
         print('DAQ maximum time is set to over 24 hrs. Current DAQ may not stable after 24 hrs.')
@@ -498,7 +401,6 @@ def run_cosmic_detection(rb, max_running_time, args):
         print(yellow("Press 'q' to stop acquisition"))
 
     # Initialize FIFO and reset system
-    df = DataFrame()
     fifo = FIFO(rb)
     fifo.reset()
     rb.reset_data_error_count()
@@ -510,24 +412,15 @@ def run_cosmic_detection(rb, max_running_time, args):
     rb.enable_etroc_trigger()
     time.sleep(1)
 
-    # Initialize chunked data saver
-    chunk_saver = ChunkedDataSaver(chunk_size=CHUNK_SIZE)
-
     # Setup terminal for non-blocking input
     old_settings = setup_terminal()
-    # fifo.send_Qinj_only(count=QINJ_COUNT)
     time.sleep(1)
 
     try:
         # Continuous data acquisition loop
         start_time = datetime.now(timezone.utc)
-        last_report_time = time.time()
-        last_save_time = time.time()
-        report_interval = 10  # seconds
-        save_interval = 300   # save data every 300 s
-        trigger_cnt = 0
-
         end_time = None
+
         if max_running_time:
             end_time = start_time + timedelta(minutes=max_running_time)
             print(f"Start time: {start_time.strftime('%H:%M:%S')}")
@@ -570,61 +463,28 @@ def run_cosmic_detection(rb, max_running_time, args):
                     current_file.write(packed_data)
                     counters_in_current_file += 1
 
-                    # --- Check event count and roll over if needed ---
-                    if counters_in_current_file >= CHUNK_SIZE:
+                    # Get current file size +after+ writing
+                    current_size_bytes = current_file.tell()
+                    # Check if either limit is reached
+                    split_by_count = (counters_in_current_file >= CHUNK_SIZE)
+                    split_by_size = (current_size_bytes >= MAX_FILE_SIZE_BYTES)
+
+                    if split_by_count or split_by_size:
+                        # --- Optional: Log the reason for splitting ---
+                        if split_by_count:
+                            print(f"Reached event count limit ({counters_in_current_file} events).")
+                        else:
+                            size_mb = current_size_bytes / (1024 * 1024)
+                            print(f"Reached file size limit ({size_mb:.2f} MB).")
+                        # --- End optional logging ---
+
                         current_file.close()
                         print(f"Closed file: {current_file.name}")
 
                         file_number += 1
                         current_file = None # Trigger opening a new file on the next loop
 
-                time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
-                # fifo.send_Qinj_only(count=QINJ_COUNT)
-                # data = fifo.pretty_read(df)
-
-                # if len(data) > 0:
-                #     chunk_saver.add_events(data)
-
-                #     # Count hits
-                #     for event in data:
-                #         if event and len(event) >= 2:
-                #             if event[0] == 'header':
-                #                 trigger_cnt += 1
-                #             elif event[0] == 'data':
-                #                 hit_counter += 1
-
-                # current_time = time.time()
-
-                # # Periodic status report
-                # if current_time - last_report_time >= report_interval:
-                #     elapsed_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-                #     elapsed_minutes = elapsed_time / 60
-
-                #     print(f"\n--- Status Report ---")
-                #     print(f"Running time: {elapsed_time:.1f} seconds")
-                #     print(f"Total cosmic hits: {hit_counter}")
-                #     print(f"Trigger count: {trigger_cnt}")
-                #     print(f"current saved events: {chunk_saver.total_events:,}")
-                #     print(f"Current chunk size: {len(chunk_saver.current_chunk):,}")
-
-                #     if max_running_time:
-                #         remaining_time = (max_running_time * 60) - elapsed_time
-                #         if remaining_time > 60:
-                #             remaining_min = int(remaining_time // 60)
-                #             remaining_sec = int(remaining_time % 60)
-                #             print(yellow(f"Press 'q' to stop acquisition earlier or wait {remaining_min} minutes and {remaining_sec} secs to auto stop"))
-                #         elif remaining_time > 0:
-                #             print(yellow(f"remaining time: {int(remaining_time)} sec"))
-                #     else:
-                #         print("Press 'q' to stop\n")
-                #     last_report_time = current_time
-
-                # if current_time - last_save_time >= save_interval:
-                #     if chunk_saver.current_chunk:
-                #         chunk_saver._save_current_chunk()
-                #     last_save_time = current_time
-
-                # time.sleep(0.05)  # Small delay
+                    time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
 
             except Exception as e:
                 print(red(f"Data acquisition error: {e}"))
@@ -675,7 +535,27 @@ def cleanup_system(etroc_configs, rb):
 # MAIN FUNCTION
 # ======================================================================================
 
-def main(max_running_time = None, args = None):
+## --------------------------------------
+def read_BLNW_history_chip_measurements(sqlite_file: Path, chip_name: str):
+    with sqlite3.connect(sqlite_file) as sqlite3_connection:
+        timestamp_df = pd.read_sql_query(f"SELECT timestamp, save_notes FROM baselines WHERE chip_name='{chip_name}' AND ROW=0 AND COL=0", sqlite3_connection)
+        max_timestamp_df = pd.read_sql_query(f"SELECT timestamp FROM baselines WHERE chip_name='{chip_name}' AND ROW=15 AND COL=15", sqlite3_connection)
+        timestamp_df['min_timestamp'] = pd.to_datetime(timestamp_df['timestamp'])
+        timestamp_df['max_timestamp'] = pd.to_datetime(max_timestamp_df['timestamp'])
+
+        return timestamp_df.drop('timestamp', axis=1).copy()
+
+## --------------------------------------
+def read_BLNW_history_chip_measurement_df(sqlite_file: Path, chip_name: str, min_timestamp, max_timestamp):
+    with sqlite3.connect(sqlite_file) as sqlite3_connection:
+        data_df = pd.read_sql_query(f"SELECT * FROM baselines WHERE chip_name='{chip_name}'", sqlite3_connection)
+        data_df['timestamp'] = pd.to_datetime(data_df['timestamp'])
+        data_df = data_df.loc[data_df.timestamp >= min_timestamp]
+        data_df = data_df.loc[data_df.timestamp <= max_timestamp]
+
+        return data_df.copy()
+
+def main(args = None):
     global stop_acquisition, hit_counter
 
     # Hardware initialization
@@ -688,12 +568,48 @@ def main(max_running_time = None, args = None):
 
     # Setup and calibration
     print("\nETROC COSMIC RAY TEST - CONTINUOUS DETECTION")
-    etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, ETROC_NAMES, args.note)
+
+    if not args.skip_baseline:
+        etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, ETROC_NAMES, args.note)
+    else:
+
+        ### Build etroc_configs
+        etroc_configs = []
+        all_pixels_per_chip = []
+        for _ in range(NUM_ETROC):
+            chip_pixels = []
+            for row in range(PIXEL_ROW):
+                for col in range(PIXEL_COL):
+                    chip_pixels.append((row, col))
+            all_pixels_per_chip.append(chip_pixels)
+
+        for i, (etroc, chip_name) in enumerate(zip(etroc_chips, ETROC_NAMES)):
+            if etroc is not None and i < len(all_pixels_per_chip):
+                etroc_configs.append((etroc, chip_name, all_pixels_per_chip[i]))
+
+        ### Build baseline_storage
+        sqlite_file = Path(path_to_hist) / 'BaselineHistory.sqlite'
+        baseline_storage = {}
+        for unique_name in ETROC_NAMES:
+            timestamp_df = read_BLNW_history_chip_measurements(sqlite_file, unique_name)
+            timestamp_idx = len(timestamp_df) - 1
+
+            min_timestamp = timestamp_df.min_timestamp[timestamp_idx]
+            max_timestamp = timestamp_df.max_timestamp[timestamp_idx]
+
+            data_df = read_BLNW_history_chip_measurement_df(sqlite_file, unique_name, min_timestamp, max_timestamp)
+
+            baseline_storage[unique_name] = {
+                'row': data_df.row.to_list(),
+                'col': data_df.col.to_list(),
+                'baseline': data_df.baseline.to_list(),
+            }
+
     configure_etroc_for_cosmic(etroc_configs, baseline_storage)
     configure_trigger_system(rb)
 
     # Data acquisition
-    run_cosmic_detection(rb, max_running_time, args)
+    run_cosmic_detection(rb, args)
 
     # Cleanup
     cleanup_system(etroc_configs, rb)
@@ -740,6 +656,13 @@ if __name__ == "__main__":
         dest = 'max_run_time',
     )
 
+    parser.add_argument(
+        '--skip_baseline',
+        action='store_true',
+        help='Call latest baseline values from the baseline history file.',
+        dest='skip_baseline'
+    )
+
     args = parser.parse_args()
 
-    main(args.max_run_time, args)
+    main(args)
