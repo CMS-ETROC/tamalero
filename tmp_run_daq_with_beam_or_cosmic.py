@@ -1,8 +1,5 @@
 from tamalero.FIFO import FIFO
 from tamalero.ETROC import ETROC
-from tamalero.LPGBT import LPGBT
-from tamalero.utils import get_kcu
-from tamalero.DataFrame import DataFrame
 from tamalero.colors import green, red, yellow
 from tamalero.ReadoutBoard import ReadoutBoard
 from tamalero.KCU import KCU
@@ -11,7 +8,6 @@ import sys
 import tty
 import time
 import select
-import pickle
 import termios
 import struct
 import sqlite3
@@ -51,7 +47,7 @@ TRIGGER_DELAY_SEL = 470
 CHARGE_FC = 5
 QINJ_COUNT = 0
 CHUNK_SIZE = 500     # number of events for each saved file
-MAX_FILE_SIZE_BYTES = 120*1024*1024 
+MAX_FILE_SIZE_BYTES = 120*1024*1024
 
 PIXEL_ROW = 16
 PIXEL_COL = 16
@@ -63,78 +59,6 @@ path_to_hist = '/home/daq/ETROC2_KCU105/ETROC-History'
 
 stop_acquisition = False
 hit_counter = 0
-
-# ======================================================================================
-# CHUNKED DATA SAVER CLASS
-# ======================================================================================
-
-class ChunkedDataSaver:
-    def __init__(self, base_dir="Cosmic_Data_Chunks", chunk_size=50000):
-
-        self.base_dir = base_dir
-        self.chunk_size = chunk_size
-        self.current_chunk = []
-        self.chunk_number = 0
-        self.total_events = 0
-
-        # 创建输出目录
-        self.session_dir = os.path.join(base_dir, f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        os.makedirs(self.session_dir, exist_ok=True)
-
-        print(f"Data will be saved into: {self.session_dir}")
-        print(f"Every chunk size: {chunk_size} events")
-
-    def add_events(self, events):
-        if not events:
-            return
-
-        self.current_chunk.extend(events)
-        self.total_events += len(events)
-
-        if len(self.current_chunk) >= self.chunk_size:
-            self._save_current_chunk()
-
-    def _save_current_chunk(self):
-        if not self.current_chunk:
-            return
-
-        filename = f"chunk_{self.chunk_number:04d}.pkl"
-        filepath = os.path.join(self.session_dir, filename)
-
-        try:
-            with open(filepath, 'wb') as f:
-                pickle.dump(self.current_chunk, f)
-
-            print(f"Already saved chunks {self.chunk_number}: {len(self.current_chunk)} events -> {filename}")
-
-            # empty current chunk and prepare for the next
-            self.current_chunk = []
-            self.chunk_number += 1
-
-        except Exception as e:
-            print(f" Saving chunk {self.chunk_number} failed: {e}")
-
-    def finalize(self):
-        # save the last chunk if exist
-        if self.current_chunk:
-            self._save_current_chunk()
-
-        metadata = {
-            "total_events": self.total_events,
-            "total_chunks": self.chunk_number,
-            "chunk_size": self.chunk_size,
-            "session_dir": self.session_dir,
-            "timestamp": datetime.now().isoformat()
-        }
-
-        metadata_file = os.path.join(self.session_dir, "metadata.pkl")
-        with open(metadata_file, 'wb') as f:
-            pickle.dump(metadata, f)
-
-        print(f"\nData dumping completed:")
-        print(f"- Total events: {self.total_events:,}")
-        print(f"- Total chunks: {self.chunk_number}")
-        print(f"- Directory: {self.session_dir}")
 
 # ======================================================================================
 # TERMINAL CONTROL FUNCTIONS
@@ -477,7 +401,6 @@ def run_cosmic_detection(rb, args):
         print(yellow("Press 'q' to stop acquisition"))
 
     # Initialize FIFO and reset system
-    df = DataFrame()
     fifo = FIFO(rb)
     fifo.reset()
     rb.reset_data_error_count()
@@ -497,7 +420,7 @@ def run_cosmic_detection(rb, args):
         # Continuous data acquisition loop
         start_time = datetime.now(timezone.utc)
         end_time = None
-        
+
         if max_running_time:
             end_time = start_time + timedelta(minutes=max_running_time)
             print(f"Start time: {start_time.strftime('%H:%M:%S')}")
@@ -539,7 +462,7 @@ def run_cosmic_detection(rb, args):
                     packed_data = struct.pack(f'<{len(raw_data)}I', *raw_data)
                     current_file.write(packed_data)
                     counters_in_current_file += 1
-                    
+
                     # Get current file size +after+ writing
                     current_size_bytes = current_file.tell()
                     # Check if either limit is reached
@@ -562,7 +485,7 @@ def run_cosmic_detection(rb, args):
                         current_file = None # Trigger opening a new file on the next loop
 
                     time.sleep(0.1) ## slow down daq speed to avoid "uhal UDP error in FIFO.get_occupancy, trying again" error
-        
+
             except Exception as e:
                 print(red(f"Data acquisition error: {e}"))
                 time.sleep(1)
@@ -651,7 +574,7 @@ def main(args = None):
     if not args.skip_baseline:
         etroc_configs, baseline_storage = calibrate_baselines(etroc_chips, ETROC_NAMES, args.note)
     else:
-        
+
         ### Build etroc_configs
         etroc_configs = []
         all_pixels_per_chip = []
@@ -683,7 +606,7 @@ def main(args = None):
                 'col': data_df.col.to_list(),
                 'baseline': data_df.baseline.to_list(),
             }
-        
+
     configure_etroc_for_cosmic(etroc_configs, baseline_storage)
     configure_trigger_system(rb)
 
