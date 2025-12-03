@@ -93,9 +93,9 @@ class CalibrationManager:
 
                 # Convert DataFrame to lookup dict: data['row'], data['baseline']
                 data_dict = {
-                    'row': df['row'].tolist(),
-                    'col': df['col'].tolist(),
-                    'baseline': df['baseline'].tolist()
+                    'row': df.row.tolist(),
+                    'col': df.col.tolist(),
+                    'baseline': df.baseline.tolist()
                 }
                 baseline_storage[chip_name] = self._format_data_for_lookup(data_dict)
                 print(green(f"   Loaded {len(df)} pixels for {chip_name}"))
@@ -190,25 +190,23 @@ class CalibrationManager:
     def _fetch_latest_run_df(self, chip_name):
         """Replaces read_BLNW_history_chip_measurements."""
         with sqlite3.connect(self.db_path) as conn:
-            # Get latest timestamp range
-            t_query = f"SELECT timestamp FROM baselines WHERE chip_name='{chip_name}' ORDER BY timestamp DESC LIMIT 1"
-            # In complex cases, you might want to find the MAX timestamp for (0,0) and (15,15) as before
-            # But usually, just getting the data for the last timestamp is safer:
-
-            # Simplified logic: Get all data from the very last recorded timestamp associated with this chip
-            # (Requires your timestamps to be identical for the whole run, or close enough)
 
             # Replicating your exact logic:
-            q_min = f"SELECT timestamp FROM baselines WHERE chip_name='{chip_name}' AND ROW=0 AND COL=0 ORDER BY timestamp DESC LIMIT 1"
+            q_min = f"SELECT timestamp, save_notes FROM baselines WHERE chip_name='{chip_name}' AND ROW=0 AND COL=0"
+            q_max = f"SELECT timestamp FROM baselines WHERE chip_name='{chip_name}' AND ROW=15 AND COL=15"
             df_min = pd.read_sql_query(q_min, conn)
-            if df_min.empty: raise ValueError("No history found")
+            df_max = pd.read_sql_query(q_max, conn)
 
-            target_time = pd.to_datetime(df_min['timestamp'].iloc[0])
+            if df_min.empty or df_max.empty:
+                raise ValueError("No history found")
 
-            # Fetch data for that time
-            # Note: exact string matching on timestamps can be tricky in SQLite.
-            # We might need to select a small window or use the exact string.
-            t_str = str(df_min['timestamp'].iloc[0])
+            min_timestamp = pd.to_datetime(df_min['timestamp'])
+            max_timestamp = pd.to_datetime(df_max['timestamp'])
 
-            q_data = f"SELECT * FROM baselines WHERE chip_name='{chip_name}' AND timestamp='{t_str}'"
-            return pd.read_sql_query(q_data, conn)
+            q_data = f"SELECT * FROM baselines WHERE chip_name='{chip_name}"
+            bl_data_df = pd.read_sql_query(q_data, conn)
+            bl_data_df['timestamp'] = pd.to_datetime(bl_data_df['timestamp'])
+            bl_data_df = bl_data_df.loc[bl_data_df.timestamp >= min_timestamp]
+            bl_data_df = bl_data_df.loc[bl_data_df.timestamp <= max_timestamp]
+
+            return bl_data_df
