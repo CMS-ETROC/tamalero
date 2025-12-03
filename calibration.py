@@ -89,7 +89,7 @@ class CalibrationManager:
 
         for chip_name in self.cfg.etroc_names:
             try:
-                df = self._fetch_latest_run_df(chip_name)
+                df, min_timestamp, max_timestamp = self._fetch_latest_run_df(chip_name)
 
                 # Convert DataFrame to lookup dict: data['row'], data['baseline']
                 data_dict = {
@@ -98,7 +98,7 @@ class CalibrationManager:
                     'baseline': df.baseline.tolist()
                 }
                 baseline_storage[chip_name] = self._format_data_for_lookup(data_dict)
-                print(green(f"   Loaded {len(df)} pixels for {chip_name}"))
+                print(green(f"   Loaded {len(df)} pixels for {chip_name} between {min_timestamp}, {max_timestamp}"))
 
             except Exception as e:
                 print(red(f"   Failed to load history for {chip_name}: {e}"))
@@ -240,4 +240,4 @@ class CalibrationManager:
             # Convert to datetime only for the small result set
             bl_data_df['timestamp'] = pd.to_datetime(bl_data_df['timestamp'])
 
-            return bl_data_df
+            return bl_data_df, min_ts_str, max_ts_str
