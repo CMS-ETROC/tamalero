@@ -156,6 +156,8 @@ class CalibrationManager:
                         applied_dac = 500 # Safe arbitrary number?
                     else:
                         applied_dac = int(baseline + offset)
+                        if applied_dac > 1023:
+                            applied_dac = 1023
 
                     etroc.wr_reg('DAC', applied_dac, row=row, col=col, broadcast=False)
 
