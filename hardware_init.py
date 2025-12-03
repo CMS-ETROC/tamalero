@@ -98,6 +98,7 @@ class ETROCSystem:
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_ENABLE_MASK", self.cfg.trigger_enable_mask)
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_DATA_SIZE", self.cfg.trigger_data_size)
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_DLY_SEL", self.cfg.trigger_delay_sel)
+        time.sleep(0.1)
 
         # Verify Elink Locks
         all_locked = True
@@ -109,12 +110,13 @@ class ETROCSystem:
             print(red("FATAL: Some E-links failed to lock."))
             sys.exit(1)
 
-        print(green("   Trigger system ready."))
+        print(green("Trigger system ready."))
 
     def _ensure_lock(self, elink, max_retries=5):
         """Internal helper to retry locking"""
         for i in range(max_retries):
             if self.rb.etroc_locked(elink, slave=False):
+                print(green(f"   E-link {elink} locked status: locked"))
                 return True
             print(yellow(f"   E-link {elink} not locked, retrying bitslip ({i+1}/{max_retries})..."))
             self.rb.rerun_bitslip()
