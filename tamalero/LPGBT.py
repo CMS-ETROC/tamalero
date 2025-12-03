@@ -180,6 +180,22 @@ class LPGBT(RegParser):
         self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
         self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
 
+        # Change I2C to selected frequency
+        selFreq = 100
+        freq2bitfield = {
+          100:  0b00,
+          200:  0b01,
+          400:  0b10,
+          1000: 0b11,
+        }
+        freqBitfield = freq2bitfield[selFreq]
+
+        for idx in range(3):
+          i2cCtrl = self.rd_reg(f'LPGBT.RO.I2CREAD.I2CM{idx}CTRL')
+          i2cCtrl = (i2cCtrl & 0b11111100) + freqBitfield
+          self.wr_reg(f'LPGBT.RW.I2C.I2CM{idx}DATA0', i2cCtrl)
+          self.wr_reg(f'LPGBT.RW.I2C.I2CM{idx}CMD', 0)
+
         i2cM1Ctrl = self.rd_reg('LPGBT.RO.I2CREAD.I2CM1CTRL')
     
         freq_bits = i2cM1Ctrl & 0b11
