@@ -127,12 +127,15 @@ class CalibrationManager:
 
             # Global Thresholds (Safe defaults)
             for reg in ['TOA', 'TOT', 'Cal']:
-                etroc.set_trigger_TH(reg, 0x3ff, 0, 0, 0, broadcast=True)
-                etroc.set_data_TH(reg, 0x3ff, 0, 0, 0, broadcast=True)
+                max_val = 0x3ff
+                if reg == "TOT":
+                  max_val = 0x1ff
+                etroc.set_trigger_TH(reg, max_val, 0, 0, 0, broadcast=True)
+                etroc.set_data_TH(reg, max_val, 0, 0, 0, broadcast=True)
 
             # Apply Pixel Specifics
             lookup = baseline_storage.get(chip_name, {})
-            offset = self.cfg.th_offsets.get(chip_name, self.cfg.th_offset_default)
+            offset = self.cfg.th_offsets.get(chip_name)
 
             print(f"   Configuring {chip_name} (Offset={offset})...")
 
