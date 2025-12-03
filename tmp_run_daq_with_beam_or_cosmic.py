@@ -245,10 +245,6 @@ def calibrate_baselines(etroc_chips, chip_names, custom_note):
                     use=False,
                     verbose=True
                 )
-
-                time.sleep(0.03)
-
-                baseline_storage[chip_name][(pixel_row, pixel_col)] = baseline
             except Exception as e:
                 print(red(f"  Pixel ({pixel_row},{pixel_col}): SCAN FAILED - {e}"))
                 # failed_pixels[chip_name].append((pixel_row, pixel_col))
@@ -261,7 +257,6 @@ def calibrate_baselines(etroc_chips, chip_names, custom_note):
             baseline_storage[chip_name]['timestamp'].append(datetime.now().isoformat(sep=' '))
 
     for key, val in baseline_storage.items():
-
         bl_nw_df = convert_dict_to_pandas(val, key)
         tmp_timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
         my_note = tmp_timestamp + ' ' + custom_note
@@ -562,8 +557,6 @@ def main(args = None):
     kcu = initialize_kcu()
     rb = initialize_readout_board(kcu)
     etroc_chips = initialize_etroc_chips(rb)
-
-    return
 
     for etroc in etroc_chips:
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
