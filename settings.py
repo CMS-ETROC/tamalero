@@ -1,19 +1,12 @@
 from dataclasses import dataclass, field
 from typing import List, Dict
 
-
 @dataclass
 class ETROCConfig:
     name: str
     th_offset: int
     elink_id: int
     i2c_id: int
-
-    def init(name, th_offset, elink_id, i2c_id):
-        self.name = name
-        self.th_offset = th_offset
-        self.elink_id = elink_id
-        self.i2c_id = i2c_id
 
 @dataclass
 class DAQConfig:
@@ -22,23 +15,21 @@ class DAQConfig:
     readout_board_id: int = 0
     readout_board_config: str = 'default'
 
-    boards = [
-      ETROCConfig("ET2p02_PT_NH47", 20, 0, 0x60),
-      ETROCConfig("ET2p02_PT_IH18", 20, 4, 0x61),
-      ETROCConfig("ET2p02_PT_IH21", 20, 8, 0x62),
-      ETROCConfig("ET2p02_PT_IH22", 20, 12, 0x63),
-    ]
+    # --- BOARD DEFINITIONS (The Single Source of Truth) ---
+    # Edit ONLY this list to add/remove boards
+    boards: List[ETROCConfig] = field(default_factory=lambda: [
+        ETROCConfig(name="ET2p02_PT_NH47", i2c_id=0x60, elink_id=0,  th_offset=20),
+        ETROCConfig(name="ET2p02_PT_IH18", i2c_id=0x61, elink_id=4,  th_offset=20),
+        ETROCConfig(name="ET2p02_PT_IH21", i2c_id=0x62, elink_id=8,  th_offset=20),
+        ETROCConfig(name="ET2p02_PT_IH22", i2c_id=0x63, elink_id=12, th_offset=20),
+    ])
 
-    # ETROC Settings
-    etroc_addresses: List[int] = field(default_factory=lambda: [0x60, 0x61, 0x62, 0x63])
-    etroc_names: List[str] = field(default_factory=lambda: ['ET2p02_PT_NH47', 'ET2p02_PT_IH18', 'ET2p02_PT_IH21', 'ET2p02_PT_IH22'])
-    etroc_elinks_map: Dict[int, List[int]] = field(default_factory=lambda: {0: [0, 4, 8, 12]})
-
-    # Thresholds
-    th_offsets: Dict[str, int] = field(default_factory=lambda: {
-        'ET2p02_PT_NH47': 20, 'ET2p02_PT_IH18': 20,
-        'ET2p02_PT_IH21': 20, 'ET2p02_PT_IH22': 20
-    })
+    # --- DERIVED FIELDS (Automatically Calculated) ---
+    # We use init=False so the user doesn't have to provide them
+    etroc_addresses: List[int] = field(init=False)
+    etroc_names: List[str] = field(init=False)
+    etroc_elinks_map: Dict[int, List[int]] = field(init=False)
+    th_offsets: Dict[str, int] = field(init=False)
 
     # Trigger Settings
     trigger_enable_mask: int = 0x8
@@ -59,3 +50,19 @@ class DAQConfig:
     charge_fc: int = 30
     test_pixels: List[int] = field(default_factory=lambda: [(0, 0), (8, 8)])
     qinj_count: int = 100
+
+    def __post_init__(self):
+        """
+        Automatically populate the lists and dicts required by the hardware
+        drivers based on the 'boards' list above.
+        """
+        # 1. Extract Lists
+        self.etroc_names = [b.name for b in self.boards]
+        self.etroc_addresses = [b.i2c_id for b in self.boards]
+
+        # 2. Build Threshold Dictionary
+        self.th_offsets = {b.name: b.th_offset for b in self.boards}
+
+        # 3. Build Elink Map (assuming key 0 maps to all active elinks)
+        all_elinks = [b.elink_id for b in self.boards]
+        self.etroc_elinks_map = {0: all_elinks}
