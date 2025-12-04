@@ -4,6 +4,42 @@ from pathlib import Path
 from datetime import datetime
 from settings import DAQConfig
 
+def generate_run_dir(root_path, run_type="beam", note=""):
+    """
+    Scans the data_root for the next Run number and returns a full Path.
+    Format: {root}/run_{N}_{Type}_{Timestamp}_{Note}
+    """
+    root = Path(root_path)
+    root.mkdir(parents=True, exist_ok=True)
+
+    # 1. Find the next Run Number
+    max_run = 0
+    for folder in root.iterdir():
+        if folder.is_dir() and folder.name.startswith("run_"):
+            try:
+                # Expecting format Run_XXX_...
+                parts = folder.name.split('_')
+                run_num = int(parts[1])
+                if run_num > max_run:
+                    max_run = run_num
+            except (IndexError, ValueError):
+                continue
+
+    next_run = max_run + 1
+
+    # 2. Generate Timestamp
+    timestamp = datetime.now().strftime("%Y%m%d")
+
+    # 3. Clean the note (remove spaces)
+    clean_note = f"{note.replace(' ', '')}" if note else ""
+
+    # 4. Construct Name
+    dir_name = f"run_{next_run:02d}_{run_type}_{timestamp}_{clean_note}"
+    full_path = root / dir_name
+
+    print(f"Auto-generated Output Directory: {full_path}")
+    return full_path
+
 class DataWriter:
     def __init__(self, config: DAQConfig, run_start_time=None):
         self.cfg = config
