@@ -10,15 +10,16 @@ from tamalero.colors import green, yellow, red
 from settings import DAQConfig
 from hardware_init import ETROCSystem
 from calibration import CalibrationManager
-from data_handler import DataWriter
+from data_handler import DataWriter, generate_run_dir
 from daq_utils import TerminalHandler
 
-def run_daq_loop(system, config):
+def run_daq_loop(system, config, charge_injection_mode=False):
     """
     Main DAQ Execution Loop.
     Handles FIFO reading, file writing via DataWriter, and time/keyboard limits.
     """
-    print("\n7. Starting continuous cosmic run detection...")
+    mode_str = "Charge Injection" if charge_injection_mode else "Cosmic/Beam"
+    print(f"\n7. Starting continuous {mode_str} run detection...")
 
     # 1. Setup FIFO and Readout Board
     fifo = FIFO(system.rb)
@@ -60,6 +61,8 @@ def run_daq_loop(system, config):
 
                 # B. Read Hardware
                 try:
+                    if charge_injection_mode:
+                        fifo.send_Qinj_only(count=config.qinj_count)
                     raw_data = fifo.read(dispatch=True)
                     time.sleep(0.05)  # Small delay to prevent UDP spam
                 except Exception as e:
@@ -86,10 +89,11 @@ def run_daq_loop(system, config):
 def main():
     # 0. Parse Arguments
     parser = argparse.ArgumentParser(description='Run Cable Eliminator DAQ')
-    parser.add_argument('-o', '--outdir', type=str, required=True, help='Output directory')
+    parser.add_argument('-o', '--rootdir', type=str, required=True, dest='rootdir', help='Root directory where the Run_XX folder will be created')
     parser.add_argument('--note', type=str, default='', help='Note for baseline history')
     parser.add_argument('--max_run_time', type=int, default=480, help='Max run time in mins')
     parser.add_argument('--skip_baseline', action='store_true', help='Use latest history')
+    parser.add_argument('--charge_injection', action='store_true', help='Run in Charge Injection Mode')
     args = parser.parse_args()
 
     # 1. Setup Configuration
@@ -97,6 +101,15 @@ def main():
     config = DAQConfig()
     config.outdir = args.outdir
     config.max_run_time = args.max_run_time
+
+    # Define run_type
+    run_type = "QInj" if args.charge_injection else "beam"
+
+    config.outdir = generate_run_dir(
+        root_path=args.rootdir,
+        run_type=run_type,
+        note=args.note
+    )
 
     # 2. Initialize Hardware
     system = ETROCSystem(config)
@@ -110,10 +123,10 @@ def main():
         baselines = cal_mgr.load_from_history()
     else:
         # Run new hardware scan
-        baselines = cal_mgr.run_calibration(note=args.note)
+        baselines = cal_mgr.run_calibration(note=args.note, charge_injection_mode=args.charge_injection)
 
     # Apply thresholds (Configuring pixels)
-    cal_mgr.apply_configuration(baselines)
+    cal_mgr.apply_configuration(baselines, charge_injection_mode=args.charge_injection)
 
     # 4. Final Hardware Trigger Setup
     # (Must be done after chip configuration)
