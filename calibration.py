@@ -22,17 +22,27 @@ class CalibrationManager:
         self.db_path = Path(self.cfg.path_to_hist) / 'BaselineHistory.sqlite'
         self.fig_path = Path(self.cfg.path_to_figure)
 
-    def run_calibration(self, note=""):
-        """Runs the threshold scan on all connected chips."""
+    def run_calibration(self, note="", charge_injection_mode=False):
+        """
+        Runs the threshold scan on all connected chips.
+        If charge_injection_mode is True:
+            - Only scans TEST_PIXELS
+            - Does NOT save to history/plots
+        """
         print(f"\n[Calibration] Scanning {self.cfg.pixel_row * self.cfg.pixel_col} pixels per chip...")
 
         baseline_storage = {}
 
-        # 1. Generate Pixel Map (All pixels)
-        pixels_to_scan = []
-        for row in range(self.cfg.pixel_row):
-            for col in range(self.cfg.pixel_col):
-                pixels_to_scan.append((row, col))
+        # 1. Determine Pixel List
+        if charge_injection_mode:
+            print(yellow(f"[Calibration] Charge Injection Mode: Scanning only 2 pixels {self.cfg.test_pixels}..."))
+            pixels_to_scan = self.cfg.test_pixels
+        else:
+            print(f"[Calibration] Scanning {self.cfg.pixel_row * self.cfg.pixel_col} pixels per chip...")
+            pixels_to_scan = []
+            for row in range(self.cfg.pixel_row):
+                for col in range(self.cfg.pixel_col):
+                    pixels_to_scan.append((row, col))
 
         # 2. Scan Loop
         for i, etroc in enumerate(self.sys.etroc_chips):
@@ -70,8 +80,13 @@ class CalibrationManager:
                     # print(red(f"Pixel {row},{col} failed: {e}"))
                     pass
 
-            # 3. Save Data (Using your existing utility or custom logic)
-            self._save_to_history(chip_name, chip_data, note)
+            # 3. Save Data
+            # (Using your existing utility or custom logic)
+            # (SKIPPED if charge_injection_mode)
+            if not charge_injection_mode:
+                self._save_to_history(chip_name, chip_data, note)
+            else:
+                print(yellow(f"   [Note] Charge Injection: Skipping DB save for {chip_name}"))
 
             # Store in memory for immediate use
             baseline_storage[chip_name] = self._format_data_for_lookup(chip_data)
@@ -79,34 +94,7 @@ class CalibrationManager:
         print(green("[Calibration] Scan completed."))
         return baseline_storage
 
-    def load_from_history(self):
-        """Loads the latest baseline values from SQLite."""
-        print("\n[Calibration] Loading historical baselines from database...")
-        baseline_storage = {}
-
-        if not self.db_path.exists():
-            raise FileNotFoundError(f"Database not found at {self.db_path}")
-
-        for chip_name in self.cfg.etroc_names:
-            try:
-                df, min_timestamp, max_timestamp = self._fetch_latest_run_df(chip_name)
-
-                # Convert DataFrame to lookup dict: data['row'], data['baseline']
-                data_dict = {
-                    'row': df.row.tolist(),
-                    'col': df.col.tolist(),
-                    'baseline': df.baseline.tolist()
-                }
-                baseline_storage[chip_name] = self._format_data_for_lookup(data_dict)
-                print(green(f"   Loaded {len(df)} pixels for {chip_name} between {min_timestamp}, {max_timestamp}"))
-
-            except Exception as e:
-                print(red(f"   Failed to load history for {chip_name}: {e}"))
-                baseline_storage[chip_name] = {} # Empty dict on failure
-
-        return baseline_storage
-
-    def apply_configuration(self, baseline_storage):
+    def apply_configuration(self, baseline_storage, charge_injection_mode=False):
         """Writes the thresholds (Baseline + Offset) to the chips."""
         print(f"\n[Configuration] Configuring pixels for cosmic run...")
 
@@ -137,32 +125,47 @@ class CalibrationManager:
             lookup = baseline_storage.get(chip_name, {})
             offset = self.cfg.th_offsets.get(chip_name)
 
-            print(f"   Configuring {chip_name} (Offset={offset})...")
+            # Determine which pixels to configure
+            if charge_injection_mode:
+                pixels_to_config = self.cfg.test_pixels
+            else:
+                pixels_to_config = []
+                for r in range(self.cfg.pixel_row):
+                    for c in range(self.cfg.pixel_col):
+                        pixels_to_config.append((r,c))
+
+            print(f"   Configuring {chip_name} ({len(pixels_to_config)} pixels) and (Offset={offset})...")
 
             count = 0
-            for row in range(self.cfg.pixel_row):
-                for col in range(self.cfg.pixel_col):
-                    # Enable Pixel
-                    etroc.wr_reg("enable_TDC", 1, row=row, col=col, broadcast=False)
-                    etroc.wr_reg("disDataReadout", 0, row=row, col=col, broadcast=False)
-                    etroc.wr_reg("disTrigPath", 0, row=row, col=col, broadcast=False)
+            for row, col in pixels_to_config:
+                # Enable Pixel
+                etroc.wr_reg("enable_TDC", 1, row=row, col=col, broadcast=False)
+                etroc.wr_reg("disDataReadout", 0, row=row, col=col, broadcast=False)
+                etroc.wr_reg("disTrigPath", 0, row=row, col=col, broadcast=False)
 
-                    # Calculate DAC
-                    baseline = lookup.get((row, col), 0) # Default to 0 if missing
-                    # If baseline is missing/failed (0), maybe set a safe high value?
-                    # For now using raw calculation:
-                    if baseline == 0:
-                        # Fallback for failed pixels?
-                        applied_dac = 500 # Safe arbitrary number?
-                    else:
-                        applied_dac = int(baseline + offset)
-                        if applied_dac > 1023:
-                            applied_dac = 1023
+                # Calculate DAC
+                baseline = lookup.get((row, col), 0) # Default to 0 if missing
+                # If baseline is missing/failed (0), maybe set a safe high value?
+                # For now using raw calculation:
+                if baseline == 0:
+                    # Fallback for failed pixels?
+                    applied_dac = 500 # Safe arbitrary number?
+                else:
+                    applied_dac = int(baseline + offset)
+                    if applied_dac > 1023:
+                        applied_dac = 1023
 
-                    etroc.wr_reg('DAC', applied_dac, row=row, col=col, broadcast=False)
+                etroc.wr_reg('DAC', applied_dac, row=row, col=col, broadcast=False)
 
-                    count += 1
-                    if count % 32 == 0: time.sleep(0.01)
+                # --- Charge Injection Specific Pixel Settings ---
+                if charge_injection_mode:
+                    # Set the charge amount (QSel) for this pixel
+                    etroc.wr_reg("QSel", self.cfg.charge_fc, row=row, col=col, broadcast=False)
+                    # Enable Injection specifically for this pixel
+                    etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
+
+                count += 1
+                if count % 32 == 0: time.sleep(0.01)
 
         print(green("[Configuration] All pixels configured."))
 
@@ -174,6 +177,33 @@ class CalibrationManager:
             (r, c): b
             for r, c, b in zip(data_dict['row'], data_dict['col'], data_dict['baseline'])
         }
+
+    def load_from_history(self):
+        """Loads the latest baseline values from SQLite."""
+        print("\n[Calibration] Loading historical baselines from database...")
+        baseline_storage = {}
+
+        if not self.db_path.exists():
+            raise FileNotFoundError(f"Database not found at {self.db_path}")
+
+        for chip_name in self.cfg.etroc_names:
+            try:
+                df, min_timestamp, max_timestamp = self._fetch_latest_run_df(chip_name)
+
+                # Convert DataFrame to lookup dict: data['row'], data['baseline']
+                data_dict = {
+                    'row': df.row.tolist(),
+                    'col': df.col.tolist(),
+                    'baseline': df.baseline.tolist()
+                }
+                baseline_storage[chip_name] = self._format_data_for_lookup(data_dict)
+                print(green(f"   Loaded {len(df)} pixels for {chip_name} between {min_timestamp}, {max_timestamp}"))
+
+            except Exception as e:
+                print(red(f"   Failed to load history for {chip_name}: {e}"))
+                baseline_storage[chip_name] = {} # Empty dict on failure
+
+        return baseline_storage
 
     def _save_to_history(self, chip_name, data, note):
         """Wrapper for the existing logic to save data."""
