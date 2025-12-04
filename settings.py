@@ -22,12 +22,12 @@ class DAQConfig:
     # Trigger Settings
     trigger_enable_mask: int = 0x1
     trigger_data_size: int = 1
-    trigger_delay_sel: int = 470
+    trigger_delay_sel: int = 468
 
     # File/Path Settings
     path_to_figure: str = '/home/daq/ETROC2_KCU105/ETROC-figures'
     path_to_hist: str = '/home/daq/ETROC2_KCU105/ETROC-History'
-    chunk_size: int = 500
+    chunk_size: int = 1000
     max_file_size_bytes: int = 120 * 1024 * 1024
 
     # Dimensions
