@@ -33,3 +33,8 @@ class DAQConfig:
     # Dimensions
     pixel_row: int = 16
     pixel_col: int = 16
+
+    # Charge injection params
+    charge_fc: int = 30
+    test_pixels: List[int] = field(default_factory=lambda: [(0, 0), (8, 8)])
+    qinj_count: int = 100
