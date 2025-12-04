@@ -99,7 +99,6 @@ def main():
     # 1. Setup Configuration
     # We initialize default config, then override with command line args
     config = DAQConfig()
-    config.outdir = args.outdir
     config.max_run_time = args.max_run_time
 
     # Define run_type
@@ -133,7 +132,7 @@ def main():
     system.configure_trigger()
 
     # 5. Run DAQ Loop
-    run_daq_loop(system, config)
+    run_daq_loop(system, config, args.charge_injection)
 
     # 6. Final Cleanup
     print(green("\nRun finished."))
