@@ -43,8 +43,6 @@ def run_daq_loop(system, config, charge_injection_mode=False):
     terminal = TerminalHandler()
     terminal.start_non_blocking()
 
-    hit_counter = 0
-
     # 4. The Data Loop
     try:
         # 'with' block automatically handles file opening/closing/chunking
@@ -73,7 +71,6 @@ def run_daq_loop(system, config, charge_injection_mode=False):
                 # C. Write Data
                 if raw_data:
                     writer.write(raw_data)
-                    hit_counter += 1
 
     except KeyboardInterrupt:
         print(yellow("\n   Keyboard Interrupt (Ctrl+C)"))
@@ -84,7 +81,6 @@ def run_daq_loop(system, config, charge_injection_mode=False):
         elapsed = datetime.now(timezone.utc) - start_time
         print(green(f"\nRun Complete."))
         print(f"Duration: {str(elapsed).split('.')[0]}")
-        print(f"Total Hits Saved: {hit_counter}")
 
 def main():
     # 0. Parse Arguments
