@@ -96,6 +96,57 @@ class CalibrationManager:
         print(green("[Calibration] Scan completed."))
         return baseline_storage
 
+    def disable_trigger(self):
+        print(f"\n[Configuration] Disabling trigger path for all ETROC...")
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if etroc is None: continue
+
+            etroc.wr_reg("disTrigPath", 1, broadcast=True)
+
+    def disable_data(self):
+        print(f"\n[Configuration] Disabling data readout for all ETROC...")
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if etroc is None: continue
+
+            etroc.wr_reg("disDataReadout", 1, broadcast=True)
+
+    def disable_tdc(self):
+        print(f"\n[Configuration] Disabling TDC for all ETROC...")
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if etroc is None: continue
+
+            etroc.wr_reg("enable_TDC", 0, broadcast=True)
+
+    def enable_trigger(self):
+        print(f"\n[Configuration] Enabling trigger path for all ETROC...")
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if etroc is None: continue
+
+            etroc.wr_reg("disTrigPath", 0, broadcast=True)
+
+    def enable_data(self):
+        print(f"\n[Configuration] Enabling data readout for all ETROC...")
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if etroc is None: continue
+
+            etroc.wr_reg("disDataReadout", 0, broadcast=True)
+
+    def enable_tdc(self):
+        print(f"\n[Configuration] Enabling TDC for all ETROC...")
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if etroc is None: continue
+
+            etroc.wr_reg("enable_TDC", 1, broadcast=True)
+
+    def standard_enable(self):
+        print(f"\n[Configuration] Enabling trigger path, data readout and TDC for all ETROC...")
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if etroc is None: continue
+
+            etroc.wr_reg("enable_TDC", 1, broadcast=True)
+            etroc.wr_reg("disDataReadout", 0, broadcast=True)
+            etroc.wr_reg("disTrigPath", 0, broadcast=True)
+
     def apply_configuration(self, baseline_storage, charge_injection_mode=False):
         """Writes the thresholds (Baseline + Offset) to the chips."""
         print(f"\n[Configuration] Configuring pixels for cosmic run...")
