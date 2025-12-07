@@ -6,6 +6,8 @@ from pathlib import Path
 from tqdm import tqdm
 from tamalero.colors import green, red, yellow
 
+import traceback
+
 # If you still want to use the original utils for saving, keep this import.
 # Otherwise, we can write a native saver. For now, I'll wrap the logic you had.
 from etroc_utils import convert_dict_to_pandas, save_baselines
@@ -217,7 +219,8 @@ class CalibrationManager:
                            fig_dir=self.cfg.path_to_figure,
                            save_notes=full_note)
         except Exception as e:
-            print(red(f"Error saving history for {chip_name}: {e}"))
+            error_details = traceback.format_exc()
+            print(red(f"Error saving history for {chip_name}: {e} ({error_details})"))
 
     def _fetch_latest_run_df(self, chip_name):
         with sqlite3.connect(self.db_path) as conn:
