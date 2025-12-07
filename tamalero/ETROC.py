@@ -749,9 +749,11 @@ class ETROC():
         self.wr_reg('Bypass_THCal', 0, row=row, col=col, broadcast=broadcast)
         self.wr_reg('BufEn_THCal', 1, row=row, col=col, broadcast=broadcast)
         self.wr_reg('RSTn_THCal', 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast)
         self.wr_reg('RSTn_THCal', 1, row=row, col=col, broadcast=broadcast)
         self.wr_reg('ScanStart_THCal', 1, row=row, col=col, broadcast=broadcast)
         self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
+        time.sleep(0.05)
         done = False
         start_time = time.time()
         timed_out = False
@@ -772,7 +774,7 @@ class ETROC():
                     done = self.rd_reg("ScanDone", row=row, col=col)
                 except:
                     print("ScanDone read failed.")
-                time.sleep(0.001)
+                time.sleep(0.05)
                 if time.time() - start_time > time_out:
                     if verbose:
                         print(f"Auto threshold scan timed out for pixel {row=}, {col=}")
