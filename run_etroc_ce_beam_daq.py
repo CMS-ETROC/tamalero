@@ -77,6 +77,8 @@ def run_daq_loop(system, config, charge_injection_mode=False):
 
     finally:
         # 5. Cleanup
+        system.rb.disable_etroc_trigger()
+        system.rb.disable_etroc_readout()
         terminal.restore()
         elapsed = datetime.now(timezone.utc) - start_time
         print(green(f"\nRun Complete."))
@@ -131,6 +133,9 @@ def main():
     run_daq_loop(system, config, args.charge_injection)
 
     # 6. Final Cleanup
+    cal_mgr.disable_trigger()
+    cal_mgr.disable_data()
+    cal_mgr.disable_tdc()
     print(green("\nRun finished."))
 
 if __name__ == "__main__":
