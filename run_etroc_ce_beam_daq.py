@@ -13,7 +13,7 @@ from calibration import CalibrationManager
 from data_handler import DataWriter, generate_run_dir
 from daq_utils import TerminalHandler
 
-def run_daq_loop(system, config, charge_injection_mode=False):
+def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
     """
     Main DAQ Execution Loop.
     Handles FIFO reading, file writing via DataWriter, and time/keyboard limits.
@@ -130,7 +130,7 @@ def main():
     system.configure_trigger()
 
     # 5. Run DAQ Loop
-    run_daq_loop(system, config, args.charge_injection)
+    run_daq_loop(system, config, args.charge_injection, args.note)
 
     # 6. Final Cleanup
     cal_mgr.disable_trigger()
