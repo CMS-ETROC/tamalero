@@ -92,6 +92,7 @@ def main():
     parser.add_argument('--max_run_time', type=int, default=480, help='Max run time in mins')
     parser.add_argument('--skip_baseline', action='store_true', help='Use latest history')
     parser.add_argument('--charge_injection', action='store_true', help='Run in Charge Injection Mode')
+    parser.add_argument('--etroc_configured', action='store_true'. help='ETROC chips are already configured, no need to re-apply configuration, only enable TDC, data readout and trigger path')
     args = parser.parse_args()
 
     # 1. Setup Configuration
@@ -114,16 +115,18 @@ def main():
 
     # 3. Calibration / Configuration
     cal_mgr = CalibrationManager(system, config)
+    if not args.etroc_configured:
+        if args.skip_baseline:
+            # Load most recent baselines from SQLite DB
+            baselines = cal_mgr.load_from_history()
+        else:
+            # Run new hardware scan
+            baselines = cal_mgr.run_calibration(note=args.note, charge_injection_mode=args.charge_injection)
 
-    if args.skip_baseline:
-        # Load most recent baselines from SQLite DB
-        baselines = cal_mgr.load_from_history()
+        # Apply thresholds (Configuring pixels)
+        cal_mgr.apply_configuration(baselines, charge_injection_mode=args.charge_injection)
     else:
-        # Run new hardware scan
-        baselines = cal_mgr.run_calibration(note=args.note, charge_injection_mode=args.charge_injection)
-
-    # Apply thresholds (Configuring pixels)
-    cal_mgr.apply_configuration(baselines, charge_injection_mode=args.charge_injection)
+        cal_mgr.standard_enable()
 
     # 4. Final Hardware Trigger Setup
     # (Must be done after chip configuration)
