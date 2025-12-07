@@ -47,31 +47,31 @@ def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
     try:
         # 'with' block automatically handles file opening/closing/chunking
         with DataWriter(config) as writer:
-            with open(config.outdir / 'metadata.yaml', 'w') as file_handle:
-                metadata_dict = {
-                    'run_name': config.outdir.name,
-                    'note': note,
-                    'trigger_enable_mask': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_ENABLE_MASK"),
-                    'trigger_bitsize': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_DATA_SIZE"),
-                    'trigger_delay': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_DLY_SEL"),
-                    'trigger_combination_logic': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_COMBINATION_LOGIC"),
-                    'etroc_config': {},
-                }
-                for i, etroc in enumerate(system.etroc_chips):
-                    chip_name = self.cfg.etroc_names[i]
-                    if etroc is None: continue
+            #with open(config.outdir / 'metadata.yaml', 'w') as file_handle:
+            #    metadata_dict = {
+            #        'run_name': config.outdir.name,
+            #        'note': note,
+            #        'trigger_enable_mask': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_ENABLE_MASK"),
+            #        'trigger_bitsize': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_DATA_SIZE"),
+            #        'trigger_delay': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_DLY_SEL"),
+            #        'trigger_combination_logic': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_COMBINATION_LOGIC"),
+            #        'etroc_config': {},
+            #    }
+            #    for i, etroc in enumerate(system.etroc_chips):
+            #        chip_name = self.cfg.etroc_names[i]
+            #        if etroc is None: continue
 
-                    config_idx = self.etroc_names.index(chip_name)
+            #        config_idx = self.etroc_names.index(chip_name)
 
-                    metadata_dict['etroc_config'][chip_name] = {
-                      'elink_id': config.etroc_elinks_map[0][config_idx],
-                      'i2c_id': config.etroc_addresses[config_idx],
-                      'pixels': {},
-                    }
+            #        metadata_dict['etroc_config'][chip_name] = {
+            #          'elink_id': config.etroc_elinks_map[0][config_idx],
+            #          'i2c_id': config.etroc_addresses[config_idx],
+            #          'pixels': {},
+            #        }
 
-                    # for pixels: Windows, DAC, power mode
+            #        # for pixels: Windows, DAC, power mode
 
-                yaml.dump(metadata_dict, file_handle)
+            #    yaml.dump(metadata_dict, file_handle)
 
             while True:
                 # A. Check Limits
@@ -103,7 +103,7 @@ def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
     finally:
         # 5. Cleanup
         system.rb.disable_etroc_trigger()
-        system.rb.disable_etroc_readout()
+        system.rb.disable_etroc_readout(all=True)
         terminal.restore()
         elapsed = datetime.now(timezone.utc) - start_time
         print(green(f"\nRun Complete."))
@@ -117,7 +117,7 @@ def main():
     parser.add_argument('--max_run_time', type=int, default=480, help='Max run time in mins')
     parser.add_argument('--skip_baseline', action='store_true', help='Use latest history')
     parser.add_argument('--charge_injection', action='store_true', help='Run in Charge Injection Mode')
-    parser.add_argument('--etroc_configured', action='store_true'. help='ETROC chips are already configured, no need to re-apply configuration, only enable TDC, data readout and trigger path')
+    parser.add_argument('--etroc_configured', action='store_true', help='ETROC chips are already configured, no need to re-apply configuration, only enable TDC, data readout and trigger path')
     args = parser.parse_args()
 
     # 1. Setup Configuration
