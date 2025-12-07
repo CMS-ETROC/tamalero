@@ -94,6 +94,11 @@ class ETROCSystem:
     def configure_trigger(self):
         """Applies trigger configuration from Config object"""
         print("\n4. Configuring Trigger System...")
+
+        print(f"    Trigger mask: {self.cfg.trigger_enable_mask}")
+        print(f"    Trigger bit size: {self.cfg.trigger_data_size}")
+        print(f"    Trigger delay: {self.cfg.trigger_delay_sel}\n")
+
         # Write trigger settings
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_ENABLE_MASK", self.cfg.trigger_enable_mask)
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_DATA_SIZE", self.cfg.trigger_data_size)
