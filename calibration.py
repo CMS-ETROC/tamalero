@@ -208,6 +208,8 @@ class CalibrationManager:
                     if applied_dac > 1023:
                         applied_dac = 1023
 
+                if charge_injection_mode:
+                    print(f"   Applied DAC: {applied_dac}")
                 etroc.wr_reg('DAC', applied_dac, row=row, col=col, broadcast=False)
 
                 # --- Charge Injection Specific Pixel Settings ---
