@@ -47,6 +47,31 @@ def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
     try:
         # 'with' block automatically handles file opening/closing/chunking
         with DataWriter(config) as writer:
+            with open(config.outdir / 'metadata.yaml', 'w') as file_handle:
+                metadata_dict = {
+                    'run_name': config.outdir.name,
+                    'note': note,
+                    'trigger_enable_mask': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_ENABLE_MASK"),
+                    'trigger_bitsize': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_DATA_SIZE"),
+                    'trigger_delay': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_DLY_SEL"),
+                    'trigger_combination_logic': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_COMBINATION_LOGIC"),
+                    'etroc_config': {},
+                }
+                for i, etroc in enumerate(system.etroc_chips):
+                    chip_name = self.cfg.etroc_names[i]
+                    if etroc is None: continue
+
+                    config_idx = self.etroc_names.index(chip_name)
+
+                    metadata_dict['etroc_config'][chip_name] = {
+                      'elink_id': config.etroc_elinks_map[0][config_idx],
+                      'i2c_id': config.etroc_addresses[config_idx],
+                      'pixels': {},
+                    }
+
+                    # for pixels: Windows, DAC, power mode
+
+                yaml.dump(metadata_dict, file_handle)
 
             while True:
                 # A. Check Limits
