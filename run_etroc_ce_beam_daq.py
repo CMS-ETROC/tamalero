@@ -1,5 +1,6 @@
 import argparse
 import time
+import yaml
 from datetime import datetime, timedelta, timezone
 
 # Tamalero imports
