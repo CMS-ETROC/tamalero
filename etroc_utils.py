@@ -127,6 +127,14 @@ def save_baselines(
     with sqlite3.connect(outfile) as sqlconn:
         current_df.to_sql('baselines', sqlconn, if_exists='append', index=False)
 
+    print('\n========== Print Baseline and Noise Width ==========')
+    print(f'Board name: {chip_name}')
+    print(pivot_df.baseline)
+    print(pivot_df.noise_width)
+    print('  Summary values:')
+    print(f"    Baseline mean: {input_df['baseline'].mean():.2f}, std: {input_df['baseline'].std():.2f}")
+    print(f"    Noise width mean: {input_df['noise_width'].mean():.2f}, std: {input_df['noise_width'].std():.2f}")
+
     ## Make BL and NW 2D map
     make_BL_NW_2D_maps(pivot_df, chip_name, save_notes, fig_outdir, timestamp)
 
