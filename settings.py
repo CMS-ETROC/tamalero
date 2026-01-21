@@ -48,7 +48,7 @@ class DAQConfig:
 
     # Charge injection params
     charge_fc: int = 30
-    test_pixels: List[int] = field(default_factory=lambda: [(0, 0), (8, 8)])
+    test_pixels: List[int] = field(default_factory=lambda: [(5, 5), (8, 8)])
     qinj_count: int = 100
 
     def __post_init__(self):
