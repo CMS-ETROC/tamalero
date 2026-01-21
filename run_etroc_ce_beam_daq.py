@@ -14,6 +14,8 @@ from hardware_init import ETROCSystem
 from calibration import CalibrationManager
 from data_handler import DataWriter, generate_run_dir
 from daq_utils import TerminalHandler
+from save_run_metadata import save_run_metadata
+
 
 def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
     """
@@ -49,32 +51,6 @@ def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
     try:
         # 'with' block automatically handles file opening/closing/chunking
         with DataWriter(config) as writer:
-            #with open(config.outdir / 'metadata.yaml', 'w') as file_handle:
-            #    metadata_dict = {
-            #        'run_name': config.outdir.name,
-            #        'note': note,
-            #        'trigger_enable_mask': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_ENABLE_MASK"),
-            #        'trigger_bitsize': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_DATA_SIZE"),
-            #        'trigger_delay': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_DLY_SEL"),
-            #        'trigger_combination_logic': system.kcu.read_node(f"READOUT_BOARD_{system.rb.rb}_TRIG_COMBINATION_LOGIC"),
-            #        'etroc_config': {},
-            #    }
-            #    for i, etroc in enumerate(system.etroc_chips):
-            #        chip_name = self.cfg.etroc_names[i]
-            #        if etroc is None: continue
-
-            #        config_idx = self.etroc_names.index(chip_name)
-
-            #        metadata_dict['etroc_config'][chip_name] = {
-            #          'elink_id': config.etroc_elinks_map[0][config_idx],
-            #          'i2c_id': config.etroc_addresses[config_idx],
-            #          'pixels': {},
-            #        }
-
-            #        # for pixels: Windows, DAC, power mode
-
-            #    yaml.dump(metadata_dict, file_handle)
-
             while True:
                 # A. Check Limits
                 if datetime.now(timezone.utc) >= end_time:
@@ -162,6 +138,9 @@ def main():
     # 4. Final Hardware Trigger Setup
     # (Must be done after chip configuration)
     system.configure_trigger()
+
+    # Save Run Metadata
+    save_run_metadata(system, config, cal_mgr, note=args.note, charge_injection_mode=args.charge_injection)
 
     # 5. Run DAQ Loop
     run_daq_loop(system, config, args.charge_injection, args.note)
