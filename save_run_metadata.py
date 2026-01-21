@@ -2,25 +2,42 @@ import yaml
 import subprocess
 from datetime import datetime, timezone
 
-def get_git_version():
-    """Get current git commit hash with dirty flag."""
+def get_git_version(repo_path=None):
+    """
+    Get current git commit hash with dirty flag.
+
+    Args:
+        repo_path: Path to git repository. If None, uses current directory.
+    """
     try:
+        git_cmd = ['git']
+        if repo_path:
+            git_cmd.extend(['-C', str(repo_path)])
+
+        git_cmd.extend(['rev-parse', 'HEAD'])
         commit = subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD'],
+            git_cmd,
             stderr=subprocess.DEVNULL
         ).decode('ascii').strip()[:8]  # Short hash
 
-        dirty = subprocess.check_output(
-            ['git', 'status', '--porcelain'],
-            stderr=subprocess.DEVNULL
-        ).decode('ascii').strip()
+        # Only check dirty flag if no repo_path specified (i.e., current DAQ repo)
+        if repo_path is None:
+            dirty_cmd = ['git', 'status', '--porcelain']
+            dirty = subprocess.check_output(
+                dirty_cmd,
+                stderr=subprocess.DEVNULL
+            ).decode('ascii').strip()
 
-        return f"{commit}{'_dirty' if dirty else ''}"
+            return f"{commit}{'_dirty' if dirty else ''}"
+        else:
+            return commit
+
     except:
         return "unknown"
 
 
-def save_run_metadata(system, config, max_run_time, note="", charge_injection_mode=False):
+
+def save_run_metadata(system, config, max_run_time, firmware_path=None, note="", charge_injection_mode=False):
     """
     Save complete run configuration metadata to YAML file.
 
@@ -28,6 +45,7 @@ def save_run_metadata(system, config, max_run_time, note="", charge_injection_mo
         system: ETROCSystem instance with hardware connections
         config: DAQConfig instance with run settings
         max_run_time: Maximum run time in minutes
+        firmware_path: Path to firmware git repository (optional)
         note: User-provided run note
         charge_injection_mode: Whether this is a charge injection run
     """
@@ -40,7 +58,8 @@ def save_run_metadata(system, config, max_run_time, note="", charge_injection_mo
             'run_type': 'charge_injection' if charge_injection_mode else 'beam',
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'note': note,
-            'software_version': get_git_version(),
+            'daq_version': get_git_version(),
+            'firmware_version': get_git_version(firmware_path) if firmware_path else "not_specified",
         },
 
         'hardware': {
@@ -54,7 +73,7 @@ def save_run_metadata(system, config, max_run_time, note="", charge_injection_mo
 
         'trigger_config': {
             'enable_mask': config.trigger_enable_mask,
-            'data_size': config.trigger_data_size,
+            'trigger_bit_size': config.trigger_data_size,
             'delay_sel': config.trigger_delay_sel,
             'combination_logic': config.trigger_logic,
             'logic_description': 'OR' if config.trigger_logic == 0 else 'AND',
