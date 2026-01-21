@@ -20,14 +20,14 @@ def get_git_version():
         return "unknown"
 
 
-def save_run_metadata(system, config, cal_mgr, note="", charge_injection_mode=False):
+def save_run_metadata(system, config, max_run_time, note="", charge_injection_mode=False):
     """
     Save complete run configuration metadata to YAML file.
 
     Args:
         system: ETROCSystem instance with hardware connections
         config: DAQConfig instance with run settings
-        cal_mgr: CalibrationManager instance (to access applied DAC values)
+        max_run_time: Maximum run time in minutes
         note: User-provided run note
         charge_injection_mode: Whether this is a charge injection run
     """
@@ -61,7 +61,7 @@ def save_run_metadata(system, config, cal_mgr, note="", charge_injection_mode=Fa
         },
 
         'acquisition_settings': {
-            'max_run_time_minutes': config.max_run_time,
+            'max_run_time_minutes': max_run_time,
             'chunk_size': config.chunk_size,
             'max_file_size_bytes': config.max_file_size_bytes,
         },
@@ -95,10 +95,6 @@ def save_run_metadata(system, config, cal_mgr, note="", charge_injection_mode=Fa
             'i2c_address': f"0x{board_config.i2c_id:02X}",
             'elink_id': board_config.elink_id,
             'threshold_offset': board_config.th_offset,
-            'pixel_dimensions': {
-                'rows': config.pixel_row,
-                'cols': config.pixel_col,
-            },
         }
 
         # Get applied DAC values for each pixel
@@ -127,13 +123,13 @@ def save_run_metadata(system, config, cal_mgr, note="", charge_injection_mode=Fa
                 pixels_dac[f"({row},{col})"] = None
 
         chip_metadata['pixels'] = {
-            'count': len(pixels_dac),
             'dac_values': pixels_dac,
         }
 
         metadata['etroc_chips'][chip_name] = chip_metadata
 
     # Save to YAML file
+    config.outdir.mkdir(parents=True, exist_ok=True)
     output_path = config.outdir / 'run_metadata.yaml'
     try:
         with open(output_path, 'w') as f:
