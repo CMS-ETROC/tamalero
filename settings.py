@@ -32,13 +32,14 @@ class DAQConfig:
     th_offsets: Dict[str, int] = field(init=False)
 
     # Trigger Settings
-    trigger_enable_mask: int = 0x8
+    trigger_enable_mask: int = 0x1
     trigger_data_size: int = 1
-    trigger_delay_sel: int = 469
+    trigger_delay_sel: int = 468
+    trigger_logic:     int = 0
 
     # File/Path Settings
-    path_to_figure: str = '/home/daq/KCU105_NEW/ETROC-figures'
-    path_to_hist: str = '/home/daq/KCU105_NEW/ETROC-History'
+    path_to_figure: str = '/home/daq/ETROC2_KCU105/ETROC-figures'
+    path_to_hist: str = '/home/daq/ETROC2_KCU105/ETROC-History'
     chunk_size: int = 1000
     max_file_size_bytes: int = 120 * 1024 * 1024
 
