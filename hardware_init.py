@@ -97,17 +97,19 @@ class ETROCSystem:
 
         print(f"    Trigger mask: {self.cfg.trigger_enable_mask}")
         print(f"    Trigger bit size: {self.cfg.trigger_data_size}")
-        print(f"    Trigger delay: {self.cfg.trigger_delay_sel}\n")
+        print(f"    Trigger delay: {self.cfg.trigger_delay_sel}")
+        print(f"    Trigger logic: {self.cfg.trigger_logic} (0: OR, 1: AND)\n")
 
         # Write trigger settings
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_ENABLE_MASK", self.cfg.trigger_enable_mask)
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_DATA_SIZE", self.cfg.trigger_data_size)
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_DLY_SEL", self.cfg.trigger_delay_sel)
+        self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_COMBINATION_LOGIC", self.cfg.trigger_logic)
         time.sleep(0.1)
 
         # Verify Elink Locks
         all_locked = True
-        for elink in [0, 4, 8, 12]:
+        for elink in self.cfg.etroc_elinks_map[0]:
             if not self._ensure_lock(elink):
                 all_locked = False
 
