@@ -1,6 +1,7 @@
 import argparse
 import time
 import yaml
+import sys
 from datetime import datetime, timedelta, timezone
 
 # Tamalero imports
@@ -117,6 +118,7 @@ def main():
     parser.add_argument('--note', type=str, default='', help='Note for baseline history')
     parser.add_argument('--max_run_time', type=int, default=480, help='Max run time in mins')
     parser.add_argument('--skip_baseline', action='store_true', help='Use latest history')
+    parser.add_argument('--quit_after_baseline', action='store_true', help='Script will exit after baseline scan')
     parser.add_argument('--charge_injection', action='store_true', help='Run in Charge Injection Mode')
     parser.add_argument('--etroc_configured', action='store_true', help='ETROC chips are already configured, no need to re-apply configuration, only enable TDC, data readout and trigger path')
     args = parser.parse_args()
@@ -148,6 +150,9 @@ def main():
         else:
             # Run new hardware scan
             baselines = cal_mgr.run_calibration(note=args.note, charge_injection_mode=args.charge_injection)
+
+        if args.quit_after_baseline:
+            sys.exit(1)
 
         # Apply thresholds (Configuring pixels)
         cal_mgr.apply_configuration(baselines, charge_injection_mode=args.charge_injection)
