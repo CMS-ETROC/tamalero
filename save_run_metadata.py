@@ -115,7 +115,7 @@ def save_run_metadata(system, config, max_run_time, note="", charge_injection_mo
         for row, col in pixels_to_read:
             try:
                 # Read actual DAC value from hardware
-                dac_value = etroc.rd_reg('DAC', row=row, col=col, broadcast=False)
+                dac_value = etroc.rd_reg('DAC', row=row, col=col)
                 pixel_key = f"({row},{col})"
                 pixels_dac[pixel_key] = int(dac_value)
             except Exception as e:
