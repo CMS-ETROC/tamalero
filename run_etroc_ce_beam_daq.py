@@ -140,7 +140,7 @@ def main():
     system.configure_trigger()
 
     # Save Run Metadata
-    save_run_metadata(system, config, max_run_time=args.max_run_time,
+    save_run_metadata(system, config, max_run_time=args.max_run_time, firmware_path="/home/daq/ETROC2_KCU105/module_test_fw",
                       note=args.note, charge_injection_mode=args.charge_injection)
 
     # 5. Run DAQ Loop
