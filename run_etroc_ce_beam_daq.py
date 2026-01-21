@@ -140,7 +140,8 @@ def main():
     system.configure_trigger()
 
     # Save Run Metadata
-    save_run_metadata(system, config, cal_mgr, note=args.note, charge_injection_mode=args.charge_injection)
+    save_run_metadata(system, config, max_run_time=args.max_run_time,
+                      note=args.note, charge_injection_mode=args.charge_injection)
 
     # 5. Run DAQ Loop
     run_daq_loop(system, config, args.charge_injection, args.note)
