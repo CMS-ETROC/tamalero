@@ -107,6 +107,11 @@ class ETROCSystem:
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.TRIG_COMBINATION_LOGIC", self.cfg.trigger_logic)
         time.sleep(0.1)
 
+        # Try BCR (BC0) Pulse and/or ECR (Reset L1A counter) Pulse
+        # self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.BC0_PULSE", 1)
+        self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.ECR_PULSE", 1)
+        time.sleep(0.1)
+
         # Verify Elink Locks
         all_locked = True
         for elink in self.cfg.etroc_elinks_map[0]:
