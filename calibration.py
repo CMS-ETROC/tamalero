@@ -31,8 +31,6 @@ class CalibrationManager:
             - Only scans TEST_PIXELS
             - Does NOT save to history/plots
         """
-        print(f"\n[Calibration] Scanning {self.cfg.pixel_row * self.cfg.pixel_col} pixels per chip...")
-
         baseline_storage = {}
 
         # 1. Determine Pixel List
