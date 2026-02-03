@@ -1,6 +1,5 @@
 import argparse
 import time
-import yaml
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -15,7 +14,7 @@ from calibration import CalibrationManager
 from data_handler import DataWriter, generate_run_dir
 from daq_utils import TerminalHandler
 from save_run_metadata import save_run_metadata
-
+from decode_tamalero import process_tamalero_outputs
 
 def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
     """
@@ -159,6 +158,29 @@ def main():
     cal_mgr.disable_data()
     cal_mgr.disable_tdc()
     print(green("\nRun finished."))
+
+    # 7. Quick qinj data analysis
+    if args.charge_injection:
+        print(green("\n8. Processing charge injection data..."))
+        files = sorted(config.outdir.glob('*.dat'))
+
+        if not files:
+            print(red("   No .dat files found in output directory."))
+        else:
+            print(f"   Found {len(files)} data file(s)")
+            try:
+                df = process_tamalero_outputs(files)
+
+                if not df.empty:
+                    print('================= Qinj data first 20 rows =================')
+                    print(df.head(20))
+                    print('================= Qinj data last 20 rows =================')
+                    print(df.tail(20))
+                else:
+                    print(red('   Empty dataframe - No Qinj data found.'))
+
+            except Exception as e:
+                print(red(f"   Analysis failed: {e}"))
 
 if __name__ == "__main__":
     main()
