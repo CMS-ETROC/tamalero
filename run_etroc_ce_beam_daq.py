@@ -36,11 +36,19 @@ def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
 
     # 2. Timing Logic
     start_time = datetime.now(timezone.utc)
-    max_minutes = min(config.max_run_time, 1440)  # Cap at 24 hrs
-    end_time = start_time + timedelta(minutes=max_minutes)
 
-    print(f"   Start: {start_time.strftime('%H:%M:%S')}")
-    print(f"   End:   {end_time.strftime('%H:%M:%S')} (Max {max_minutes} mins)")
+    if charge_injection_mode:
+        # Force 5 second duration for charge injection
+        end_time = start_time + timedelta(seconds=5)
+        print(f"   Start: {start_time.strftime('%H:%M:%S')}")
+        print(f"   End:   {end_time.strftime('%H:%M:%S')} (Fixed 5 sec for Charge Injection)")
+    else:
+        # Use configurable time for beam/cosmic mode
+        max_minutes = min(config.max_run_time, 1440)  # Cap at 24 hrs
+        end_time = start_time + timedelta(minutes=max_minutes)
+        print(f"   Start: {start_time.strftime('%H:%M:%S')}")
+        print(f"   End:   {end_time.strftime('%H:%M:%S')} (Max {max_minutes} mins)")
+
     print(yellow("   Press 'q' to stop acquisition"))
 
     # 3. Setup Terminal (Non-blocking input)
