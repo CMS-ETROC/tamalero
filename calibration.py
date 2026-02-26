@@ -162,6 +162,7 @@ class CalibrationManager:
             etroc.wr_reg("enable_TDC", 0, broadcast=True)
             etroc.wr_reg("disTrigPath", 1, broadcast=True)
             etroc.wr_reg("workMode", 0, broadcast=True) # self-trigger mode
+            etroc.wr_reg("L1Adelay", self.cfg.l1a_delays.get(chip_name), broadcast=True)
             etroc.wr_reg('triggerGranularity', 1)
 
             # Global Thresholds (Safe defaults)
