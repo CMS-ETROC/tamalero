@@ -34,7 +34,7 @@ def generate_run_dir(root_path, run_type="beam", note=""):
     clean_note = f"{note.replace(' ', '')}" if note else ""
 
     # 4. Construct Name
-    dir_name = f"run_{next_run:02d}_{run_type}_{timestamp}_{clean_note}"
+    dir_name = f"run_{next_run:03d}_{run_type}_{timestamp}_{clean_note}"
     full_path = root / dir_name
 
     print(f"Auto-generated Output Directory: {full_path}")
