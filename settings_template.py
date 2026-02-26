@@ -30,12 +30,13 @@ class DAQConfig:
     etroc_names: List[str] = field(init=False)
     etroc_elinks_map: Dict[int, List[int]] = field(init=False)
     th_offsets: Dict[str, int] = field(init=False)
+    l1a_delays: Dict[str, int] = field(init=False)
 
     # Trigger Settings
     trigger_enable_mask: int = 0x1
     trigger_data_size: int = 1
     trigger_delay_sel: int = 469
-    trigger_logic:     int = 0
+    trigger_logic:     int = 0 ## 0: OR, 1: AND
 
     # File/Path Settings
     path_to_figure: str = '/home/daq/ETROC2_KCU105/ETROC-figures'
