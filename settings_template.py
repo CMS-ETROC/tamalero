@@ -18,10 +18,10 @@ class DAQConfig:
     # --- BOARD DEFINITIONS (The Single Source of Truth) ---
     # Edit ONLY this list to add/remove boards
     boards: List[ETROCConfig] = field(default_factory=lambda: [
-        ETROCConfig(name="", i2c_id=0x60, elink_id=0,  th_offset=20),
-        ETROCConfig(name="", i2c_id=0x61, elink_id=4,  th_offset=20),
-        ETROCConfig(name="", i2c_id=0x62, elink_id=8,  th_offset=20),
-        ETROCConfig(name="", i2c_id=0x63, elink_id=12, th_offset=20),
+        ETROCConfig(name="", i2c_id=0x60, elink_id=0,  th_offset=20, l1a_delay=0x1f5),
+        ETROCConfig(name="", i2c_id=0x61, elink_id=4,  th_offset=20, l1a_delay=0x1f5),
+        ETROCConfig(name="", i2c_id=0x62, elink_id=8,  th_offset=20, l1a_delay=0x1f5),
+        ETROCConfig(name="", i2c_id=0x63, elink_id=12, th_offset=20, l1a_delay=0x1f5),
     ])
 
     # --- DERIVED FIELDS (Automatically Calculated) ---
@@ -61,8 +61,9 @@ class DAQConfig:
         self.etroc_names = [b.name for b in self.boards]
         self.etroc_addresses = [b.i2c_id for b in self.boards]
 
-        # 2. Build Threshold Dictionary
+        # 2. Build Threshold and L1A delay Dictionary
         self.th_offsets = {b.name: b.th_offset for b in self.boards}
+        self.l1a_delays = {b.name: b.l1a_delay for b in self.boards}
 
         # 3. Build Elink Map (assuming key 0 maps to all active elinks)
         all_elinks = [b.elink_id for b in self.boards]
