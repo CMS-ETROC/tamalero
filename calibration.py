@@ -156,14 +156,19 @@ class CalibrationManager:
             # Reset Chip
             etroc.reset()
             time.sleep(0.1)
-            etroc.wr_reg("singlePort", 1)
+            etroc.wr_reg("singlePort", 0) ### 0: dual port mode, 1: single port mode
+            ### for 640 Mbps mode ###
+            etroc.wr_reg("serRateLeft", 1)
+            etroc.wr_reg("serRateRight", 1)
+            etroc.wr_reg("mergeTriggerData", 1)
+            etroc.wr_reg('triggerGranularity', 2)
+            ### for 640 Mbps mode ###
             etroc.wr_reg("disDataReadout", 1, broadcast=True)
             etroc.wr_reg("QInjEn", 0, broadcast=True)
             etroc.wr_reg("enable_TDC", 0, broadcast=True)
             etroc.wr_reg("disTrigPath", 1, broadcast=True)
             etroc.wr_reg("workMode", 0, broadcast=True) # self-trigger mode
             etroc.wr_reg("L1Adelay", self.cfg.l1a_delays.get(chip_name), broadcast=True)
-            etroc.wr_reg('triggerGranularity', 1)
 
             # Global Thresholds (Safe defaults)
             for reg in ['TOA', 'TOT', 'Cal']:

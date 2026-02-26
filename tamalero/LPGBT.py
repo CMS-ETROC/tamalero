@@ -777,7 +777,7 @@ class LPGBT(RegParser):
         groups.sort()
 
         for group in groups:
-            self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}DATARATE", 1)  # 1 for 320 mbps and 2 for 640 Mbps
+            self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}DATARATE", 2)  # 1 for 320 mbps and 2 for 640 Mbps
             self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}TRACKMODE", 2)  # continuous phase tracking
 
             for link in range(3, -1, -1):
