@@ -114,6 +114,8 @@ class ETROCSystem:
 
         # Change Elink width for 640Mbps mode
         self.rb.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.ELINK_WIDTH", 0x3)
+        elink_width = self.rb.kcu.read_node(f"READOUT_BOARD_{self.rb.rb}.ELINK_WIDTH")
+        print(f'    Elink width: {elink_width}')
 
         # Verify Elink Locks
         all_locked = True

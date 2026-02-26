@@ -395,9 +395,13 @@ def process_tamalero_outputs(input_files: list):
     # The board mapping and final type casting remain useful
     board_map = {
         0: 0,
+        2: 0,
         4: 1,
+        6: 1,
         8: 2,
-        12: 3
+        10: 2,
+        12: 3,
+        14: 3,
     }
     if not final_df.empty:
         final_df['board'] = final_df['elink'].map(board_map)
