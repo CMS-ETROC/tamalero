@@ -47,6 +47,11 @@ class CalibrationManager:
         # 2. Scan Loop
         for i, etroc in enumerate(self.sys.etroc_chips):
             chip_name = self.cfg.etroc_names[i]
+            board = self.cfg.boards[i]
+
+            if not board.is_primary:
+                print(yellow(f"Skipping {chip_name} elink_id={board.elink_id} (Virtual board, not primary)"))
+                continue
 
             if etroc is None:
                 print(yellow(f"Skipping {chip_name} (Not connected)"))
@@ -151,6 +156,12 @@ class CalibrationManager:
 
         for i, etroc in enumerate(self.sys.etroc_chips):
             chip_name = self.cfg.etroc_names[i]
+            board = self.cfg.boards[i]
+
+            if not board.is_primary:
+                print(yellow(f"Skipping {chip_name} elink_id={board.elink_id} (Virtual board, skipping configuration)"))
+                continue
+
             if etroc is None: continue
 
             # Reset Chip
