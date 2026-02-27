@@ -171,8 +171,8 @@ class CalibrationManager:
             ### for 640 Mbps mode ###
             etroc.wr_reg("serRateLeft", 1)
             etroc.wr_reg("serRateRight", 1)
-            etroc.wr_reg("mergeTriggerData", 0)
-            etroc.wr_reg('triggerGranularity', 1)
+            etroc.wr_reg("mergeTriggerData", 0) ## 0 for single port, 1 for dual port
+            etroc.wr_reg('triggerGranularity', 1) ## 1 for single port, 1 for dual port
             ### for 640 Mbps mode ###
             etroc.wr_reg("disDataReadout", 1, broadcast=True)
             etroc.wr_reg("QInjEn", 0, broadcast=True)

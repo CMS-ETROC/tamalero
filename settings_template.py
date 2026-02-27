@@ -36,8 +36,8 @@ class DAQConfig:
     l1a_delays: Dict[str, int] = field(init=False)
 
     # Trigger Settings
-    trigger_enable_mask: int = 0x1
-    trigger_data_size: int = 1
+    trigger_enable_mask: int = 0x11 ## 0x11 for dual port
+    trigger_data_size: int = 1 ## keep 1
     trigger_delay_sel: int = 469
     trigger_logic:     int = 0 ## 0: OR, 1: AND
 
