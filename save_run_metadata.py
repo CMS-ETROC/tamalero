@@ -97,12 +97,26 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
         }
 
     # Populate each ETROC chip configuration
+    # Group by i2c_id so virtual boards don't create duplicate entries
+    seen_i2c = {}  # i2c_id -> chip_name already written
+
     for i, etroc in enumerate(system.etroc_chips):
+        board_config = config.boards[i]
         chip_name = config.etroc_names[i]
+
+        if board_config.i2c_id in seen_i2c:
+            # This is a virtual board — just append its elink_id to the existing entry
+            existing_name = seen_i2c[board_config.i2c_id]
+            metadata['etroc_chips'][existing_name]['elink_ids'].append(board_config.elink_id)
+            continue
+
+        # Mark this i2c_id as handled
+        seen_i2c[board_config.i2c_id] = chip_name
 
         if etroc is None:
             metadata['etroc_chips'][chip_name] = {
                 'status': 'not_connected',
+                'elink_ids': [board_config.elink_id],
             }
             continue
 
@@ -112,40 +126,28 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
         chip_metadata = {
             'status': 'connected' if system.connected_names[i] else 'not_responding',
             'i2c_address': f"0x{board_config.i2c_id:02X}",
-            'elink_id': board_config.elink_id,
+            'elink_ids': [board_config.elink_id],  # virtual board's elink will be appended later
             'threshold_offset': board_config.th_offset,
             'L1A_Delay': board_config.l1a_delay,
         }
 
         # Get applied DAC values for each pixel
-        # We need to reconstruct what was applied in apply_configuration()
         pixels_dac = {}
+        pixels_to_read = config.test_pixels if charge_injection_mode else [
+            (r, c)
+            for r in range(config.pixel_row)
+            for c in range(config.pixel_col)
+        ]
 
-        # Determine which pixels were configured
-        if charge_injection_mode:
-            pixels_to_read = config.test_pixels
-        else:
-            pixels_to_read = [
-                (r, c)
-                for r in range(config.pixel_row)
-                for c in range(config.pixel_col)
-            ]
-
-        # Read the DAC register values from the chip
         for row, col in pixels_to_read:
             try:
-                # Read actual DAC value from hardware
                 dac_value = etroc.rd_reg('DAC', row=row, col=col)
-                pixel_key = f"({row},{col})"
-                pixels_dac[pixel_key] = int(dac_value)
+                pixels_dac[f"({row},{col})"] = int(dac_value)
             except Exception as e:
                 print(f"   Warning: Could not read DAC for {chip_name} pixel ({row},{col}): {e}")
                 pixels_dac[f"({row},{col})"] = None
 
-        chip_metadata['pixels'] = {
-            'dac_values': pixels_dac,
-        }
-
+        chip_metadata['pixels'] = {'dac_values': pixels_dac}
         metadata['etroc_chips'][chip_name] = chip_metadata
 
     # Save to YAML file
