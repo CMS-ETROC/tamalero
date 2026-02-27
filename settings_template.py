@@ -7,6 +7,7 @@ class ETROCConfig:
     th_offset: int
     elink_id: int
     i2c_id: int
+    l1a_delay: int
 
 @dataclass
 class DAQConfig:
