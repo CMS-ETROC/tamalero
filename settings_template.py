@@ -7,6 +7,8 @@ class ETROCConfig:
     th_offset: int
     elink_id: int
     i2c_id: int
+    l1a_delay: int
+    is_primary: bool = True ## is_primary is the flag to run calibration. If this set to False, calibration will not run.
 
 @dataclass
 class DAQConfig:
@@ -22,6 +24,7 @@ class DAQConfig:
         ETROCConfig(name="", i2c_id=0x61, elink_id=4,  th_offset=20, l1a_delay=0x1f5),
         ETROCConfig(name="", i2c_id=0x62, elink_id=8,  th_offset=20, l1a_delay=0x1f5),
         ETROCConfig(name="", i2c_id=0x63, elink_id=12, th_offset=20, l1a_delay=0x1f5),
+        # ETROCConfig(name="", i2c_id=0x63, elink_id=12, th_offset=20, l1a_delay=0x1f5, is_primary=False),
     ])
 
     # --- DERIVED FIELDS (Automatically Calculated) ---
