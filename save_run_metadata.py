@@ -49,7 +49,7 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
         note: User-provided run note
         charge_injection_mode: Whether this is a charge injection run
     """
-    print("\n5. Saving run metadata...")
+    print("\n6. Saving run metadata...")
 
     # Prepare metadata structure
     metadata = {

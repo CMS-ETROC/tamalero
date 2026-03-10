@@ -93,7 +93,7 @@ class ETROCSystem:
 
     def configure_trigger(self):
         """Applies trigger configuration from Config object"""
-        print("\n4. Configuring Trigger System...")
+        print("\n5. Configuring Trigger System...")
 
         print(f"    Trigger mask: {self.cfg.trigger_enable_mask}")
         print(f"    Trigger bit size: {self.cfg.trigger_data_size}")

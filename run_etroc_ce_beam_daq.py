@@ -126,6 +126,7 @@ def main():
 
     # 3. Calibration / Configuration
     cal_mgr = CalibrationManager(system, config)
+    print("\n4. Calibration and configuration of etroc chips...")
     if not args.etroc_configured:
         if args.skip_baseline:
             # Load most recent baselines from SQLite DB
