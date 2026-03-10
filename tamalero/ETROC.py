@@ -170,7 +170,8 @@ class ETROC():
                     #print(f"I2C write has failed in ETROC {self.chip_id}, retrying")
                     if time.time() - start_time > 2:
                         print(f"I2C write has failed in ETROC {self.chip_id} and retries have timed out.")
-                        return 0
+                        raise Exception(f'I2C write time out for ETROC {self.chip_id}')
+                        # return 0
 
     def rd_adr(self, adr):
         if self.isfake:
@@ -185,7 +186,8 @@ class ETROC():
                     #print(f"I2C read has failed in ETROC {self.chip_id}, retrying")
                     if time.time() - start_time > 2:
                         print(f"I2C read has failed in ETROC {self.chip_id} and retries have timed out")
-                        return 0
+                        raise Exception(f'I2C read time out for ETROC {self.chip_id}')
+                        # return 0
 
     # read & write using register name & pix num
     def wr_reg(self, reg, val, row=0, col=0, broadcast=False):
