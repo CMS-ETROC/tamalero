@@ -1,4 +1,4 @@
-import time
+import time, sys
 import sqlite3
 import pandas as pd
 from datetime import datetime
@@ -24,13 +24,49 @@ class CalibrationManager:
         self.db_path = Path(self.cfg.path_to_hist) / 'BaselineHistory.sqlite'
         self.fig_path = Path(self.cfg.path_to_figure)
 
+    def hardware_reset(self, etroc):
+        """
+        Performs a full I2C + chip reset sequence when an I2C timeout is detected.
+        Pulls GPIO pins low then high to power-cycle the I2C bus, then restores
+        the chip to high-power mode and re-calibrates the PLL.
+        """
+        print(yellow("\n[Reset] Detected I2C operation timeout, starting I2C reset..."))
+
+        # Pull all 4 GPIO control pins low (assert reset)
+        for pin in range(4):
+            self.sys.rb.DAQ_LPGBT.set_gpio_direction(pin, 1)
+            self.sys.rb.DAQ_LPGBT.set_gpio(pin, 0)
+        time.sleep(0.2)
+
+        # Release pins high (de-assert reset)
+        for pin in range(4):
+            self.sys.rb.DAQ_LPGBT.set_gpio(pin, 1)
+        time.sleep(0.5)
+
+        # Restore high power mode
+        etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
+
+        # Re-lock PLL
+        etroc.start_PLLCal()
+        time.sleep(0.2)
+        etroc.stop_PLLCal()
+        time.sleep(0.1)
+
+        print(yellow("[Reset] I2C reset complete. Resuming...\n"))
+
     def run_calibration(self, note="", charge_injection_mode=False):
         """
         Runs the threshold scan on all connected chips.
         If charge_injection_mode is True:
             - Only scans TEST_PIXELS
             - Does NOT save to history/plots
+
+        On I2C failure the affected chip is reset and the entire pixel scan for
+        that chip is restarted from pixel (0, 0).  Up to MAX_RESET_RETRIES
+        attempts are made per chip before giving up.
         """
+
+        max_reset_retries = 3
         baseline_storage = {}
 
         # 1. Determine Pixel List
@@ -52,33 +88,44 @@ class CalibrationManager:
                 print(yellow(f"Skipping {chip_name} (Not connected)"))
                 continue
 
-            print(f"Scanning {chip_name}...")
-            chip_data = {
-                'row': [], 'col': [], 'baseline': [],
-                'noise_width': [], 'timestamp': []
-            }
+            for attempt in range(1, max_reset_retries + 1):
+                if attempt > 1:
+                    print(yellow(f"[Calibration] Retrying {chip_name} scan (attempt {attempt}/{max_reset_retries})..."))
 
-            # Use tqdm for progress bar
-            for row, col in tqdm(pixels_to_scan, desc=f"{chip_name}", leave=False):
-                try:
-                    # The actual hardware call
-                    baseline, noise_width = etroc.auto_threshold_scan(
-                        row=row, col=col, broadcast=False, use=False, verbose=False
-                    )
+                print(f"Scanning {chip_name}...")
+                chip_data = {
+                    'row': [], 'col': [], 'baseline': [],
+                    'noise_width': [], 'timestamp': []
+                }
 
-                    chip_data['row'].append(row)
-                    chip_data['col'].append(col)
-                    chip_data['baseline'].append(baseline)
-                    chip_data['noise_width'].append(noise_width)
-                    chip_data['timestamp'].append(datetime.now().isoformat(sep=' '))
+                # Use tqdm for progress bar
+                for row, col in tqdm(pixels_to_scan, desc=f"{chip_name}", leave=False):
+                    try:
+                        # The actual hardware call
+                        baseline, noise_width = etroc.auto_threshold_scan(
+                            row=row, col=col, broadcast=False, use=False, verbose=False
+                        )
 
-                    # Small sleep to prevent bus congestion
-                    time.sleep(0.01)
+                        chip_data['row'].append(row)
+                        chip_data['col'].append(col)
+                        chip_data['baseline'].append(baseline)
+                        chip_data['noise_width'].append(noise_width)
+                        chip_data['timestamp'].append(datetime.now().isoformat(sep=' '))
 
-                except Exception as e:
-                    # Log failure but continue
-                    # print(red(f"Pixel {row},{col} failed: {e}"))
-                    pass
+                        # Small sleep to prevent bus congestion
+                        time.sleep(0.01)
+
+                    except Exception as e:
+                        if attempt < max_reset_retries:
+                            print(red(f"[Calibration] I2C fault at pixel ({row},{col}) on {chip_name}: {e}"))
+                            self.hardware_reset(etroc)
+                            break
+                        else:
+                            pass
+
+                if attempt == max_reset_retries:
+                    print(red(f"[Calibration] {chip_name} failed after {max_reset_retries} reset attempts. Stop DAQ preparation."))
+                    sys.exit(1)
 
             # 3. Save Data
             # (Using your existing utility or custom logic)
@@ -146,80 +193,113 @@ class CalibrationManager:
             etroc.wr_reg("disTrigPath", 0, broadcast=True)
 
     def apply_configuration(self, baseline_storage, charge_injection_mode=False):
-        """Writes the thresholds (Baseline + Offset) to the chips."""
-        print(f"\n[Configuration] Configuring pixels for cosmic run...")
+        """
+        Writes the thresholds (Baseline + Offset) to the chips.
+
+        On I2C failure the chip is reset and the entire configuration for that
+        chip is restarted. baseline_storage is already in memory so no
+        re-scan is needed. Up to max_reset_retries attempts per chip.
+        """
+
+        max_reset_retries = 3
+        print(f"\n[Configuration] Configuring pixels for DAQ run...")
 
         for i, etroc in enumerate(self.sys.etroc_chips):
             chip_name = self.cfg.etroc_names[i]
             if etroc is None: continue
 
-            # Reset Chip
-            etroc.reset()
-            time.sleep(0.1)
-            etroc.wr_reg("singlePort", 1)
-            etroc.wr_reg("disDataReadout", 1, broadcast=True)
-            etroc.wr_reg("QInjEn", 0, broadcast=True)
-            etroc.wr_reg("enable_TDC", 0, broadcast=True)
-            etroc.wr_reg("disTrigPath", 1, broadcast=True)
-            etroc.wr_reg("workMode", 0, broadcast=True) # self-trigger mode
-            etroc.wr_reg("L1Adelay", self.cfg.l1a_delays.get(chip_name), broadcast=True)
-            etroc.wr_reg('triggerGranularity', 1)
-
-            # Global Thresholds (Safe defaults)
-            for reg in ['TOA', 'TOT', 'Cal']:
-                max_val = 0x3ff
-                if reg == "TOT":
-                  max_val = 0x1ff
-                etroc.set_trigger_TH(reg, max_val, 0, 0, 0, broadcast=True)
-                etroc.set_data_TH(reg, max_val, 0, 0, 0, broadcast=True)
+            # Determine which pixels to configure
+            if charge_injection_mode:
+                pixels_to_config = self.cfg.test_pixels
+            else:
+                pixels_to_config = [
+                    (r, c)
+                    for r in range(self.cfg.pixel_row)
+                    for c in range(self.cfg.pixel_col)
+                ]
 
             # Apply Pixel Specifics
             lookup = baseline_storage.get(chip_name, {})
             offset = self.cfg.th_offsets.get(chip_name)
 
-            # Determine which pixels to configure
-            if charge_injection_mode:
-                pixels_to_config = self.cfg.test_pixels
-            else:
-                pixels_to_config = []
-                for r in range(self.cfg.pixel_row):
-                    for c in range(self.cfg.pixel_col):
-                        pixels_to_config.append((r,c))
+            for attempt in range(1, max_reset_retries + 1):
+                if attempt > 1:
+                    print(yellow(f"[Configuration] Retrying {chip_name} config (attempt {attempt}/{max_reset_retries})..."))
+
+            try:
+                print(f"   Configuring {chip_name} with broadcast...")
+                # Reset Chip
+                etroc.reset()
+                time.sleep(0.1)
+                etroc.wr_reg("singlePort", 1)
+                etroc.wr_reg("disDataReadout", 1, broadcast=True)
+                etroc.wr_reg("QInjEn", 0, broadcast=True)
+                etroc.wr_reg("enable_TDC", 0, broadcast=True)
+                etroc.wr_reg("disTrigPath", 1, broadcast=True)
+                etroc.wr_reg("workMode", 0, broadcast=True) # self-trigger mode
+                etroc.wr_reg("L1Adelay", self.cfg.l1a_delays.get(chip_name), broadcast=True)
+                etroc.wr_reg('triggerGranularity', 1)
+
+                # Global Thresholds (Safe defaults)
+                for reg in ['TOA', 'TOT', 'Cal']:
+                    max_val = 0x1ff if reg == "TOT" else 0x3ff
+                    etroc.set_trigger_TH(reg, max_val, 0, 0, 0, broadcast=True)
+                    etroc.set_data_TH(reg, max_val, 0, 0, 0, broadcast=True)
+
+            except Exception as e:
+                if attempt < max_reset_retries:
+                    print(red(f"[Configuration] I2C fault during broadcast of {chip_name}: {e}"))
+                    self.hardware_reset(etroc)
+                    break
+                else:
+                    pass
+
+            if attempt == max_reset_retries:
+                print(red(f"[Configuration] {chip_name} failed after {max_reset_retries} reset attempts. Stop DAQ preparation."))
+                sys.exit(1)
 
             print(f"   Configuring {chip_name} ({len(pixels_to_config)} pixels) and (Offset={offset})...")
-
             count = 0
+
             for row, col in pixels_to_config:
-                # Enable Pixel
-                etroc.wr_reg("enable_TDC", 1, row=row, col=col, broadcast=False)
-                etroc.wr_reg("disDataReadout", 0, row=row, col=col, broadcast=False)
-                etroc.wr_reg("disTrigPath", 0, row=row, col=col, broadcast=False)
+                try:
+                    # Enable Pixel
+                    etroc.wr_reg("enable_TDC", 1, row=row, col=col, broadcast=False)
+                    etroc.wr_reg("disDataReadout", 0, row=row, col=col, broadcast=False)
+                    etroc.wr_reg("disTrigPath", 0, row=row, col=col, broadcast=False)
 
-                # Calculate DAC
-                baseline = lookup.get((row, col), 0) # Default to 0 if missing
-                # If baseline is missing/failed (0), maybe set a safe high value?
-                # For now using raw calculation:
-                if baseline == 0:
-                    # Fallback for failed pixels?
-                    applied_dac = 500 # Safe arbitrary number?
-                else:
-                    applied_dac = int(baseline + offset)
-                    if applied_dac > 1023:
-                        applied_dac = 1023
+                    # Calculate DAC
+                    baseline = lookup.get((row, col), 0) # Default to 0 if missing
+                    if baseline == 0:
+                        # Fallback for failed pixels?
+                        applied_dac = 1020 # Safe fallback for pixels that failed scan
+                    else:
+                        applied_dac = min(int(baseline + offset), 1023)
 
-                if charge_injection_mode:
-                    print(f"   Applied DAC: {applied_dac}")
-                etroc.wr_reg('DAC', applied_dac, row=row, col=col, broadcast=False)
+                    if charge_injection_mode:
+                        print(f"   Applied DAC: {applied_dac}")
+                    etroc.wr_reg('DAC', applied_dac, row=row, col=col, broadcast=False)
 
-                # --- Charge Injection Specific Pixel Settings ---
-                if charge_injection_mode:
-                    # Set the charge amount (QSel) for this pixel
-                    etroc.wr_reg("QSel", self.cfg.charge_fc, row=row, col=col, broadcast=False)
-                    # Enable Injection specifically for this pixel
-                    etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
+                    # --- Charge Injection Specific Pixel Settings ---
+                    if charge_injection_mode:
+                        # Set the charge amount (QSel) for this pixel
+                        etroc.wr_reg("QSel", self.cfg.charge_fc, row=row, col=col, broadcast=False)
+                        # Enable Injection specifically for this pixel
+                        etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
 
-                count += 1
-                if count % 32 == 0: time.sleep(0.01)
+                    count += 1
+                    if count % 32 == 0: time.sleep(0.01)
+                except Exception as e:
+                    if attempt < max_reset_retries:
+                        print(red(f"[Configuration] I2C fault during offset setting of {chip_name}: {e}"))
+                        self.hardware_reset(etroc)
+                        break
+                    else:
+                        pass
+
+            if attempt == max_reset_retries:
+                print(red(f"[Configuration] {chip_name} failed after {max_reset_retries} reset attempts. Stop DAQ preparation."))
+                sys.exit(1)
 
         print(green("[Configuration] All pixels configured."))
 
