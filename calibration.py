@@ -121,11 +121,16 @@ class CalibrationManager:
                             self.hardware_reset(etroc)
                             break
                         else:
-                            pass
+                            raise Exception(f'{e}')
 
                 if attempt == max_reset_retries:
                     print(red(f"[Calibration] {chip_name} failed after {max_reset_retries} reset attempts. Stop DAQ preparation."))
                     sys.exit(1)
+
+                else: # <--- ADD THIS
+                    print(green(f"   [Calibration] Scan completed for {chip_name}"))
+                    # This executes if the pixel loop finished for ALL pixels successfully
+                    break # This breaks the ATTEMPT loop so it doesn't retry unnecessarily
 
             # 3. Save Data
             # (Using your existing utility or custom logic)
@@ -226,37 +231,42 @@ class CalibrationManager:
                 if attempt > 1:
                     print(yellow(f"[Configuration] Retrying {chip_name} config (attempt {attempt}/{max_reset_retries})..."))
 
-            try:
-                print(f"   Configuring {chip_name} with broadcast...")
-                # Reset Chip
-                etroc.reset()
-                time.sleep(0.1)
-                etroc.wr_reg("singlePort", 1)
-                etroc.wr_reg("disDataReadout", 1, broadcast=True)
-                etroc.wr_reg("QInjEn", 0, broadcast=True)
-                etroc.wr_reg("enable_TDC", 0, broadcast=True)
-                etroc.wr_reg("disTrigPath", 1, broadcast=True)
-                etroc.wr_reg("workMode", 0, broadcast=True) # self-trigger mode
-                etroc.wr_reg("L1Adelay", self.cfg.l1a_delays.get(chip_name), broadcast=True)
-                etroc.wr_reg('triggerGranularity', 1)
+                try:
+                    print(f"   Configuring {chip_name} with broadcast...")
+                    # Reset Chip
+                    etroc.reset()
+                    time.sleep(0.1)
+                    etroc.wr_reg("singlePort", 1)
+                    etroc.wr_reg("disDataReadout", 1, broadcast=True)
+                    etroc.wr_reg("QInjEn", 0, broadcast=True)
+                    etroc.wr_reg("enable_TDC", 0, broadcast=True)
+                    etroc.wr_reg("disTrigPath", 1, broadcast=True)
+                    etroc.wr_reg("workMode", 0, broadcast=True) # self-trigger mode
+                    etroc.wr_reg("L1Adelay", self.cfg.l1a_delays.get(chip_name), broadcast=True)
+                    etroc.wr_reg('triggerGranularity', 1)
 
-                # Global Thresholds (Safe defaults)
-                for reg in ['TOA', 'TOT', 'Cal']:
-                    max_val = 0x1ff if reg == "TOT" else 0x3ff
-                    etroc.set_trigger_TH(reg, max_val, 0, 0, 0, broadcast=True)
-                    etroc.set_data_TH(reg, max_val, 0, 0, 0, broadcast=True)
+                    # Global Thresholds (Safe defaults)
+                    for reg in ['TOA', 'TOT', 'Cal']:
+                        max_val = 0x1ff if reg == "TOT" else 0x3ff
+                        etroc.set_trigger_TH(reg, max_val, 0, 0, 0, broadcast=True)
+                        etroc.set_data_TH(reg, max_val, 0, 0, 0, broadcast=True)
 
-            except Exception as e:
-                if attempt < max_reset_retries:
-                    print(red(f"[Configuration] I2C fault during broadcast of {chip_name}: {e}"))
-                    self.hardware_reset(etroc)
-                    break
-                else:
-                    pass
+                except Exception as e:
+                    if attempt < max_reset_retries:
+                        print(red(f"[Configuration] I2C fault during broadcast of {chip_name}: {e}"))
+                        self.hardware_reset(etroc)
+                        break
+                    else:
+                        pass
 
-            if attempt == max_reset_retries:
-                print(red(f"[Configuration] {chip_name} failed after {max_reset_retries} reset attempts. Stop DAQ preparation."))
-                sys.exit(1)
+                if attempt == max_reset_retries:
+                    print(red(f"[Configuration] {chip_name} failed after {max_reset_retries} reset attempts. Stop DAQ preparation."))
+                    sys.exit(1)
+
+                else: # <--- ADD THIS
+                        print(green(f"   [Configuration] Broadcast is finished for {chip_name}"))
+                        # This executes if the pixel loop finished for ALL pixels successfully
+                        break # This breaks the ATTEMPT loop so it doesn't retry unnecessarily
 
             print(f"   Configuring {chip_name} ({len(pixels_to_config)} pixels) and (Offset={offset})...")
             count = 0
@@ -289,6 +299,7 @@ class CalibrationManager:
 
                     count += 1
                     if count % 32 == 0: time.sleep(0.01)
+
                 except Exception as e:
                     if attempt < max_reset_retries:
                         print(red(f"[Configuration] I2C fault during offset setting of {chip_name}: {e}"))
@@ -297,9 +308,14 @@ class CalibrationManager:
                     else:
                         pass
 
-            if attempt == max_reset_retries:
-                print(red(f"[Configuration] {chip_name} failed after {max_reset_retries} reset attempts. Stop DAQ preparation."))
-                sys.exit(1)
+                if attempt == max_reset_retries:
+                    print(red(f"[Configuration] {chip_name} failed after {max_reset_retries} reset attempts. Stop DAQ preparation."))
+                    sys.exit(1)
+
+                else: # <--- ADD THIS
+                    print(green(f"   [Configuration] Offset config is finished for {chip_name}"))
+                    # This executes if the pixel loop finished for ALL pixels successfully
+                    break # This breaks the ATTEMPT loop so it doesn't retry unnecessarily
 
         print(green("[Configuration] All pixels configured."))
 
