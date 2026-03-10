@@ -43,6 +43,9 @@ class CalibrationManager:
             self.sys.rb.DAQ_LPGBT.set_gpio(pin, 1)
         time.sleep(0.5)
 
+        # Load default i2c register values
+        etroc.default_config(no_reset=False)
+
         # Restore high power mode
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
 
