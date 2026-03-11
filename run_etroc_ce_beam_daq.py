@@ -147,6 +147,16 @@ def main():
     # (Must be done after chip configuration)
     system.configure_trigger()
 
+    #cal_mgr.disable_trigger()
+    #cal_mgr.enable_trigger_boardIdxs([0,1,2])
+    #cal_mgr.enable_trigger_boardIdxs_row_col([3], enable_rows=[0, 1, 2, 3, 4, 5, 6, 7])
+
+    cal_mgr.set_data_window([0, 1, 2, 3], min=20, max=0x3ff)
+    cal_mgr.set_trigger_window([0, 1, 2, 3], min=20, max=0x3ff)
+    #cal_mgr.set_data_window([0, 1, 2, 3], min=200, max=600)
+    #cal_mgr.set_trigger_window([0, 1, 2, 3], min=200, max=600)
+
+
     # Save Run Metadata
     save_run_metadata(system, config, max_run_time=args.max_run_time, firmware_path="/home/daq/ETROC2_KCU105/module_test_fw",
                       note=args.note, charge_injection_mode=args.charge_injection)
