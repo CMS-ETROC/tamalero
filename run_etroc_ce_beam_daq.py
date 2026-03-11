@@ -45,8 +45,8 @@ def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
         # Use configurable time for beam/cosmic mode
         max_minutes = min(config.max_run_time, 1440)  # Cap at 24 hrs
         end_time = start_time + timedelta(minutes=max_minutes)
-        print(f"   Start: {start_time.strftime('%H:%M:%S')}")
-        print(f"   End:   {end_time.strftime('%H:%M:%S')} (Max {max_minutes} mins)")
+        print(f"   Start: {start_time.strftime('%H:%M:%S')} (UTC)")
+        print(f"   End:   {end_time.strftime('%H:%M:%S')} (Max {max_minutes} mins; UTC)")
 
     print(yellow("   Press 'q' to stop acquisition"))
 
