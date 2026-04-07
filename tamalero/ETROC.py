@@ -725,7 +725,7 @@ class ETROC():
             fig.savefig(f'{outdir}/module_{self.module_id}_etroc_{self.chip_no}_baseline.png')
 
 
-    def auto_threshold_scan(self, row=0, col=0, broadcast=False, offset='auto', time_out=5, verbose=False, use=True, repeat_count=0):
+    def auto_threshold_scan(self, row=0, col=0, broadcast=False, offset='auto', time_out=1, verbose=False, use=True, repeat_count=0):
         '''
         From the manual:
         1. set "Bypass" low.
@@ -819,11 +819,13 @@ class ETROC():
 
         if not broadcast:
             if repeat_count < 5 and baseline == 0:
+                print("Repeating threshold scan, baseline was 0")
                 baseline, noise_width = self.auto_threshold_scan(row=row, col=col, broadcast=broadcast, offset=offset, time_out=time_out, verbose=verbose, use=use, repeat_count=repeat_count+1)
         else:
             for i in range(15):
                 for j in range(15):
                     if baseline[i][j] == 0:
+                        print(f"Repeating threshold scan for ({row},{col}), baseline was 0")
                         bw, nw = self.auto_threshold_scan(row=i, col=j, broadcast=False, offset=offset, time_out=time_out, verbose=verbose, use=use, repeat_count=repeat_count+1)
                         baseline[i][j] = bl
                         noise_width[i][j] = nw

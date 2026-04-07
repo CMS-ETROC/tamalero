@@ -45,8 +45,8 @@ def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
         # Use configurable time for beam/cosmic mode
         max_minutes = min(config.max_run_time, 1440)  # Cap at 24 hrs
         end_time = start_time + timedelta(minutes=max_minutes)
-        print(f"   Start: {start_time.strftime('%H:%M:%S')}")
-        print(f"   End:   {end_time.strftime('%H:%M:%S')} (Max {max_minutes} mins)")
+        print(f"   Start: {start_time.strftime('%H:%M:%S')} (UTC)")
+        print(f"   End:   {end_time.strftime('%H:%M:%S')} (Max {max_minutes} mins; UTC)")
 
     print(yellow("   Press 'q' to stop acquisition"))
 
@@ -146,6 +146,16 @@ def main():
     # 4. Final Hardware Trigger Setup
     # (Must be done after chip configuration)
     system.configure_trigger()
+
+    #cal_mgr.disable_trigger()
+    #cal_mgr.enable_trigger_boardIdxs([0,1,2])
+    #cal_mgr.enable_trigger_boardIdxs_row_col([3], enable_rows=[0, 1, 2, 3, 4, 5, 6, 7])
+
+    cal_mgr.set_data_window([0, 1, 2, 3], min=20, max=0x3ff)
+    cal_mgr.set_trigger_window([0, 1, 2, 3], min=20, max=0x3ff)
+    #cal_mgr.set_data_window([0, 1, 2, 3], min=200, max=600)
+    #cal_mgr.set_trigger_window([0, 1, 2, 3], min=200, max=600)
+
 
     # Save Run Metadata
     save_run_metadata(system, config, max_run_time=args.max_run_time, firmware_path="/home/daq/ETROC2_KCU105/module_test_fw",

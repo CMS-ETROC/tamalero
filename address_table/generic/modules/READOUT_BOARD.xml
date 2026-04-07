@@ -84,7 +84,7 @@
 <!-- TRIG_ENABLE_MASK_2 To TRIG_COMBINATION_LOGIC -->
 <!-- TRIG_ENABLE should be one for self-trigger -->
 <!-- TRIG_DLY_SEL is TRIG_ENABLE_MASK_3[8:0] -->
-<node id="TRIG_ENABLE_MASK" address="0x508" mask="0x000001ff" permission="rw" description="Bitmask to enable any ETROC boards for trigger. Bits 3 downto 0."/>
+<node id="TRIG_ENABLE_MASK" address="0x508" mask="0x0000000f" permission="rw" description="Bitmask to enable any ETROC boards for trigger. Bits 3 downto 0."/>
 <node id="TRIG_DATA_SIZE" address="0x509" mask="0x000003ff" permission="rw" description="Trigger data size for all four boards"/>
 <node id="TRIG_COMBINATION_LOGIC" address="0x50a" mask="0x00000001" permission="rw" description="The combinational logic for multiple trigger boards. It is OR logic if it is zero, AND logic for one."/>
 <node id="TRIG_DLY_SEL" address="0x50b" mask="0x0000ffff" permission="rw" description="Select Delay in terms of clock cycles for self-trigger, from 0 to 511"/>
