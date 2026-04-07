@@ -80,6 +80,27 @@ class ETROCSystem:
                 if etroc.is_connected():
                     self.connected_names.append(name)
                     print(green("Connected"))
+
+                    # PLL calibration
+                    self.wr_reg("asyPLLReset", 0)
+                    time.sleep(0.1)
+                    self.wr_reg("asyPLLReset", 1)
+
+                    etroc.wr_reg('asyStartCalibration', 0)
+                    time.sleep(0.1)
+                    etroc.wr_reg('asyStartCalibration', 1)
+
+                    # FC calibration
+                    etroc.wr_reg('asyAlignFastcommand', 1)
+                    time.sleep(0.1)
+                    etroc.wr_reg('asyAlignFastcommand', 0)
+
+                    # Global Readout calibration
+                    etroc.wr_reg('asyResetGlobalReadout', 0)
+                    time.sleep(0.1)
+                    etroc.wr_reg('asyResetGlobalReadout', 1)
+                    print(green("  PLL and FC calibration is finished."))
+
                     # Optional: Set power mode high immediately on connect
                     etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
                 else:

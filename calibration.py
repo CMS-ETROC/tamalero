@@ -49,11 +49,24 @@ class CalibrationManager:
         # Restore high power mode
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
 
-        # Re-lock PLL
-        etroc.start_PLLCal()
-        time.sleep(0.2)
-        etroc.stop_PLLCal()
+        # PLL calibration
+        self.wr_reg("asyPLLReset", 0)
         time.sleep(0.1)
+        self.wr_reg("asyPLLReset", 1)
+
+        etroc.wr_reg('asyStartCalibration', 0)
+        time.sleep(0.1)
+        etroc.wr_reg('asyStartCalibration', 1)
+
+        # FC calibration
+        etroc.wr_reg('asyAlignFastcommand', 1)
+        time.sleep(0.1)
+        etroc.wr_reg('asyAlignFastcommand', 0)
+
+        # Global Readout calibration
+        etroc.wr_reg('asyResetGlobalReadout', 0)
+        time.sleep(0.1)
+        etroc.wr_reg('asyResetGlobalReadout', 1)
 
         print(yellow("[Reset] I2C reset complete. Resuming...\n"))
 
