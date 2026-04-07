@@ -82,9 +82,9 @@ class ETROCSystem:
                     print(green("Connected"))
 
                     # PLL calibration
-                    self.wr_reg("asyPLLReset", 0)
+                    etroc.wr_reg("asyPLLReset", 0)
                     time.sleep(0.1)
-                    self.wr_reg("asyPLLReset", 1)
+                    etroc.wr_reg("asyPLLReset", 1)
 
                     etroc.wr_reg('asyStartCalibration', 0)
                     time.sleep(0.1)
