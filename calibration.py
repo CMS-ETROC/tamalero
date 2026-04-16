@@ -50,9 +50,9 @@ class CalibrationManager:
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
 
         # PLL calibration
-        self.wr_reg("asyPLLReset", 0)
+        etroc.wr_reg("asyPLLReset", 0)
         time.sleep(0.1)
-        self.wr_reg("asyPLLReset", 1)
+        etroc.wr_reg("asyPLLReset", 1)
 
         etroc.wr_reg('asyStartCalibration', 0)
         time.sleep(0.1)
