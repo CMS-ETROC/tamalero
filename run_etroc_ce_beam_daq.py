@@ -183,7 +183,7 @@ def main():
                 df = process_tamalero_outputs(files)
 
                 if not df.empty:
-                    print('================= Qinj data first 20 rows =================')
+                    print('\n================= Qinj data first 20 rows =================')
                     print(df.head(20))
                     print('================= Qinj data last 20 rows =================')
                     print(df.tail(20))
