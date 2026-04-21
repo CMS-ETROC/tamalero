@@ -49,25 +49,6 @@ class CalibrationManager:
         # Restore high power mode
         etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
 
-        # PLL calibration
-        etroc.wr_reg("asyPLLReset", 0)
-        time.sleep(0.1)
-        etroc.wr_reg("asyPLLReset", 1)
-
-        etroc.wr_reg('asyStartCalibration', 0)
-        time.sleep(0.1)
-        etroc.wr_reg('asyStartCalibration', 1)
-
-        # FC calibration
-        etroc.wr_reg('asyAlignFastcommand', 1)
-        time.sleep(0.1)
-        etroc.wr_reg('asyAlignFastcommand', 0)
-
-        # Global Readout calibration
-        etroc.wr_reg('asyResetGlobalReadout', 0)
-        time.sleep(0.1)
-        etroc.wr_reg('asyResetGlobalReadout', 1)
-
         print(yellow("[Reset] I2C reset complete. Resuming...\n"))
 
     def run_calibration(self, note="", charge_injection_mode=False):
@@ -117,9 +98,7 @@ class CalibrationManager:
                 try:
                     for row, col in tqdm(pixels_to_scan, desc=f"{chip_name}", leave=False):
                         # The actual hardware call
-                        baseline, noise_width = etroc.auto_threshold_scan(
-                            row=row, col=col, broadcast=False, use=False, verbose=False
-                        )
+                        baseline, noise_width = etroc.auto_threshold_scan(row=row, col=col)
 
                         chip_data['row'].append(row)
                         chip_data['col'].append(col)

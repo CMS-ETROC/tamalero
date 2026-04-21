@@ -123,6 +123,7 @@ def main():
     # 2. Initialize Hardware
     system = ETROCSystem(config)
     system.connect()
+    system.check_PS_status()
 
     # 3. Calibration / Configuration
     cal_mgr = CalibrationManager(system, config)

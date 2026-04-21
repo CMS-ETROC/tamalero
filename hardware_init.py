@@ -112,6 +112,25 @@ class ETROCSystem:
                 self.etroc_chips.append(None)
                 self.connected_names.append(None)
 
+    def check_PS_status(self):
+        for etroc, etroc_name in zip(self.etroc_chips, self.connected_names):
+
+            ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(10)]
+            new_ps_late_array = "N/A (No Reset)"
+
+            if not any(ps_late_array):
+                # Perform Reset Pulse
+                etroc.wr_reg('PS_CapRst', 1)
+                etroc.wr_reg('PS_CapRst', 0)
+
+                # Re-check status
+                new_ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(10)]
+
+            print(f"\n{'='*10} {etroc_name} {'='*10}")
+            print(f"Before Reset: {ps_late_array}")
+            print(f"After Reset:  {new_ps_late_array}")
+            print('='*30)
+
     def configure_trigger(self):
         """Applies trigger configuration from Config object"""
         print("\n5. Configuring Trigger System...")
