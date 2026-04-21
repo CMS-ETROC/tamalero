@@ -124,6 +124,7 @@ def main():
     system = ETROCSystem(config)
     system.connect()
     system.check_PS_status()
+    system.pll_fc_calibration_and_set_to_high_power_mode()
 
     # 3. Calibration / Configuration
     cal_mgr = CalibrationManager(system, config)
