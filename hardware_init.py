@@ -172,7 +172,7 @@ class ETROCSystem:
                 # Re-check status
                 new_ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(15)]
 
-            print(f"\n    {'='*10} {etroc_name} {'='*10}")
+            print(f"\n    {'='*10} {etroc_name} {'(PS_Late register)'} {'='*10}")
             print(f"    Before Reset: {ps_late_array}")
             print(f"    After Reset:  {new_ps_late_array}")
             print(f"    {'='*40}")
