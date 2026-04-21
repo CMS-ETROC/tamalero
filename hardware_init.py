@@ -115,7 +115,7 @@ class ETROCSystem:
     def check_PS_status(self):
         for etroc, etroc_name in zip(self.etroc_chips, self.connected_names):
 
-            ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(10)]
+            ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(15)]
             new_ps_late_array = "N/A (No Reset)"
 
             if not any(ps_late_array):
@@ -124,12 +124,12 @@ class ETROCSystem:
                 etroc.wr_reg('PS_CapRst', 0)
 
                 # Re-check status
-                new_ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(10)]
+                new_ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(15)]
 
             print(f"\n{'='*10} {etroc_name} {'='*10}")
             print(f"Before Reset: {ps_late_array}")
             print(f"After Reset:  {new_ps_late_array}")
-            print('='*30)
+            print('='*40)
 
     def configure_trigger(self):
         """Applies trigger configuration from Config object"""
