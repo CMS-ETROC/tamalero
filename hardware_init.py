@@ -156,7 +156,7 @@ class ETROCSystem:
             # Set power mode high
             etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
 
-            print(green(f"   {name} PLL/FC calibrated and set to high power mode."))
+            print(green(f"\n   {name} PLL/FC calibrated and set to high power mode."))
 
     def check_PS_status(self):
         for etroc, etroc_name in zip(self.etroc_chips, self.connected_names):
@@ -172,10 +172,10 @@ class ETROCSystem:
                 # Re-check status
                 new_ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(15)]
 
-            print(f"\n{'='*10} {etroc_name} {'='*10}")
-            print(f"Before Reset: {ps_late_array}")
-            print(f"After Reset:  {new_ps_late_array}")
-            print('='*40)
+            print(f"\n    {'='*10} {etroc_name} {'='*10}")
+            print(f"    Before Reset: {ps_late_array}")
+            print(f"    After Reset:  {new_ps_late_array}")
+            print(f"    {'='*40}")
 
     def configure_trigger(self):
         """Applies trigger configuration from Config object"""
