@@ -152,8 +152,8 @@ def main():
     #cal_mgr.enable_trigger_boardIdxs([0,1,2])
     #cal_mgr.enable_trigger_boardIdxs_row_col([3], enable_rows=[0, 1, 2, 3, 4, 5, 6, 7])
 
-    cal_mgr.set_data_window([0, 1, 2, 3], min=20, max=0x3ff)
-    cal_mgr.set_trigger_window([0, 1, 2, 3], min=20, max=0x3ff)
+    # cal_mgr.set_data_window([0, 1, 2, 3], min=20, max=0x3ff)
+    # cal_mgr.set_trigger_window([0, 1, 2, 3], min=20, max=0x3ff)
     #cal_mgr.set_data_window([0, 1, 2, 3], min=200, max=600)
     #cal_mgr.set_trigger_window([0, 1, 2, 3], min=200, max=600)
 
@@ -181,13 +181,13 @@ def main():
         else:
             print(f"   Found {len(files)} data file(s)")
             try:
-                df = process_tamalero_outputs(files)
+                hit_df, status_df = process_tamalero_outputs(files)
 
-                if not df.empty:
+                if not hit_df.empty:
                     print('\n================= Qinj data first 20 rows =================')
-                    print(df.head(20))
+                    print(hit_df.head(20))
                     print('================= Qinj data last 20 rows =================')
-                    print(df.tail(20))
+                    print(hit_df.tail(20))
                 else:
                     print(red('   Empty dataframe - No Qinj data found.'))
 
