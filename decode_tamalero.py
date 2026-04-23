@@ -1,12 +1,8 @@
-import pandas as pd
-import numpy as np
 import struct
+import gc, time
+import numpy as np
+import pandas as pd
 
-from natsort import natsorted
-import os
-from tqdm import tqdm
-
-## --------------------------------------
 format_dict = {
     'nbits': 40,
     'bitorder': 'reversed',
@@ -231,79 +227,102 @@ format_dict = {
     }
 }
 
-## --------------------------------------
-class TamaleroDF:
-    def __init__(self):
-        self.format = format_dict
+def create_tamalero_decoder(fmt_dict):
+    """Factory function with pre-compiled extractor lambdas."""
 
-    def get_bytes(self, word, format_order):
-        output_bytes = []
-        if self.format_order['bitorder'] == 'normal':
-            shifts = [32, 24, 16, 8, 0]
-        elif self.format_order['bitorder'] == 'reversed':
-            shifts = [0, 8, 16, 24, 32]
-        for shift in shifts:
-            output_bytes.append((word >> shift) & 0xFF)
-        if format_order:
-            return [ '{0:0{1}x}'.format(b,2) for b in output_bytes ]
-        else:
-            return output_bytes
+    # 1. Pre-calculate ID rules
+    id_rules = [
+        (id_name, val['frame'], val['mask'])
+        for id_name, val in fmt_dict['identifiers'].items()
+    ]
 
-    def get_trigger_words(self, format=False):
-        return \
-            self.get_bytes(self.format['identifiers']['header']['frame'], format=format)  # FIXME check that this still works with FW > v1.2.0
+    # 2. Build the rule lists
+    raw_rules = {}
+    for data_type, fields in fmt_dict['data'].items():
+        raw_rules[data_type] = [
+            (d, fields[d]['mask'], fields[d]['shift']) for d in fields
+        ]
 
-    def get_trigger_masks(self, format=False):
-        return \
-            self.get_bytes(self.format['identifiers']['header']['mask'], format=format)  # FIXME check that this still works with FW > v1.2.0
+    raw_rules['data'] = [
+        (d, fmt_dict['data']['data'][d]['mask'], fmt_dict['data']['data'][d]['shift'])
+        for d in fmt_dict['types']
+    ]
 
-    def read(self, val, quiet=True):
+    # 3. PRE-COMPILE EXTRACTORS
+    # We turn the rule lists into highly optimized lambda functions.
+    # The default argument `r=rules` binds the specific ruleset to the lambda's local scope,
+    # meaning the lambda doesn't have to look up `rules` in the outer scope.
+    extractors = {
+        d_type: lambda v, r=rules: {d: (v & m) >> s for d, m, s in r}
+        for d_type, rules in raw_rules.items()
+    }
+
+    # 4. Define the read function
+    def read(val, quiet=True):
         data_type = None
-        for id in self.format['identifiers']:
-            if self.format['identifiers'][id]['frame'] == (val & self.format['identifiers'][id]['mask']):
-                data_type = id
+
+        # Identify type
+        for id_name, frame, mask in id_rules:
+            if frame == (val & mask):
+                data_type = id_name
                 break
 
-        res = {}
-        if data_type == None:
+        if data_type is None:
             if not quiet:
-                print ("Found data of type None:", val)
-            return None, res
+                print("Found data of type None:", val)
+            return None, {}
 
-        if data_type == 'data':
-            datatypelist = self.format['types']
-        else:
-            datatypelist = self.format['data'][data_type]
+        # O(1) LOOKUP & EXECUTION: Instantly generate the dictionary
+        res = extractors[data_type](val)
 
-        for d in datatypelist:
-            res[d] = (val & self.format['data'][data_type][d]['mask']) >> self.format['data'][data_type][d]['shift']
-
-        if data_type == 'header':
-            self.type = res['type']
-        res['raw'] = hex(val&0xFFFFFFFFFF)
+        res['raw'] = hex(val & 0xFFFFFFFFFF)
         res['raw_full'] = hex(val)
-        res['meta'] = hex((val>>40)&0xFFFFFF)
+        res['meta'] = hex((val >> 40) & 0xFFFFFF)
 
         if not quiet:
-            print (f"Found data of type {data_type}:", res)
+            print(f"Found data of type {data_type}:", res)
+
         return data_type, res
+
+    return read
 
 ## --------------------------------------
 def merge_words(res):
-    empty_frame_mask = np.array(res[0::2]) > (2**8)
-    len_cut = min(len(res[0::2]), len(res[1::2]))
-    if len(res) > 0:
-        return list(np.array(res[0::2])[:len_cut][empty_frame_mask[:len_cut]] | (np.array(res[1::2]) << 32)[:len_cut][empty_frame_mask[:len_cut]])
-    else:
+    """
+    Optimized merge_words: Converts to NumPy array only once and prevents
+    unnecessary memory copying during bitwise operations. (Optimization 1)
+    """
+    if not res:
         return []
 
-## --------------------------------------
-def generate_event_rows(unpacked_data_list):
+    arr0 = np.array(res[0::2], dtype=np.uint64)
+    arr1 = np.array(res[1::2], dtype=np.uint64)
+
+    len_cut = min(len(arr0), len(arr1))
+    arr0, arr1 = arr0[:len_cut], arr1[:len_cut]
+
+    empty_frame_mask = arr0 > 256
+
+    # Return as a standard python list to feed the generator nicely
+    return (arr0[empty_frame_mask] | (arr1[empty_frame_mask] << 32)).tolist()
+
+def extract_event_data(unpacked_data_list):
     """
-    Generator that processes a list of unpacked data and yields a complete
-    row dictionary for each hit. This function does NOT store all the
-    output data in memory.
+    Single-pass columnar accumulator that builds BOTH hit and status data simultaneously.
+    Allows status generation even if the packet contains zero hit data.
     """
+    # Pre-allocate dictionaries for both DataFrames
+    hit_cols = {
+        'evt': [], 'bcid': [], 'l1a_counter': [], 'ea': [],
+        'row': [], 'col': [], 'toa': [], 'tot': [], 'cal': [], 'elink': []
+    }
+
+    status_cols = {
+        'evt': [], 'bcid': [], 'l1a_counter': [], 'elink': [],
+        'sof': [], 'eof': [], 'full': [], 'any_full': [], 'global_full': [],
+        'chipid': [], 'status': [], 'hits': [], 'crc': []
+    }
+
     pending_packets = {}
     event_counter = -1
     current_bcid = -1
@@ -325,207 +344,135 @@ def generate_event_rows(unpacked_data_list):
                 pending_packets[elink]['data'].append(record_data)
 
         elif record_type == 'trailer':
-            if elink in pending_packets and len(pending_packets[elink]['data']) > 0:
+            if elink in pending_packets:
                 packet = pending_packets.pop(elink)
+
                 packet_bcid = packet['header'].get('bcid')
                 packet_l1acounter = packet['header'].get('l1counter')
 
                 if packet_bcid is None:
                     continue
 
-                # New event if BOTH bcid AND l1acounter don't match
+                # Event counter logic
                 if packet_bcid != current_bcid and packet_l1acounter != current_l1acounter:
                     event_counter += 1
                     current_bcid = packet_bcid
                     current_l1acounter = packet_l1acounter
-
-                # If either matches, update both to current packet values
                 else:
                     current_bcid = packet_bcid
                     current_l1acounter = packet_l1acounter
 
+                # 1. POPULATE HIT COLUMNS
+                # If packet['data'] is empty, this loop safely skips and nothing is appended to hit_cols
                 for data_hit in packet['data']:
-                    # YIELD a dictionary for each individual row
-                    yield {
-                        'evt': event_counter,
-                        'bcid': current_bcid,
-                        'l1a_counter': current_l1acounter,
-                        'ea': data_hit.get('ea'),
-                        'row': data_hit.get('row_id'),
-                        'col': data_hit.get('col_id'),
-                        'toa': data_hit.get('toa'),
-                        'tot': data_hit.get('tot'),
-                        'cal': data_hit.get('cal'),
-                        'elink': data_hit.get('elink')
-                    }
-            elif elink in pending_packets:
-                del pending_packets[elink]
+                    hit_cols['evt'].append(event_counter)
+                    hit_cols['bcid'].append(current_bcid)
+                    hit_cols['l1a_counter'].append(current_l1acounter)
+                    hit_cols['ea'].append(data_hit.get('ea'))
+                    hit_cols['row'].append(data_hit.get('row_id'))
+                    hit_cols['col'].append(data_hit.get('col_id'))
+                    hit_cols['toa'].append(data_hit.get('toa'))
+                    hit_cols['tot'].append(data_hit.get('tot'))
+                    hit_cols['cal'].append(data_hit.get('cal'))
+                    hit_cols['elink'].append(data_hit.get('elink'))
+
+                # 2. POPULATE STATUS COLUMNS
+                # This always runs for every valid header-trailer pair, regardless of hit count
+                status_cols['evt'].append(event_counter)
+                status_cols['bcid'].append(current_bcid)
+                status_cols['l1a_counter'].append(current_l1acounter)
+                status_cols['elink'].append(packet['header'].get('elink'))
+                status_cols['sof'].append(record_data.get('sof'))
+                status_cols['eof'].append(record_data.get('eof'))
+                status_cols['full'].append(record_data.get('full'))
+                status_cols['any_full'].append(record_data.get('any_full'))
+                status_cols['global_full'].append(record_data.get('global_full'))
+                status_cols['chipid'].append(record_data.get('chipid'))
+                status_cols['status'].append(record_data.get('status'))
+                status_cols['hits'].append(record_data.get('hits'))
+                status_cols['crc'].append(record_data.get('crc'))
+
+    return hit_cols, status_cols
 
 ## --------------------------------------
-# UPDATED: The main processing function is now simpler and more robust.
 def process_tamalero_outputs(input_files: list):
 
-    all_merged_data = []
-    print("Reading and merging data from input files...")
-    for ifile in tqdm(input_files):
+    start_time = time.monotonic()
+    print("\n" + "="*35)
+    print("Decode binary format to feather")
+    print("="*35)
+
+    all_merged_data = []  # Changed name to reflect it's a flat list, not arrays
+    print("\n[1/5] Reading and merging binary data...")
+
+    for ifile in input_files:
         with open(ifile, 'rb') as f:
             bin_data = f.read()
-            raw_data = struct.unpack(f'<{int(len(bin_data)/4)}I', bin_data)
+            # Fast binary unpacking
+            raw_data = struct.unpack(f'<{len(bin_data)//4}I', bin_data)
             del bin_data
 
-        # Merge data and add to a single list for unified processing
+        # Merge data and add directly to our master flat list
         all_merged_data.extend(merge_words(raw_data))
         del raw_data
 
-    print("Decoding data stream...")
-    df_decoder = TamaleroDF()
-    unpacked_data = (df_decoder.read(x) for x in tqdm(all_merged_data))
+    print(f"  -> Total words merged: {len(all_merged_data):,}")
+
+    print("\n[2/5] Initializing functional decoder...")
+    fast_read_func = create_tamalero_decoder(format_dict)
+
+    print("\n[3/5] Decoding stream and accumulating columns...")
+    unpacked_data_gen = (fast_read_func(x) for x in all_merged_data)
+    hit_cols, status_cols = extract_event_data(unpacked_data_gen)
+
+    # Clean up the master list to free massive amounts of RAM
     del all_merged_data
+    del unpacked_data_gen
+    gc.collect()
 
-    # --- LOW MEMORY STEP 3: Building events with a generator ---
-    print("Building events from data...")
-    # Create the generator object. This uses almost no memory.
-    row_generator = generate_event_rows(unpacked_data)
+    print("\n[4/5] Constructing initial DataFrames...")
+    hit_df = pd.DataFrame(hit_cols)
+    status_df = pd.DataFrame(status_cols)
 
-    # Build the DataFrame directly from the generator. This is memory-efficient
-    # as it avoids creating another massive intermediate dictionary.
-    print("Building data from generator...")
-    final_df = pd.DataFrame.from_records(row_generator)
+    del hit_cols
+    del status_cols
+    gc.collect()
 
-    # The board mapping and final type casting remain useful
-    board_map = {
-        0: 0,
-        2: 0,
-        4: 1,
-        6: 1,
-        8: 2,
-        10: 2,
-        12: 3,
-        14: 3,
-    }
-    if not final_df.empty:
-        final_df['board'] = final_df['elink'].map(board_map)
-        final_df.drop(columns=['elink'], inplace=True)
+    print("\n[5/5] Downcasting and post-processing...")
+    # --- Post-processing for Hit DataFrame ---
+    if not hit_df.empty:
+        hit_df['board'] = hit_df['elink'] // 4
+        hit_df.drop(columns=['elink'], inplace=True)
 
-        # Set data types for memory efficiency
         dtype_map = {
-            'evt': np.uint32,
-            'bcid': np.uint16,
-            'l1a_counter': np.uint16,
-            'ea': np.uint8,
-            'board': np.uint8,
-            'row': np.int8,
-            'col': np.int8,
-            'toa': np.uint16,
-            'tot': np.uint16,
-            'cal': np.uint16,
+            'evt': np.uint32, 'bcid': np.uint16, 'l1a_counter': np.uint16,
+            'ea': np.uint8, 'board': np.uint8,
+            'row': np.uint8, 'col': np.uint8,  # Changed to Unsigned ints (uint8)
+            'toa': np.uint16, 'tot': np.uint16, 'cal': np.uint16,
         }
-        final_df = final_df.astype(dtype_map)
+        hit_df = hit_df.astype(dtype_map, errors='ignore')
+    else:
+        print("No hit data found.")
 
-    return final_df
+    # --- Post-processing for Status DataFrame ---
+    if not status_df.empty:
+        status_df['board'] = status_df['elink'] // 4
+        status_df.drop(columns=['elink'], inplace=True)
 
-def get_last_complete_event(directory, lines_to_read, hits_per_board):
-    """
-    Loads data and returns the last complete event that satisfies the hits criteria.
+        status_dtype_map = {
+            'evt': np.uint32, 'bcid': np.uint16, 'l1a_counter': np.uint16,
+            'sof': np.uint8, 'eof': np.uint8,
+            'full': np.uint8, 'any_full': np.uint8, 'global_full': np.uint8,
+            'chipid': np.uint16, 'status': np.uint8, 'hits': np.uint8, 'crc': np.uint8,
+            'board': np.uint8,
+        }
+        status_df = status_df.astype(status_dtype_map, errors='ignore')
+    else:
+        print("No status data found.")
 
-    If lines_to_read is -1, it searches through all data from all files.
-    Otherwise, it loads the last few lines of the most recent file.
+    elapsed_time = time.monotonic() - start_time
+    print("\n" + "="*35)
+    print(f"Processing complete in {elapsed_time:.2f} seconds.")
+    print("="*35 + "\n")
 
-    An event is considered complete if for each board specified in the
-    `hits_per_board` dictionary, the number of hits is at least the number required.
-
-    Args:
-        directory (str): Path to the directory containing data files.
-        lines_to_read (int): Number of 64-bit words to read. Use -1 to read all files.
-        hits_per_board (dict): A dictionary specifying the minimum number of hits
-                               required per board (e.g., {0: 10, 1: 10}).
-
-    Returns:
-        pd.DataFrame: A DataFrame containing a single complete event.
-                      Returns an empty DataFrame if no such event is found or an error occurs.
-    """
-    try:
-        files = natsorted([f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))])
-        if not files:
-            return pd.DataFrame()
-
-        merged_data = []
-        if lines_to_read == -1:
-            # Full search mode: Read all data from all files.
-            print("Full search mode: Reading all files...")
-            for file_name in tqdm(files):
-                file_path = os.path.join(directory, file_name)
-                with open(file_path, 'rb') as f:
-                    raw_data = f.read()
-                if not raw_data:
-                    continue
-                raw_data_32bit = struct.unpack(f'<{len(raw_data)//4}I', raw_data)
-                merged_data.extend(merge_words(raw_data_32bit))
-        else:
-            # Original mode: Read last few lines of the last file.
-            latest_file_path = os.path.join(directory, files[-1])
-            word_size = 8  # 8 bytes for a 64-bit unsigned integer
-            with open(latest_file_path, 'rb') as f:
-                f.seek(0, os.SEEK_END)
-                file_size = f.tell()
-                if file_size < word_size:
-                    return pd.DataFrame()
-
-                num_words_in_file = file_size // word_size
-                words_to_read = min(lines_to_read, num_words_in_file)
-
-                if words_to_read == 0:
-                    return pd.DataFrame()
-
-                f.seek(-words_to_read * word_size, os.SEEK_END)
-                raw_data = f.read()
-
-            if raw_data:
-                raw_data_32bit = struct.unpack(f'<{len(raw_data)//4}I', raw_data)
-                merged_data = merge_words(raw_data_32bit)
-
-        if not merged_data:
-            return pd.DataFrame()
-
-        # Common decoding and searching logic
-        df_decoder = TamaleroDF()
-        unpacked_data = [df_decoder.read(x) for x in merged_data]
-
-        events = build_events_sequentially(unpacked_data)
-        df = pd.DataFrame(events)
-
-        if df.empty:
-            return pd.DataFrame()
-
-        # The board mapping from `process_tamalero_outputs`
-        board_map = {0: 0, 4: 1, 8: 2, 12: 3}
-        df['board'] = df['elink'].map(board_map)
-
-        # An event is identified by a unique evt number from our sequential builder
-        event_identifiers = df['evt'].unique()
-
-        # Iterate through events from last to first
-        for evt_id in reversed(event_identifiers):
-            event_hits = df[df['evt'] == evt_id]
-            hit_counts = event_hits['board'].value_counts()
-
-            is_complete = True
-            for board, required_hits in hits_per_board.items():
-                if hit_counts.get(board, 0) < required_hits:
-                    is_complete = False
-                    break
-
-            if is_complete:
-                # Found a complete event, return it
-                return event_hits.drop(columns=['elink'])
-
-    except (FileNotFoundError, IndexError):
-        # Handles cases where the directory doesn't exist or is empty
-        return pd.DataFrame()
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        # Return empty dataframe on any other error to prevent crashes
-        return pd.DataFrame()
-
-    # If no complete event is found after checking all candidates
-    return pd.DataFrame()
+    return hit_df, status_df
