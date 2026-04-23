@@ -142,7 +142,9 @@ def main():
         # Apply thresholds (Configuring pixels)
         cal_mgr.apply_configuration(baselines, charge_injection_mode=args.charge_injection)
     else:
-        cal_mgr.standard_enable()
+        print('This option needs to be revisited')
+        sys.exit(1)
+        # cal_mgr.standard_enable()
 
     # 4. Final Hardware Trigger Setup
     # (Must be done after chip configuration)
