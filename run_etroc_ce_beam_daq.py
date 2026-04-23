@@ -176,13 +176,13 @@ def main():
         else:
             print(f"   Found {len(files)} data file(s)")
             try:
-                df = process_tamalero_outputs(files)
+                hit_df, status_df = process_tamalero_outputs(files)
 
-                if not df.empty:
+                if not hit_df.empty:
                     print('================= Qinj data first 20 rows =================')
-                    print(df.head(20))
+                    print(hit_df.head(20))
                     print('================= Qinj data last 20 rows =================')
-                    print(df.tail(20))
+                    print(hit_df.tail(20))
                 else:
                     print(red('   Empty dataframe - No Qinj data found.'))
 
