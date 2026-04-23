@@ -56,40 +56,126 @@ class ETROCSystem:
         )
         print(green(f"   Readout Board version: {self.rb.ver}"))
 
-    def _init_chips(self):
+    def hardware_reset(self):
+        """
+        Pulls GPIO pins low then high to power-cycle the I2C bus.
+        """
+        print(yellow("   [Reset] Pulling LPGBT GPIOs to power-cycle the I2C bus..."))
+        # Pull all 4 GPIO control pins low (assert reset)
+        for pin in range(4):
+            self.rb.DAQ_LPGBT.set_gpio_direction(pin, 1)
+            self.rb.DAQ_LPGBT.set_gpio(pin, 0)
+        time.sleep(0.2)
+
+        # Release pins high (de-assert reset)
+        for pin in range(4):
+            self.rb.DAQ_LPGBT.set_gpio(pin, 1)
+        time.sleep(0.5)
+
+    def _init_chips(self, max_retries=3):
         print("3. Initializing ETROC chips...")
-        self.etroc_chips = []
-        self.connected_names = []
 
-        for i, addr in enumerate(self.cfg.etroc_addresses):
-            name = self.cfg.etroc_names[i]
-            print(f"   Attempting {name} (0x{addr:02X})...", end=" ")
+        for attempt in range(1, max_retries + 1):
+            if attempt > 1:
+                print(yellow(f"\n   [Reset] Attempt {attempt}/{max_retries}. Missing chips detected, performing hardware reset..."))
+                self.hardware_reset()
 
-            try:
-                etroc = ETROC(
-                    self.rb,
-                    master='lpgbt',
-                    i2c_adr=addr,
-                    i2c_channel=1,
-                    elinks=self.cfg.etroc_elinks_map,
-                    strict=False,
-                    verbose=False
-                )
-                self.etroc_chips.append(etroc)
+            temp_etroc_chips = []
+            temp_connected_names = []
+            all_success = True
 
-                if etroc.is_connected():
-                    self.connected_names.append(name)
-                    print(green("Connected"))
-                    # Optional: Set power mode high immediately on connect
-                    etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
-                else:
-                    self.connected_names.append(None)
-                    print(red("Not Responding"))
+            for i, addr in enumerate(self.cfg.etroc_addresses):
+                name = self.cfg.etroc_names[i]
+                print(f"   Attempting {name} (0x{addr:02X})...", end=" ")
 
-            except Exception as e:
-                print(red(f"Error: {e}"))
-                self.etroc_chips.append(None)
-                self.connected_names.append(None)
+                try:
+                    etroc = ETROC(
+                        self.rb,
+                        master='lpgbt',
+                        i2c_adr=addr,
+                        i2c_channel=1,
+                        elinks=self.cfg.etroc_elinks_map,
+                        strict=False,
+                        verbose=False
+                    )
+
+                    if etroc.is_connected():
+                        temp_etroc_chips.append(etroc)
+                        temp_connected_names.append(name)
+                        print(green("Connected"))
+                    else:
+                        temp_etroc_chips.append(None)
+                        temp_connected_names.append(None)
+                        print(red("Not Responding"))
+                        all_success = False
+
+                except Exception as e:
+                    print(red(f"Error: {e}"))
+                    temp_etroc_chips.append(None)
+                    temp_connected_names.append(None)
+                    all_success = False
+
+            # Update system lists with the results of this attempt
+            self.etroc_chips = temp_etroc_chips
+            self.connected_names = temp_connected_names
+
+            if all_success:
+                print(green("   All chips connected successfully."))
+                return
+
+        if not all_success:
+            print(red(f"\n   FATAL: Could not connect to all chips after {max_retries} attempts. Halting initialization."))
+            sys.exit(1)
+
+    def pll_fc_calibration_and_set_to_high_power_mode(self):
+        """Runs PLL/FC calibration and sets power mode for all successfully connected chips."""
+        for etroc, name in zip(self.etroc_chips, self.connected_names):
+
+            if etroc is None:
+                continue
+
+            # PLL calibration
+            etroc.wr_reg("asyPLLReset", 0)
+            time.sleep(0.1)
+            etroc.wr_reg("asyPLLReset", 1)
+
+            etroc.wr_reg('asyStartCalibration', 0)
+            time.sleep(0.1)
+            etroc.wr_reg('asyStartCalibration', 1)
+
+            # FC calibration
+            etroc.wr_reg('asyAlignFastcommand', 1)
+            time.sleep(0.1)
+            etroc.wr_reg('asyAlignFastcommand', 0)
+
+            # Global Readout calibration
+            etroc.wr_reg('asyResetGlobalReadout', 0)
+            time.sleep(0.1)
+            etroc.wr_reg('asyResetGlobalReadout', 1)
+
+            # Set power mode high
+            etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
+
+            print(green(f"\n   {name} PLL/FC calibrated and set to high power mode."))
+
+    def check_PS_status(self):
+        for etroc, etroc_name in zip(self.etroc_chips, self.connected_names):
+
+            ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(15)]
+            new_ps_late_array = "N/A (No Reset)"
+
+            if not any(ps_late_array):
+                # Perform Reset Pulse
+                etroc.wr_reg('PS_CapRst', 1)
+                etroc.wr_reg('PS_CapRst', 0)
+
+                # Re-check status
+                new_ps_late_array = [etroc.rd_reg('PS_Late') for _ in range(15)]
+
+            print(f"\n    {'='*10} {etroc_name} {'(PS_Late register)'} {'='*10}")
+            print(f"    Before Reset: {ps_late_array}")
+            print(f"    After Reset:  {new_ps_late_array}")
+            print(f"    {'='*40}")
 
     def configure_trigger(self):
         """Applies trigger configuration from Config object"""
