@@ -127,6 +127,42 @@ class CalibrationManager:
 
             etroc.wr_reg("disTrigPath", 0, broadcast=True)
 
+    def enable_trigger_boardIdxs(self, board_idxs):
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if i not in board_idxs:
+                continue
+            etroc.wr_reg("disTrigPath", 0, broadcast = True)
+
+    def enable_trigger_boardIdxs_row_col(self, board_idxs, enable_rows = None, enable_cols = None):
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if i not in board_idxs:
+                continue
+            for row in range(16):
+                if enable_rows is None or row in enable_rows:
+                    for col in range(16):
+                        if enable_cols is None or col in enable_cols:
+                            etroc.wr_reg("disTrigPath", 0, row=row, col=col, broadcast = False)
+
+    def set_trigger_window(self, board_idxs = None, reg="TOA", min=0, max=0x3ff):
+        if reg == "TOT" and max > 0x1ff:
+            max = 0x1ff
+
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if board_idxs is not None and i not in board_idxs:
+                continue
+
+            etroc.set_trigger_TH(reg, max, min, 15, 15, broadcast=True)
+
+    def set_data_window(self, board_idxs = None, reg="TOA", min=0, max=0x3ff):
+        if reg == "TOT" and max > 0x1ff:
+            max = 0x1ff
+
+        for i, etroc in enumerate(self.sys.etroc_chips):
+            if board_idxs is not None and i not in board_idxs:
+                continue
+
+            etroc.set_data_TH(reg, max, min, 15, 15, broadcast=True)
+
     def enable_data(self):
         print(f"\n[Configuration] Enabling data readout for all ETROC...")
         for i, etroc in enumerate(self.sys.etroc_chips):
