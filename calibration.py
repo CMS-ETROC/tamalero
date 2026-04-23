@@ -67,9 +67,7 @@ class CalibrationManager:
             for row, col in tqdm(pixels_to_scan, desc=f"{chip_name}", leave=False):
                 try:
                     # The actual hardware call
-                    baseline, noise_width = etroc.auto_threshold_scan(
-                        row=row, col=col, broadcast=False, use=False, verbose=False
-                    )
+                    baseline, noise_width = etroc.auto_threshold_scan(row=row, col=col)
 
                     chip_data['row'].append(row)
                     chip_data['col'].append(col)

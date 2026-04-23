@@ -722,8 +722,7 @@ class ETROC():
         else:
             fig.savefig(f'{outdir}/module_{self.module_id}_etroc_{self.chip_no}_baseline.png')
 
-
-    def auto_threshold_scan(self, row=0, col=0, broadcast=False, offset='auto', time_out=5, verbose=False, use=True, repeat_count=0):
+    def auto_threshold_scan(self, row=0, col=0, time_out=1, repeat_count=0):
         '''
         From the manual:
         1. set "Bypass" low.
@@ -735,98 +734,150 @@ class ETROC():
         (c) set "RSTn" high.
         5. launch auto threshold calibration by issuing a rising edge of ScanStart.
         '''
-        # NOTE the below routine has been checked.
-        assert broadcast==False, "Auto-threshold calibration with broadcast does not work in ETROC2"
-        if broadcast:
-            baseline = np.empty([16, 16])
-            noise_width = np.empty([16, 16])
-        else:
-            baseline = 0
-            noise_width = 0
 
-        self.wr_reg("enable_TDC", 0, row=row, col=col, broadcast=broadcast)
-        self.wr_reg("CLKEn_THCal", 1, row=row, col=col, broadcast=broadcast)
-        self.wr_reg('Bypass_THCal', 0, row=row, col=col, broadcast=broadcast)
-        self.wr_reg('BufEn_THCal', 1, row=row, col=col, broadcast=broadcast)
-        self.wr_reg('RSTn_THCal', 0, row=row, col=col, broadcast=broadcast)
-        self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast)
-        self.wr_reg('RSTn_THCal', 1, row=row, col=col, broadcast=broadcast)
-        self.wr_reg('ScanStart_THCal', 1, row=row, col=col, broadcast=broadcast)
-        self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
-        time.sleep(0.05)
-        done = False
-        start_time = time.time()
-        timed_out = False
-        while not done:
-            done = True
-            if broadcast:
-                for i in range(16):
-                    for j in range(16):
-                        try:
-                            tmp = self.rd_reg("ScanDone", row=i, col=j)
-                            done &= tmp
-                        except:
-                            print("ScanDone read failed.")
+        baseline = 0
+        noise_width = 0
 
-                #if not done: print("not done")
-            else:
-                try:
-                    done = self.rd_reg("ScanDone", row=row, col=col)
-                except:
-                    print("ScanDone read failed.")
-                time.sleep(0.05)
-                if time.time() - start_time > time_out:
-                    if verbose:
-                        print(f"Auto threshold scan timed out for pixel {row=}, {col=}")
-                    timed_out = True
-                    break
-        # self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
-        self.wr_reg("CLKEn_THCal", 0, row=row, col=col, broadcast=broadcast)
-        self.wr_reg('BufEn_THCal', 0, row=row, col=col, broadcast=broadcast)
+        # Hardware setup
+        self.wr_reg("enable_TDC", 0, row=row, col=col)
+        self.wr_reg("CLKEn_THCal", 1, row=row, col=col)
+        self.wr_reg('BufEn_THCal', 1, row=row, col=col)
+        self.wr_reg('Bypass_THCal', 0, row=row, col=col)
 
-        if offset == 'auto':
-            if broadcast:
-                # Don't care about this, broken anyway
-                for i in range(16):
-                    for j in range(16):
-                        nw = self.get_noisewidth(row=i, col=j)
-                        self.wr_reg('TH_offset', nw, row=i, col=j)
-                        noise_width[i][j] = nw
-                        baseline[i][j] = self.get_baseline(row=i, col=j)
-            else:
-                noise_width = self.get_noisewidth(row=row, col=col)
-                baseline = self.get_baseline(row=row, col=col)
-                self.wr_reg('Bypass_THCal', 1, row=row, col=col, broadcast=broadcast)
-                if use:
-                    self.wr_reg('DAC', min(baseline+noise_width, 1023), row=row, col=col, broadcast=broadcast)
+        # Pulse reset and start
+        self.wr_reg('RSTn_THCal', 0, row=row, col=col)
+        self.wr_reg('RSTn_THCal', 1, row=row, col=col)
 
-        else:
-            #self.wr_reg('TH_offset', offset, row=row, col=col, broadcast=broadcast)
-            if broadcast:
-                # broken anyway
-                for i in range(16):
-                    for j in range(16):
-                        noise_width[i][j] = self.get_noisewidth(row=i, col=j)
-                        baseline[i][j] = self.get_baseline(row=i, col=j)
-            else:
-                noise_width = self.get_noisewidth(row=row, col=col)
-                baseline = self.get_baseline(row=row, col=col)
-                self.wr_reg('Bypass_THCal', 1, row=row, col=col, broadcast=broadcast)
-                if use:
-                    self.wr_reg('DAC', min(baseline+offset, 1023), row=row, col=col, broadcast=broadcast)
+        self.wr_reg('ScanStart_THCal', 1, row=row, col=col)
+        self.wr_reg('ScanStart_THCal', 0, row=row, col=col) # Murtaza
 
-        if not broadcast:
-            if repeat_count < 5 and baseline == 0:
-                baseline, noise_width = self.auto_threshold_scan(row=row, col=col, broadcast=broadcast, offset=offset, time_out=time_out, verbose=verbose, use=use, repeat_count=repeat_count+1)
-        else:
-            for i in range(15):
-                for j in range(15):
-                    if baseline[i][j] == 0:
-                        bw, nw = self.auto_threshold_scan(row=i, col=j, broadcast=False, offset=offset, time_out=time_out, verbose=verbose, use=use, repeat_count=repeat_count+1)
-                        baseline[i][j] = bl
-                        noise_width[i][j] = nw
+        start_time = time.monotonic()
+        while True:
+            done = self.rd_reg("ScanDone", row=row, col=col)
+            if done == 1:
+                break
+            if time.monotonic() - start_time > time_out:
+                print(f"Auto threshold scan timed out for pixel {row}, {col}")
+                break
+
+        baseline = self.get_baseline(row=row, col=col)
+        noise_width = self.get_noisewidth(row=row, col=col)
+
+        # Clean up
+        self.wr_reg("CLKEn_THCal", 0, row=row, col=col)
+        self.wr_reg('BufEn_THCal', 0, row=row, col=col)
+        self.wr_reg('Bypass_THCal', 1, row=row, col=col)
+
+        if repeat_count < 5 and baseline == 0:
+            print("Repeating threshold scan, baseline was 0")
+            baseline, noise_width = self.auto_threshold_scan(row=row, col=col, time_out=time_out, repeat_count=repeat_count+1)
 
         return baseline, noise_width
+
+    # def auto_threshold_scan(self, row=0, col=0, broadcast=False, offset='auto', time_out=5, verbose=False, use=True, repeat_count=0):
+    #     '''
+    #     From the manual:
+    #     1. set "Bypass" low.
+    #     2. set "BufEn_THCal" high.
+    #     3. set "TH_offset" a proper value.
+    #     4. reset "Th_Cal":
+    #     (a) set "RSTn" low.
+    #     (b) enable clock by issuing a rising edge of ScanStart.
+    #     (c) set "RSTn" high.
+    #     5. launch auto threshold calibration by issuing a rising edge of ScanStart.
+    #     '''
+    #     # NOTE the below routine has been checked.
+    #     assert broadcast==False, "Auto-threshold calibration with broadcast does not work in ETROC2"
+    #     if broadcast:
+    #         baseline = np.empty([16, 16])
+    #         noise_width = np.empty([16, 16])
+    #     else:
+    #         baseline = 0
+    #         noise_width = 0
+
+    #     self.wr_reg("enable_TDC", 0, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg("CLKEn_THCal", 1, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg('Bypass_THCal', 0, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg('BufEn_THCal', 1, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg('RSTn_THCal', 0, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg('RSTn_THCal', 1, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg('ScanStart_THCal', 1, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
+    #     time.sleep(0.05)
+    #     done = False
+    #     start_time = time.time()
+    #     timed_out = False
+    #     while not done:
+    #         done = True
+    #         if broadcast:
+    #             for i in range(16):
+    #                 for j in range(16):
+    #                     try:
+    #                         tmp = self.rd_reg("ScanDone", row=i, col=j)
+    #                         done &= tmp
+    #                     except:
+    #                         print("ScanDone read failed.")
+
+    #             #if not done: print("not done")
+    #         else:
+    #             try:
+    #                 done = self.rd_reg("ScanDone", row=row, col=col)
+    #             except:
+    #                 print("ScanDone read failed.")
+    #             time.sleep(0.05)
+    #             if time.time() - start_time > time_out:
+    #                 if verbose:
+    #                     print(f"Auto threshold scan timed out for pixel {row=}, {col=}")
+    #                 timed_out = True
+    #                 break
+    #     # self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
+    #     self.wr_reg("CLKEn_THCal", 0, row=row, col=col, broadcast=broadcast)
+    #     self.wr_reg('BufEn_THCal', 0, row=row, col=col, broadcast=broadcast)
+
+    #     if offset == 'auto':
+    #         if broadcast:
+    #             # Don't care about this, broken anyway
+    #             for i in range(16):
+    #                 for j in range(16):
+    #                     nw = self.get_noisewidth(row=i, col=j)
+    #                     self.wr_reg('TH_offset', nw, row=i, col=j)
+    #                     noise_width[i][j] = nw
+    #                     baseline[i][j] = self.get_baseline(row=i, col=j)
+    #         else:
+    #             noise_width = self.get_noisewidth(row=row, col=col)
+    #             baseline = self.get_baseline(row=row, col=col)
+    #             self.wr_reg('Bypass_THCal', 1, row=row, col=col, broadcast=broadcast)
+    #             if use:
+    #                 self.wr_reg('DAC', min(baseline+noise_width, 1023), row=row, col=col, broadcast=broadcast)
+
+    #     else:
+    #         #self.wr_reg('TH_offset', offset, row=row, col=col, broadcast=broadcast)
+    #         if broadcast:
+    #             # broken anyway
+    #             for i in range(16):
+    #                 for j in range(16):
+    #                     noise_width[i][j] = self.get_noisewidth(row=i, col=j)
+    #                     baseline[i][j] = self.get_baseline(row=i, col=j)
+    #         else:
+    #             noise_width = self.get_noisewidth(row=row, col=col)
+    #             baseline = self.get_baseline(row=row, col=col)
+    #             self.wr_reg('Bypass_THCal', 1, row=row, col=col, broadcast=broadcast)
+    #             if use:
+    #                 self.wr_reg('DAC', min(baseline+offset, 1023), row=row, col=col, broadcast=broadcast)
+
+    #     if not broadcast:
+    #         if repeat_count < 5 and baseline == 0:
+    #             baseline, noise_width = self.auto_threshold_scan(row=row, col=col, broadcast=broadcast, offset=offset, time_out=time_out, verbose=verbose, use=use, repeat_count=repeat_count+1)
+    #     else:
+    #         for i in range(15):
+    #             for j in range(15):
+    #                 if baseline[i][j] == 0:
+    #                     bw, nw = self.auto_threshold_scan(row=i, col=j, broadcast=False, offset=offset, time_out=time_out, verbose=verbose, use=use, repeat_count=repeat_count+1)
+    #                     baseline[i][j] = bl
+    #                     noise_width[i][j] = nw
+
+    #     return baseline, noise_width
 
     def setup_accumulator(self, row=0, col=0):
         self.wr_reg("CLKEn_THCal", 1, row=row, col=col, broadcast=False)
@@ -867,7 +918,7 @@ class ETROC():
             return elinks[0], slaves[0]
         else:
             return elinks[1], slaves[1]
-            
+
 
 
     # ***********************
