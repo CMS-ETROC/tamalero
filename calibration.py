@@ -312,11 +312,10 @@ class CalibrationManager:
         # Using the existing logic you had, leveraging etroc_utils
         try:
             df = convert_dict_to_pandas(data, chip_name)
-            full_note = f"{note}"
             save_baselines(df, chip_name,
                            hist_dir=self.cfg.path_to_hist,
                            fig_dir=self.cfg.path_to_figure,
-                           save_notes=full_note)
+                           save_notes=note)
         except Exception as e:
             error_details = traceback.format_exc()
             print(red(f"Error saving history for {chip_name}: {e} ({error_details})"))
