@@ -1,5 +1,4 @@
 import struct
-import time
 from pathlib import Path
 from datetime import datetime
 from settings import DAQConfig

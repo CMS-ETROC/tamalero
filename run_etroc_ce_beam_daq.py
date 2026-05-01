@@ -16,7 +16,7 @@ from daq_utils import TerminalHandler
 from save_run_metadata import save_run_metadata
 from decode_tamalero import process_tamalero_outputs
 
-def run_daq_loop(system, config, charge_injection_mode=False, note = ''):
+def run_daq_loop(system, config, charge_injection_mode=False):
     """
     Main DAQ Execution Loop.
     Handles FIFO reading, file writing via DataWriter, and time/keyboard limits.
@@ -120,6 +120,21 @@ def main():
         note=args.note
     )
 
+    # ==========================================
+    # ENHANCEMENT: Extract just the Run Number
+    # ==========================================
+    folder_name = config.outdir.name  # e.g., "run_005_beam_20260501_note"
+    try:
+        # Split by '_' and grab the '005'
+        run_num_str = folder_name.split('_')[1]
+        run_id = f"Run {run_num_str}"
+    except IndexError:
+        run_id = "Unknown Run"
+
+    # Create a clean, concise note for the DB and metadata
+    # Format: "[Run 005] User note goes here" OR "[Run 005]"
+    clean_note = f"[{run_id}] {args.note}".strip()
+
     # 2. Initialize Hardware
     system = ETROCSystem(config)
     system.connect()
@@ -135,7 +150,7 @@ def main():
             baselines = cal_mgr.load_from_history()
         else:
             # Run new hardware scan
-            baselines = cal_mgr.run_calibration(note=args.note, charge_injection_mode=args.charge_injection)
+            baselines = cal_mgr.run_calibration(note=clean_note, charge_injection_mode=args.charge_injection)
 
         if args.quit_after_baseline:
             sys.exit(1)
@@ -161,10 +176,10 @@ def main():
 
     # Save Run Metadata
     save_run_metadata(system, config, max_run_time=args.max_run_time, firmware_path="/home/daq/ETROC2_KCU105/module_test_fw",
-                      note=args.note, charge_injection_mode=args.charge_injection)
+                      note=clean_note, charge_injection_mode=args.charge_injection)
 
     # 5. Run DAQ Loop
-    run_daq_loop(system, config, args.charge_injection, args.note)
+    run_daq_loop(system, config, args.charge_injection)
 
     # 6. Final Cleanup
     cal_mgr.disable_trigger()
