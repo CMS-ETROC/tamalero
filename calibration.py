@@ -73,7 +73,7 @@ class CalibrationManager:
                     chip_data['col'].append(col)
                     chip_data['baseline'].append(baseline)
                     chip_data['noise_width'].append(noise_width)
-                    chip_data['timestamp'].append(datetime.now(timezone.utc).isoformat(sep=' ', timespec='milliseconds'))
+                    chip_data['timestamp_utc'].append(datetime.now(timezone.utc).isoformat(sep=' ', timespec='milliseconds'))
 
                     # Small sleep to prevent bus congestion
                     time.sleep(0.01)
@@ -312,8 +312,7 @@ class CalibrationManager:
         # Using the existing logic you had, leveraging etroc_utils
         try:
             df = convert_dict_to_pandas(data, chip_name)
-            timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
-            full_note = f"{timestamp} {note}"
+            full_note = f"{note}"
             save_baselines(df, chip_name,
                            hist_dir=self.cfg.path_to_hist,
                            fig_dir=self.cfg.path_to_figure,
