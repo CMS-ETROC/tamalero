@@ -1,7 +1,7 @@
 import time
 import sqlite3
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from tqdm import tqdm
 from tamalero.colors import green, red, yellow
@@ -73,14 +73,12 @@ class CalibrationManager:
                     chip_data['col'].append(col)
                     chip_data['baseline'].append(baseline)
                     chip_data['noise_width'].append(noise_width)
-                    chip_data['timestamp'].append(datetime.now().isoformat(sep=' '))
+                    chip_data['timestamp'].append(datetime.now(timezone.utc).isoformat(sep=' ', timespec='milliseconds'))
 
                     # Small sleep to prevent bus congestion
                     time.sleep(0.01)
 
                 except Exception as e:
-                    # Log failure but continue
-                    # print(red(f"Pixel {row},{col} failed: {e}"))
                     pass
 
             # 3. Save Data
