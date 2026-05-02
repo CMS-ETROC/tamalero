@@ -73,7 +73,7 @@ class CalibrationManager:
                     chip_data['col'].append(col)
                     chip_data['baseline'].append(baseline)
                     chip_data['noise_width'].append(noise_width)
-                    chip_data['pixel_timestamp_utc'].append(datetime.now(timezone.utc).isoformat(sep=' ', timespec='milliseconds'))
+                    chip_data['pixel_timestamp_utc'].append(datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=' ', timespec='milliseconds'))
 
                     # Small sleep to prevent bus congestion
                     time.sleep(0.01)
@@ -284,6 +284,7 @@ class CalibrationManager:
         """Loads the latest baseline values from SQLite."""
         print("\n[Calibration] Loading historical baselines from database...")
         baseline_storage = {}
+        hv_values = {}
 
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database not found at {self.db_path}")
@@ -300,12 +301,13 @@ class CalibrationManager:
                 }
                 baseline_storage[chip_name] = self._format_data_for_lookup(data_dict)
                 print(green(f"   Loaded {len(df)} pixels for {chip_name} between {min_timestamp}, {max_timestamp}"))
+                hv_values[chip_name] = df.loc[df['chip_name'] == chip_name, 'hv'].iloc[0]
 
             except Exception as e:
                 print(red(f"   Failed to load history for {chip_name}: {e}"))
                 baseline_storage[chip_name] = {} # Empty dict on failure
 
-        return baseline_storage
+        return baseline_storage, hv_values
 
     def _save_to_history(self, chip_name, data, note):
         """Wrapper for the existing logic to save data."""
@@ -360,7 +362,7 @@ class CalibrationManager:
             q_data = """
                 SELECT * FROM baselines
                 WHERE chip_name = ?
-                AND timestamp BETWEEN ? AND ?
+                AND pixel_timestamp_utc BETWEEN ? AND ?
             """
 
             bl_data_df = pd.read_sql_query(

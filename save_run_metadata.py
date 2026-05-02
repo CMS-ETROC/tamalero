@@ -121,15 +121,13 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
             }
             continue
 
-        # Get the board config for this chip
-        board_config = config.boards[i]
-
         chip_metadata = {
             'status': 'connected' if system.connected_names[i] else 'not_responding',
             'i2c_address': f"0x{board_config.i2c_id:02X}",
             'elink_ids': [board_config.elink_id],  # virtual board's elink will be appended later
             'threshold_offset': board_config.th_offset,
             'L1A_Delay': board_config.l1a_delay,
+            'hv': config.hvs[chip_name],
         }
 
         # Get applied DAC values for each pixel

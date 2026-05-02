@@ -155,7 +155,8 @@ def main():
     if not args.etroc_configured:
         if args.skip_baseline:
             # Load most recent baselines from SQLite DB
-            baselines = cal_mgr.load_from_history()
+            baselines, hv_dict = cal_mgr.load_from_history()
+            config.hvs = hv_dict
         else:
             # Run new hardware scan
             baselines = cal_mgr.run_calibration(note=args.note, charge_injection_mode=args.charge_injection)

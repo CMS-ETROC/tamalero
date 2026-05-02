@@ -125,7 +125,7 @@ def save_baselines(
 
     ### Save baseline into SQL
     current_df.loc[:, "note"] = save_notes
-    current_df.loc[:, "saving_timestamp_utc"] = timestamp.isoformat(sep=' ', timespec='milliseconds')
+    current_df.loc[:, "saving_timestamp_utc"] = timestamp.replace(tzinfo=None).isoformat(sep=' ', timespec='milliseconds')
     with sqlite3.connect(outfile) as sqlconn:
         current_df.to_sql('baselines', sqlconn, if_exists='append', index=False)
 
