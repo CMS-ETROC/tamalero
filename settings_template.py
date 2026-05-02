@@ -34,6 +34,7 @@ class DAQConfig:
     etroc_elinks_map: Dict[int, List[int]] = field(init=False)
     th_offsets: Dict[str, int] = field(init=False)
     l1a_delays: Dict[str, int] = field(init=False)
+    hvs: Dict[str, float] = field(init=False)
 
     # Trigger Settings
     trigger_enable_mask: int = 0x11 ## 0x11 for dual port
@@ -72,3 +73,6 @@ class DAQConfig:
         # 3. Build Elink Map (assuming key 0 maps to all active elinks)
         all_elinks = [b.elink_id for b in self.boards]
         self.etroc_elinks_map = {0: all_elinks}
+
+        # 4. Pre-populate the HV dictionary with safe defaults (0.0V)
+        self.hvs = {b.name: 0.0 for b in self.boards}

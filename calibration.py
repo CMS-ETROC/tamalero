@@ -60,7 +60,7 @@ class CalibrationManager:
             print(f"Scanning {chip_name}...")
             chip_data = {
                 'row': [], 'col': [], 'baseline': [],
-                'noise_width': [], 'timestamp': []
+                'noise_width': [], 'pixel_timestamp_utc': []
             }
 
             # Use tqdm for progress bar
@@ -73,7 +73,7 @@ class CalibrationManager:
                     chip_data['col'].append(col)
                     chip_data['baseline'].append(baseline)
                     chip_data['noise_width'].append(noise_width)
-                    chip_data['timestamp_utc'].append(datetime.now(timezone.utc).isoformat(sep=' ', timespec='milliseconds'))
+                    chip_data['pixel_timestamp_utc'].append(datetime.now(timezone.utc).isoformat(sep=' ', timespec='milliseconds'))
 
                     # Small sleep to prevent bus congestion
                     time.sleep(0.01)
@@ -311,7 +311,8 @@ class CalibrationManager:
         """Wrapper for the existing logic to save data."""
         # Using the existing logic you had, leveraging etroc_utils
         try:
-            df = convert_dict_to_pandas(data, chip_name)
+            current_hv = self.cfg.hvs.get(chip_name, 0.0)
+            df = convert_dict_to_pandas(data, chip_name, current_hv)
             save_baselines(df, chip_name,
                            hist_dir=self.cfg.path_to_hist,
                            fig_dir=self.cfg.path_to_figure,
@@ -325,10 +326,10 @@ class CalibrationManager:
             # 1. Get the LATEST timestamp for the end of the run (15, 15)
             # We use ORDER BY and LIMIT 1 to get just the single latest value immediately.
             q_max = """
-                SELECT timestamp
+                SELECT pixel_timestamp_utc
                 FROM baselines
                 WHERE chip_name = ? AND ROW = 15 AND COL = 15
-                ORDER BY timestamp DESC
+                ORDER BY pixel_timestamp_utc DESC
                 LIMIT 1
             """
             end_time_df = pd.read_sql_query(q_max, conn, params=(chip_name,))
@@ -336,15 +337,15 @@ class CalibrationManager:
             if end_time_df.empty:
                 raise ValueError("No history found (End of run missing)")
 
-            max_ts_str = end_time_df.iloc[0]['timestamp']
+            max_ts_str = end_time_df.iloc[0]['pixel_timestamp_utc']
 
             # 2. Get the LATEST timestamp for the start of the run (0, 0)
             # We look for the latest (0,0) that happened BEFORE or AT the max_ts
             q_min = """
-                SELECT timestamp
+                SELECT pixel_timestamp_utc
                 FROM baselines
-                WHERE chip_name = ? AND ROW = 0 AND COL = 0 AND timestamp <= ?
-                ORDER BY timestamp DESC
+                WHERE chip_name = ? AND ROW = 0 AND COL = 0 AND pixel_timestamp_utc <= ?
+                ORDER BY pixel_timestamp_utc DESC
                 LIMIT 1
             """
             start_time_df = pd.read_sql_query(q_min, conn, params=(chip_name, max_ts_str))
@@ -352,7 +353,7 @@ class CalibrationManager:
             if start_time_df.empty:
                 raise ValueError("No history found (Start of run missing)")
 
-            min_ts_str = start_time_df.iloc[0]['timestamp']
+            min_ts_str = start_time_df.iloc[0]['pixel_timestamp_utc']
 
             # 3. Fetch ONLY the data within that window
             # We bind the specific start and end times to the query.
@@ -369,6 +370,6 @@ class CalibrationManager:
             )
 
             # Convert to datetime only for the small result set
-            bl_data_df['timestamp'] = pd.to_datetime(bl_data_df['timestamp'])
+            bl_data_df['pixel_timestamp_utc'] = pd.to_datetime(bl_data_df['pixel_timestamp_utc'])
 
             return bl_data_df, min_ts_str, max_ts_str
