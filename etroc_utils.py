@@ -8,9 +8,10 @@ hep.style.use('CMS')
 from pathlib import Path
 
 #--------------------------------------------------------------------------#
-def convert_dict_to_pandas(input_dict, chip_name):
+def convert_dict_to_pandas(input_dict, chip_name, hv):
     bl_nw_df = pd.DataFrame(data = input_dict)
     bl_nw_df['chip_name'] = chip_name
+    bl_nw_df['hv'] = hv
 
     return bl_nw_df
 
@@ -117,13 +118,14 @@ def save_baselines(
     fig_outdir = fig_outdir / (datetime.date.today().isoformat() + '_Testing_Plots')
     fig_outdir.mkdir(exist_ok=True, parents=True)
 
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    timestamp = datetime.datetime.now(datetime.timezone.utc)
 
     current_df = input_df
     pivot_df = current_df.pivot(index=['row'], columns=['col'], values=['baseline', 'noise_width'])
 
     ### Save baseline into SQL
-    current_df.loc[:, "save_notes"] = save_notes
+    current_df.loc[:, "note"] = save_notes
+    current_df.loc[:, "saving_timestamp_utc"] = timestamp.replace(tzinfo=None).isoformat(sep=' ', timespec='milliseconds')
     with sqlite3.connect(outfile) as sqlconn:
         current_df.to_sql('baselines', sqlconn, if_exists='append', index=False)
 
@@ -131,19 +133,12 @@ def save_baselines(
     print(f'Board name: {chip_name}')
     print(pivot_df.baseline)
     print(pivot_df.noise_width)
-
-    # Filter out the zeros
-    valid_baseline = input_df[input_df['baseline'] != 0]['baseline']
-    valid_noise = input_df[input_df['noise_width'] != 0]['noise_width']
-
     print('  Summary values:')
     print(f"    Baseline mean: {input_df['baseline'].mean():.2f}, std: {input_df['baseline'].std():.2f}")
     print(f"    Noise width mean: {input_df['noise_width'].mean():.2f}, std: {input_df['noise_width'].std():.2f}")
-    print(f"    Non-zero baseline mean: {valid_baseline.mean():.2f}, std: {valid_baseline.std():.2f}")
-    print(f"    Non-zero noise width mean: {valid_noise.mean():.2f}, std: {valid_noise.std():.2f}")
 
     ## Make BL and NW 2D map
-    make_BL_NW_2D_maps(pivot_df, chip_name, save_notes, fig_outdir, timestamp)
+    make_BL_NW_2D_maps(pivot_df, chip_name, save_notes, fig_outdir, timestamp.strftime("%Y-%m-%d_%H-%M"))
 
     ## Make BL and NW 1D hist
-    make_BL_NW_1D_hists(current_df, chip_name, save_notes, fig_outdir, timestamp)
+    make_BL_NW_1D_hists(current_df, chip_name, save_notes, fig_outdir, timestamp.strftime("%Y-%m-%d_%H-%M"))
