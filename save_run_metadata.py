@@ -116,6 +116,7 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
             'elink_id': board_config.elink_id,
             'threshold_offset': board_config.th_offset,
             'L1A_Delay': board_config.l1a_delay,
+            'hv': config.hvs[chip_name],
         }
 
         # Get applied DAC values for each pixel
