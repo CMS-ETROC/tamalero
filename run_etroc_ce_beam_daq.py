@@ -120,20 +120,29 @@ def main():
         note=args.note
     )
 
-    # ==========================================
-    # ENHANCEMENT: Extract just the Run Number
-    # ==========================================
-    folder_name = config.outdir.name  # e.g., "run_005_beam_20260501_note"
-    try:
-        # Split by '_' and grab the '005'
-        run_num_str = folder_name.split('_')[1]
-        run_id = f"Run {run_num_str}"
-    except IndexError:
-        run_id = "Unknown Run"
+    if not args.skip_baseline:
+        print("\n--- HV Configuration ---")
 
-    # Create a clean, concise note for the DB and metadata
-    # Format: "[Run 005] User note goes here" OR "[Run 005]"
-    clean_note = f"[{run_id}] {args.note}".strip()
+        for chip_name in config.hvs.keys():
+            # Use a while loop as a 'barrier' until input is valid
+            while True:
+                # Show the current default in the prompt
+                default_val = config.hvs[chip_name]
+                hv_input = input(f"Enter HV for {chip_name} in Volts [Default {default_val}]: ").strip()
+
+                # 1. Handle Empty Input (User just hits Enter)
+                if not hv_input:
+                    print(f"   Using default: {default_val}V")
+                    break  # Exit the while loop for this chip
+
+                # 2. Validate Numerical Input
+                try:
+                    val = float(hv_input)
+                    config.hvs[chip_name] = val
+                    break  # Input is a valid number, move to next chip
+                except ValueError:
+                    # 3. Handle Mistakes (User typed '150V' or 'abc')
+                    print(f"   Invalid input: '{hv_input}'. Please enter a number only.")
 
     # 2. Initialize Hardware
     system = ETROCSystem(config)
@@ -147,10 +156,11 @@ def main():
     if not args.etroc_configured:
         if args.skip_baseline:
             # Load most recent baselines from SQLite DB
-            baselines = cal_mgr.load_from_history()
+            baselines, hv_dict = cal_mgr.load_from_history()
+            config.hvs = hv_dict
         else:
             # Run new hardware scan
-            baselines = cal_mgr.run_calibration(note=clean_note, charge_injection_mode=args.charge_injection)
+            baselines = cal_mgr.run_calibration(note=args.note, charge_injection_mode=args.charge_injection)
 
         if args.quit_after_baseline:
             sys.exit(1)
@@ -173,10 +183,9 @@ def main():
     #cal_mgr.set_data_window([0, 1, 2, 3], min=200, max=600)
     #cal_mgr.set_trigger_window([0, 1, 2, 3], min=200, max=600)
 
-
     # Save Run Metadata
     save_run_metadata(system, config, max_run_time=args.max_run_time, firmware_path="/home/daq/ETROC2_KCU105/module_test_fw",
-                      note=clean_note, charge_injection_mode=args.charge_injection)
+                      note=args.note, charge_injection_mode=args.charge_injection)
 
     # 5. Run DAQ Loop
     run_daq_loop(system, config, args.charge_injection)
