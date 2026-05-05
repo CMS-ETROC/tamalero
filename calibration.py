@@ -289,13 +289,13 @@ class CalibrationManager:
                 }
                 baseline_storage[chip_name] = self._format_data_for_lookup(data_dict)
                 print(green(f"   Loaded {len(df)} pixels for {chip_name} between {min_timestamp}, {max_timestamp}"))
-                hv_values[chip_name] = df.loc[df['chip_name'] == chip_name, 'hv'].iloc[0]
+                hv_values[chip_name] = float(df.loc[df['chip_name'] == chip_name, 'hv'].iloc[0])
 
             except Exception as e:
                 print(red(f"   Failed to load history for {chip_name}: {e}"))
                 baseline_storage[chip_name] = {} # Empty dict on failure
 
-        return baseline_storage
+        return baseline_storage, hv_values
 
     def _save_to_history(self, chip_name, data, note):
         """Wrapper for the existing logic to save data."""
