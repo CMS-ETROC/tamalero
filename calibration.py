@@ -54,7 +54,7 @@ class CalibrationManager:
             print(f"Scanning {chip_name}...")
             chip_data = {
                 'row': [], 'col': [], 'baseline': [],
-                'noise_width': [], 'timestamp': []
+                'noise_width': [], 'pixel_timestamp_utc': []
             }
 
             try:
