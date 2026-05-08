@@ -6,7 +6,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 # This matches any file ending in .dat OR the exact yaml filename.
-ALLOWED_SUFFIXES = (".dat", "run_metadata.yaml")
+ALLOWED_SUFFIXES = ("run_metadata.yaml", ".dat")
 
 # ---------------------
 class DAQTransferHandler(FileSystemEventHandler):
@@ -58,6 +58,21 @@ def main(args):
     if not input_dir.exists():
         print(f"Error: Directory {input_dir} does not exist.")
         return
+
+    # --- NEW: INITIAL SYNC ---
+    print(f"Checking for existing files to sync before monitoring...")
+    for filepath in input_dir.iterdir():
+        if filepath.is_file() and filepath.name.endswith(ALLOWED_SUFFIXES):
+            remote_path = f"{args.user}@{args.server}:{args.remote_dir}/"
+            print(f"Initial sync for {filepath.name}...")
+            try:
+                subprocess.run(
+                    ["rsync", "-azq", filepath, remote_path],
+                    check=True
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"Failed initial sync for {filepath.name}: {e}")
+    # -------------------------
 
     # Pass the args into your handler
     event_handler = DAQTransferHandler(args)
