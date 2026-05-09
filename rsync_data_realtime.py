@@ -67,7 +67,7 @@ def main(args):
             print(f"Initial sync for {filepath.name}...")
             try:
                 subprocess.run(
-                    ["rsync", "-azq", filepath, remote_path],
+                    ["rsync", "-azq", "--mkpath", filepath, remote_path],
                     check=True
                 )
             except subprocess.CalledProcessError as e:
