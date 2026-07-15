@@ -16,6 +16,9 @@ class DAQConfig:
     readout_board_id: int = 0
     readout_board_config: str = 'default'
 
+    # Power mode
+    power_mode: str = 'default'
+
     # --- BOARD DEFINITIONS (The Single Source of Truth) ---
     # Edit ONLY this list to add/remove boards
     boards: List[ETROCConfig] = field(default_factory=lambda: [
