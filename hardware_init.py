@@ -154,7 +154,7 @@ class ETROCSystem:
             etroc.wr_reg('asyResetGlobalReadout', 1)
 
             # Set power mode high
-            etroc.set_power_mode(mode='high', row=0, col=0, broadcast=True)
+            etroc.set_power_mode(mode=self.cfg.power_mode, row=0, col=0, broadcast=True)
 
             print(green(f"\n   {name} PLL/FC calibrated and set to high power mode."))
 
