@@ -158,6 +158,16 @@ class ETROCSystem:
 
             print(green(f"\n   {name} PLL/FC calibrated and set to high power mode."))
 
+    def set_gain_mode(self):
+        for etroc, name in zip(self.etroc_chips, self.connected_names):
+
+            if etroc is None:
+                continue
+
+            # Set power mode high
+            etroc.wr_reg('RfSel', self.cfg.gain_mode, row=0, col=0, broadcast=True)
+            print(green(f"\n   {name} Gain mode set to {self.cfg.gain_mode}."))
+
     def check_PS_status(self):
         for etroc, etroc_name in zip(self.etroc_chips, self.connected_names):
 
