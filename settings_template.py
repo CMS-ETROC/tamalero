@@ -19,6 +19,9 @@ class DAQConfig:
     # Power mode
     power_mode: str = 'default'
 
+    # RFSel mode (gain change, default is 2, possible option: 0,1,2,3)
+    gain_mode: int = 2
+
     # --- BOARD DEFINITIONS (The Single Source of Truth) ---
     # Edit ONLY this list to add/remove boards
     boards: List[ETROCConfig] = field(default_factory=lambda: [
