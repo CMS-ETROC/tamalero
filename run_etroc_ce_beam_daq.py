@@ -179,10 +179,11 @@ def main():
     #cal_mgr.enable_trigger_boardIdxs([0,1,2])
     #cal_mgr.enable_trigger_boardIdxs_row_col([3], enable_rows=[0, 1, 2, 3, 4, 5, 6, 7])
 
-    # cal_mgr.set_data_window([0, 1, 2, 3], min=20, max=0x3ff)
-    # cal_mgr.set_trigger_window([0, 1, 2, 3], min=20, max=0x3ff)
-    #cal_mgr.set_data_window([0, 1, 2, 3], min=200, max=600)
-    #cal_mgr.set_trigger_window([0, 1, 2, 3], min=200, max=600)
+    if config.apply_window_cuts:
+        for reg, (win_min, win_max) in config.data_windows.items():
+            cal_mgr.set_data_window(config.window_board_idxs, reg=reg, min=win_min, max=win_max)
+        for reg, (win_min, win_max) in config.trigger_windows.items():
+            cal_mgr.set_trigger_window(config.window_board_idxs, reg=reg, min=win_min, max=win_max)
 
     # Save Run Metadata
     save_run_metadata(system, config, max_run_time=args.max_run_time, firmware_path="/home/daq/ETROC2_KCU105/module_test_fw",

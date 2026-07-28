@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 @dataclass
 class ETROCConfig:
@@ -45,6 +45,21 @@ class DAQConfig:
     trigger_data_size: int = 1
     trigger_delay_sel: int = 469
     trigger_logic:     int = 0 ## 0: OR, 1: AND
+
+    # Data/Trigger window cuts (per TDC reg: CAL/TOA/TOT), applied after chip configuration
+    # Note: TOT's hardware max is 0x1ff (511), unlike CAL/TOA's 0x3ff (1023)
+    apply_window_cuts: bool = False
+    window_board_idxs: List[int] = field(default_factory=lambda: [0, 1, 2, 3])
+    data_windows: Dict[str, Tuple[int, int]] = field(default_factory=lambda: {
+        "CAL": (0, 1023),
+        "TOA": (20, 1023),
+        "TOT": (0, 511),
+    })
+    trigger_windows: Dict[str, Tuple[int, int]] = field(default_factory=lambda: {
+        "CAL": (0, 1023),
+        "TOA": (20, 1023),
+        "TOT": (0, 511),
+    })
 
     # File/Path Settings
     path_to_figure: str = '/home/daq/ETROC2_KCU105/ETROC-figures'
