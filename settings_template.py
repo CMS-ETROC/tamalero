@@ -51,12 +51,12 @@ class DAQConfig:
     apply_window_cuts: bool = False
     window_board_idxs: List[int] = field(default_factory=lambda: [0, 1, 2, 3])
     data_windows: Dict[str, Tuple[int, int]] = field(default_factory=lambda: {
-        "CAL": (0, 1023),
+        "Cal": (0, 1023),
         "TOA": (20, 1023),
         "TOT": (0, 511),
     })
     trigger_windows: Dict[str, Tuple[int, int]] = field(default_factory=lambda: {
-        "CAL": (0, 1023),
+        "Cal": (0, 1023),
         "TOA": (20, 1023),
         "TOT": (0, 511),
     })
