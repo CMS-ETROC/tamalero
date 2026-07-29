@@ -93,8 +93,16 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
     if charge_injection_mode:
         metadata['charge_injection'] = {
             'charge_fc': config.charge_fc,
-            'test_pixels': config.test_pixels,
+            'test_pixels': [list(p) for p in config.test_pixels],
             'qinj_count': config.qinj_count,
+        }
+
+    # Add trigger/data window cuts if applied
+    if config.apply_window_cuts:
+        metadata['window_cuts'] = {
+            'board_idxs': config.window_board_idxs,
+            'data_windows': {reg: list(mm) for reg, mm in config.data_windows.items()},
+            'trigger_windows': {reg: list(mm) for reg, mm in config.trigger_windows.items()},
         }
 
     # Populate each ETROC chip configuration
@@ -117,6 +125,8 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
             'threshold_offset': board_config.th_offset,
             'L1A_Delay': board_config.l1a_delay,
             'hv': config.hvs[chip_name],
+            'power_mode': config.power_mode,
+            'gain_mode': config.gain_mode,
         }
 
         # Get applied DAC values for each pixel
