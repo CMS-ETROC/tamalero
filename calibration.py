@@ -302,7 +302,9 @@ class CalibrationManager:
         # Using the existing logic you had, leveraging etroc_utils
         try:
             current_hv = self.cfg.hvs.get(chip_name, 0.0)
-            df = convert_dict_to_pandas(data, chip_name, current_hv)
+            df = convert_dict_to_pandas(data, chip_name, current_hv,
+                                         power_mode=self.cfg.power_mode,
+                                         gain_mode=self.cfg.gain_mode)
             save_baselines(df, chip_name,
                            hist_dir=self.cfg.path_to_hist,
                            fig_dir=self.cfg.path_to_figure,
