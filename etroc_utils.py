@@ -8,10 +8,12 @@ hep.style.use('CMS')
 from pathlib import Path
 
 #--------------------------------------------------------------------------#
-def convert_dict_to_pandas(input_dict, chip_name, hv):
+def convert_dict_to_pandas(input_dict, chip_name, hv, power_mode=None, gain_mode=None):
     bl_nw_df = pd.DataFrame(data = input_dict)
     bl_nw_df['chip_name'] = chip_name
     bl_nw_df['hv'] = hv
+    bl_nw_df['power_mode'] = power_mode
+    bl_nw_df['gain_mode'] = gain_mode
 
     return bl_nw_df
 
@@ -101,6 +103,23 @@ def make_BL_NW_1D_hists(input_df: pd.DataFrame, given_chip_name: str, note: str,
     board_dir.mkdir(exist_ok=True)
     fig.savefig(board_dir / f'{given_chip_name}_BL_NW_1D_hist_{timestamp}.png')
 
+def _ensure_table_columns(sqlconn, table, df):
+    """Add any DataFrame columns missing from an existing SQLite table (schema migration)."""
+    existing = {row[1] for row in sqlconn.execute(f"PRAGMA table_info({table})")}
+    if not existing:
+        return  # table doesn't exist yet; to_sql will create it with all columns
+
+    for col, dtype in df.dtypes.items():
+        if col in existing:
+            continue
+        if pd.api.types.is_integer_dtype(dtype):
+            sql_type = 'INTEGER'
+        elif pd.api.types.is_float_dtype(dtype):
+            sql_type = 'REAL'
+        else:
+            sql_type = 'TEXT'
+        sqlconn.execute(f'ALTER TABLE {table} ADD COLUMN "{col}" {sql_type}')
+
 #--------------------------------------------------------------------------#
 def save_baselines(
         input_df: pd.DataFrame,
@@ -127,6 +146,7 @@ def save_baselines(
     current_df.loc[:, "note"] = save_notes
     current_df.loc[:, "saving_timestamp_utc"] = timestamp.replace(tzinfo=None).isoformat(sep=' ', timespec='milliseconds')
     with sqlite3.connect(outfile) as sqlconn:
+        _ensure_table_columns(sqlconn, 'baselines', current_df)
         current_df.to_sql('baselines', sqlconn, if_exists='append', index=False)
 
     print('\n========== Print Baseline and Noise Width ==========')
