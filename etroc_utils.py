@@ -18,7 +18,19 @@ def convert_dict_to_pandas(input_dict, chip_name, hv, power_mode=None, gain_mode
     return bl_nw_df
 
 #--------------------------------------------------------------------------#
-def make_BL_NW_2D_maps(input_df: pd.DataFrame, given_chip_name: str, note: str, save_path: Path, timestamp):
+def _build_plot_title(base: str, note: str, timestamp, hv=None) -> str:
+    """Build a multi-line plot title: base label, then note (if any), then timestamp/HV."""
+    lines = [base]
+    if note:
+        lines.append(str(note))
+    subtitle = str(timestamp)
+    if hv is not None:
+        subtitle += f" | HV: {hv} V"
+    lines.append(subtitle)
+    return "\n".join(lines)
+
+#--------------------------------------------------------------------------#
+def make_BL_NW_2D_maps(input_df: pd.DataFrame, given_chip_name: str, note: str, save_path: Path, timestamp, hv=None):
 
     from mpl_toolkits.axes_grid1 import make_axes_locatable
     import matplotlib.pyplot as plt
@@ -29,7 +41,7 @@ def make_BL_NW_2D_maps(input_df: pd.DataFrame, given_chip_name: str, note: str, 
     fig = plt.figure(dpi=200, figsize=(20,10))
     gs = fig.add_gridspec(1,2)
     ax0 = fig.add_subplot(gs[0,0])
-    ax0.set_title(f"{given_chip_name}: BL (DAC LSB)\n{note}", size=17, loc="right")
+    ax0.set_title(_build_plot_title(f"{given_chip_name}: BL (DAC LSB)", note, timestamp, hv), size=17, loc="right")
     img0 = ax0.imshow(input_df.baseline, interpolation='none', vmin=input_df.baseline.to_numpy().reshape(-1).min(), vmax=input_df.baseline.to_numpy().reshape(-1).max())
     ax0.set_aspect("equal")
     ax0.invert_xaxis()
@@ -42,7 +54,7 @@ def make_BL_NW_2D_maps(input_df: pd.DataFrame, given_chip_name: str, note: str, 
     fig.colorbar(img0, cax=cax, orientation="vertical")
 
     ax1 = fig.add_subplot(gs[0,1])
-    ax1.set_title(f"{given_chip_name}: NW (DAC LSB)\n{note}", size=17, loc="right")
+    ax1.set_title(_build_plot_title(f"{given_chip_name}: NW (DAC LSB)", note, timestamp, hv), size=17, loc="right")
     img1 = ax1.imshow(input_df.noise_width, interpolation='none', vmin=0, vmax=16)
     ax1.set_aspect("equal")
     ax1.invert_xaxis()
@@ -73,13 +85,13 @@ def make_BL_NW_2D_maps(input_df: pd.DataFrame, given_chip_name: str, note: str, 
     fig.savefig(board_dir / f'{given_chip_name}_BL_NW_2D_map_{timestamp}.png')
 
 
-def make_BL_NW_1D_hists(input_df: pd.DataFrame, given_chip_name: str, note: str, save_path: Path, timestamp):
+def make_BL_NW_1D_hists(input_df: pd.DataFrame, given_chip_name: str, note: str, save_path: Path, timestamp, hv=None):
     import hist
     import matplotlib.ticker as ticker
 
     fig, axes = plt.subplots(1, 2, figsize=(20, 10))
     hep.cms.text(loc=0, ax=axes[0], fontsize=17, text="ETL ETROC")
-    axes[0].set_title(f"{given_chip_name}: BL (DAC LSB)\n{note}", size=17, loc="right")
+    axes[0].set_title(_build_plot_title(f"{given_chip_name}: BL (DAC LSB)", note, timestamp, hv), size=17, loc="right")
     bl_array = input_df['baseline'].to_numpy().flatten()
     bl_hist = hist.Hist(hist.axis.Regular(128, 0, 1024, name='bl', label='BL [DAC]'))
     bl_hist.fill(bl_array)
@@ -88,7 +100,7 @@ def make_BL_NW_1D_hists(input_df: pd.DataFrame, given_chip_name: str, note: str,
     axes[0].legend()
 
     hep.cms.text(loc=0, ax=axes[1], fontsize=17, text="ETL ETROC")
-    axes[1].set_title(f"{given_chip_name}: NW (DAC LSB)\n{note}", size=17, loc="right")
+    axes[1].set_title(_build_plot_title(f"{given_chip_name}: NW (DAC LSB)", note, timestamp, hv), size=17, loc="right")
     nw_hist = hist.Hist(hist.axis.Regular(16, 0, 16, name='nw', label='NW [DAC]'))
     nw_array = input_df['noise_width'].to_numpy().flatten()
     nw_hist.fill(nw_array)
@@ -141,6 +153,7 @@ def save_baselines(
 
     current_df = input_df
     pivot_df = current_df.pivot(index=['row'], columns=['col'], values=['baseline', 'noise_width'])
+    hv_value = current_df['hv'].iloc[0] if 'hv' in current_df.columns and not current_df.empty else None
 
     ### Save baseline into SQL
     current_df.loc[:, "note"] = save_notes
@@ -158,7 +171,7 @@ def save_baselines(
     print(f"    Noise width mean: {input_df['noise_width'].mean():.2f}, std: {input_df['noise_width'].std():.2f}")
 
     ## Make BL and NW 2D map
-    make_BL_NW_2D_maps(pivot_df, chip_name, save_notes, fig_outdir, timestamp.strftime("%Y-%m-%d_%H-%M"))
+    make_BL_NW_2D_maps(pivot_df, chip_name, save_notes, fig_outdir, timestamp.strftime("%Y-%m-%d_%H-%M"), hv=hv_value)
 
     ## Make BL and NW 1D hist
-    make_BL_NW_1D_hists(current_df, chip_name, save_notes, fig_outdir, timestamp.strftime("%Y-%m-%d_%H-%M"))
+    make_BL_NW_1D_hists(current_df, chip_name, save_notes, fig_outdir, timestamp.strftime("%Y-%m-%d_%H-%M"), hv=hv_value)
