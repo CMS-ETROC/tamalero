@@ -37,7 +37,7 @@ def get_git_version(repo_path=None):
 
 
 
-def save_run_metadata(system, config, max_run_time, firmware_path=None, note="", charge_injection_mode=False):
+def save_run_metadata(system, config, max_run_time, firmware_path=None, note="", charge_injection_mode=False, baseline_storage=None):
     """
     Save complete run configuration metadata to YAML file.
 
@@ -48,6 +48,12 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
         firmware_path: Path to firmware git repository (optional)
         note: User-provided run note
         charge_injection_mode: Whether this is a charge injection run
+        baseline_storage: Dict of {chip_name: {(row, col): baseline}} used to configure
+            the chips this run (as passed to CalibrationManager.apply_configuration).
+            When provided, DAC values are recomputed the same way apply_configuration
+            did instead of being read back over I2C, which is far faster. If None
+            (e.g. when running with --etroc_configured, where no baseline was computed
+            this run), DAC values are read back from hardware instead.
     """
     print("\n6. Saving run metadata...")
 
@@ -143,19 +149,32 @@ def save_run_metadata(system, config, max_run_time, firmware_path=None, note="",
                 for c in range(config.pixel_col)
             ]
 
-        # Read the DAC register values from the chip
-        for row, col in pixels_to_read:
-            try:
-                # Read actual DAC value from hardware
-                dac_value = etroc.rd_reg('DAC', row=row, col=col)
-                pixel_key = f"({row},{col})"
-                pixels_dac[pixel_key] = int(dac_value)
-            except Exception as e:
-                print(f"   Warning: Could not read DAC for {chip_name} pixel ({row},{col}): {e}")
-                pixels_dac[f"({row},{col})"] = None
+        if baseline_storage is not None:
+            # Recompute the DAC values the same way apply_configuration() did,
+            # instead of reading them back over I2C (which is ~2000+ round trips
+            # per chip and dominates the runtime of this function).
+            chip_baselines = baseline_storage.get(chip_name, {})
+            offset = config.th_offsets.get(chip_name)
+            for row, col in pixels_to_read:
+                baseline = chip_baselines.get((row, col), 0)
+                applied_dac = 1020 if baseline == 0 else min(int(baseline + offset), 1023)
+                pixels_dac[f"({row},{col})"] = applied_dac
+            dac_source = 'computed'
+        else:
+            # No baseline available this run (e.g. --etroc_configured skips
+            # apply_configuration), so fall back to reading actual hardware state.
+            for row, col in pixels_to_read:
+                try:
+                    dac_value = etroc.rd_reg('DAC', row=row, col=col)
+                    pixels_dac[f"({row},{col})"] = int(dac_value)
+                except Exception as e:
+                    print(f"   Warning: Could not read DAC for {chip_name} pixel ({row},{col}): {e}")
+                    pixels_dac[f"({row},{col})"] = None
+            dac_source = 'hardware_readback'
 
         chip_metadata['pixels'] = {
             'dac_values': pixels_dac,
+            'dac_source': dac_source,
         }
 
         metadata['etroc_chips'][chip_name] = chip_metadata

@@ -154,12 +154,15 @@ def main():
     # 3. Calibration / Configuration
     cal_mgr = CalibrationManager(system, config)
     print("\n4. Calibration and configuration of etroc chips...")
+    baselines = None
+    if args.skip_baseline:
+        # Load most recent baselines from SQLite DB (no hardware access, cheap
+        # regardless of --etroc_configured, so metadata can use it too).
+        baselines, hv_dict = cal_mgr.load_from_history()
+        config.hvs = hv_dict
+
     if not args.etroc_configured:
-        if args.skip_baseline:
-            # Load most recent baselines from SQLite DB
-            baselines, hv_dict = cal_mgr.load_from_history()
-            config.hvs = hv_dict
-        else:
+        if not args.skip_baseline:
             # Run new hardware scan
             baselines = cal_mgr.run_calibration(note=args.note, charge_injection_mode=args.charge_injection)
 
@@ -187,7 +190,7 @@ def main():
 
     # Save Run Metadata
     save_run_metadata(system, config, max_run_time=args.max_run_time, firmware_path="/home/daq/ETROC2_KCU105/module_test_fw",
-                      note=args.note, charge_injection_mode=args.charge_injection)
+                      note=args.note, charge_injection_mode=args.charge_injection, baseline_storage=baselines)
 
     # 5. Run DAQ Loop
     run_daq_loop(system, config, args.charge_injection)
