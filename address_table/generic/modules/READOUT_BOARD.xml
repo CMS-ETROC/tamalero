@@ -19,7 +19,7 @@
   <node id="BITSLIP_AUTO_EN" address="0x107" mask="0x1"        permission="rw" description="1 to enable automatic bitslipping alignment" parameters="default=0x1"/>
 
   <node id="ELINK_WIDTH"     address="0x107" mask="0xe"        permission="rw" description="2 = 320 Mbps, 3 = 640 Mbps, 4 = 1280 Mbps" parameters="default=0x2"/>
-
+  <!-- <node id="ELINK_WIDTH"     address="0x107" mask="0xe"        permission="rw" description="2 = 320 Mbps, 3 = 640 Mbps, 4 = 1280 Mbps" parameters="default=0x2"/> -->
   <node id="ETROC_BITSLIP"   address="0x104" mask="0xffffffff" permission="w"  description="1 to bitslip an ETROC" />
   <node id="RESET_ETROC_RX"  address="0x105" mask="0xffffffff" permission="w"  description="1 to reset the ETROC rx module" />
   <node id="ZERO_SUPRESS"    address="0x106" mask="0xffffffff" permission="rw" description="1 to zero suppress fillers out from the ETROC RX" parameters="default=0xfffffff" />
@@ -79,21 +79,12 @@
   <node id="FLASH_SET_CNT" address="0x520" mask="0xffffffff" permission="w" description="Write clock cycle of flashing bit"/>
 
   <!-- SELF TRIGGER  -->
-<!-- TRIG_ENABLE_MASK_0 To TRIG_ENABLE_MASK[3:0] -->
-<!-- TRIG_ENABLE_MASK_1 To TRIG_DATA_SIZE[4:0] -->
-<!-- TRIG_ENABLE_MASK_2 To TRIG_COMBINATION_LOGIC -->
-<!-- TRIG_ENABLE should be one for self-trigger -->
-<!-- TRIG_DLY_SEL is TRIG_ENABLE_MASK_3[8:0] -->
-<node id="TRIG_ENABLE_MASK" address="0x508" mask="0x0000000f" permission="rw" description="Bitmask to enable any ETROC boards for trigger. Bits 3 downto 0."/>
-<node id="TRIG_DATA_SIZE" address="0x509" mask="0x000003ff" permission="rw" description="Trigger data size for all four boards"/>
-<node id="TRIG_COMBINATION_LOGIC" address="0x50a" mask="0x00000001" permission="rw" description="The combinational logic for multiple trigger boards. It is OR logic if it is zero, AND logic for one."/>
-<node id="TRIG_DLY_SEL" address="0x50b" mask="0x0000ffff" permission="rw" description="Select Delay in terms of clock cycles for self-trigger, from 0 to 511"/>
-  <!-- <node id="TRIG_ENABLE_MASK_1" address="0x509" mask="0xffffffff" permission="rw" description="Bitmask to enable bits in the trigger link. Bits 63 downto 32."/> -->
-  <!-- <node id="TRIG_ENABLE_MASK_2" address="0x50a" mask="0xffffffff" permission="rw" description="Bitmask to enable bits in the trigger link. Bits 95 downto 64."/> -->
-  <!-- <node id="TRIG_ENABLE_MASK_3" address="0x50b" mask="0xffffffff" permission="rw" description="Bitmask to enable bits in the trigger link. Bits 127 downto 96."/> -->
-  <!-- <node id="TRIG_ENABLE_MASK_4" address="0x50c" mask="0xffffffff" permission="rw" description="Bitmask to enable bits in the trigger link. Bits 159 downto 128."/> -->
-  <!-- <node id="TRIG_ENABLE_MASK_5" address="0x50d" mask="0xffffffff" permission="rw" description="Bitmask to enable bits in the trigger link. Bits 191 downto 160."/> -->
-  <!-- <node id="TRIG_ENABLE_MASK_6" address="0x50e" mask="0xffffffff" permission="rw" description="Bitmask to enable bits in the trigger link. Bits 223 downto 192."/> -->
+
+  <node id="TRIG_ENABLE_MASK" address="0x508" mask="0x0fffffff" permission="rw" description="Bitmask to enable any ETROC boards for trigger. Bits 27 downto 0."/>
+  <!-- <node id="TRIG_DATA_SIZE" address="0x509" mask="0x0000001f" permission="rw" description="Trigger data size for all four boards"/> -->
+  <node id="TRIG_DATA_SIZE" address="0x509" mask="0x000003ff" permission="rw" description="Trigger data size and mode control. Bits[9:6]: trigger bit select, Bit[5]: trigger mode enable (1=trigger mode, 0=normal), Bits[4:0]: data size"/>
+  <node id="TRIG_COMBINATION_LOGIC" address="0x50a" mask="0x00000001" permission="rw" description="The combinational logic for multiple trigger boards. It is OR logic if it is zero, AND logic for one."/>
+  <node id="TRIG_DLY_SEL" address="0x50b" mask="0x0000ffff" permission="rw" description="Select Delay in terms of clock cycles for self-trigger, from 0 to 511"/>
 
   <node id="TRIGGER_RATES" address="0x515" mask="0x0000001f" permission="r" description="Trigger rate cnt of selected ETROC (muxed accross elinks)"/>
   <node id="TRIG_ENABLE"   address="0x50f" mask="0x10000000" permission="rw" description="Set to 1 to enable ETROC self trigger."/>

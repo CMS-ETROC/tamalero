@@ -1,0 +1,466 @@
+# Pathfinder wiring map: user-provided table, 2026-09-19.
+# EDINgc -> software E-link = 4*g+c (confirmed by user).
+# DnHm is a software identity, not the ETROC hardware chip_id.
+# Reset/FC/ADC mappings are not defined here; retain existing configuration.
+schema_version: 1
+lpgbts:
+  daq:
+    hardware_id: 1
+    elink_bank: 0
+  trig:
+    hardware_id: 2
+    elink_bank: 1
+    control:
+      via: daq
+      channel: 0
+      address: 0x72
+# TRIG control route above comes from the supplied get_trigger()/LPGBT code.
+etrocs:
+  D1H1:
+    daughter: 1
+    hybrid: 1
+    motherboard_channel: 0
+    connector: J401
+    i2c:
+      lpgbt: daq
+      channel: 0
+      address: 0x60
+    data:
+      - lpgbt: daq
+        pin: EDIN52
+        dor_global: 1
+    clock:
+      lpgbt: trig
+      pin: ECLK4
+  D1H2:
+    daughter: 1
+    hybrid: 2
+    motherboard_channel: 0
+    connector: J401
+    i2c:
+      lpgbt: daq
+      channel: 0
+      address: 0x61
+    data:
+      - lpgbt: daq
+        pin: EDIN50
+        dor_global: 2
+    clock:
+      lpgbt: trig
+      pin: ECLK1
+  D1H3:
+    daughter: 1
+    hybrid: 3
+    motherboard_channel: 0
+    connector: J401
+    i2c:
+      lpgbt: daq
+      channel: 0
+      address: 0x62
+    data:
+      - lpgbt: daq
+        pin: EDIN42
+        dor_global: 3
+    clock:
+      lpgbt: daq
+      pin: ECLK23
+  D1H4:
+    daughter: 1
+    hybrid: 4
+    motherboard_channel: 0
+    connector: J401
+    i2c:
+      lpgbt: daq
+      channel: 0
+      address: 0x63
+    data:
+      - lpgbt: daq
+        pin: EDIN40
+        dor_global: 4
+    clock:
+      lpgbt: daq
+      pin: ECLK24
+  D2H1:
+    daughter: 2
+    hybrid: 1
+    motherboard_channel: 1
+    connector: J407
+    i2c:
+      lpgbt: trig
+      channel: 2
+      address: 0x60
+    data:
+      - lpgbt: trig
+        pin: EDIN42
+        dor_global: 25
+    clock:
+      lpgbt: trig
+      pin: ECLK17
+  D2H2:
+    daughter: 2
+    hybrid: 2
+    motherboard_channel: 1
+    connector: J407
+    i2c:
+      lpgbt: trig
+      channel: 2
+      address: 0x61
+    data:
+      - lpgbt: trig
+        pin: EDIN40
+        dor_global: 26
+    clock:
+      lpgbt: trig
+      pin: ECLK16
+  D2H3:
+    daughter: 2
+    hybrid: 3
+    motherboard_channel: 1
+    connector: J407
+    i2c:
+      lpgbt: trig
+      channel: 2
+      address: 0x62
+    data:
+      - lpgbt: trig
+        pin: EDIN32
+        dor_global: 27
+    clock:
+      lpgbt: trig
+      pin: ECLK14
+  D2H4:
+    daughter: 2
+    hybrid: 4
+    motherboard_channel: 1
+    connector: J407
+    i2c:
+      lpgbt: trig
+      channel: 2
+      address: 0x63
+    data:
+      - lpgbt: trig
+        pin: EDIN30
+        dor_global: 28
+    clock:
+      lpgbt: trig
+      pin: ECLK13
+  D3H1:
+    daughter: 3
+    hybrid: 1
+    motherboard_channel: 2
+    connector: J406
+    i2c:
+      lpgbt: trig
+      channel: 1
+      address: 0x60
+    data:
+      - lpgbt: trig
+        pin: EDIN22
+        dor_global: 21
+    clock:
+      lpgbt: trig
+      pin: ECLK10
+  D3H2:
+    daughter: 3
+    hybrid: 2
+    motherboard_channel: 2
+    connector: J406
+    i2c:
+      lpgbt: trig
+      channel: 1
+      address: 0x61
+    data:
+      - lpgbt: trig
+        pin: EDIN20
+        dor_global: 22
+    clock:
+      lpgbt: trig
+      pin: ECLK8
+  D3H3:
+    daughter: 3
+    hybrid: 3
+    motherboard_channel: 2
+    connector: J406
+    i2c:
+      lpgbt: trig
+      channel: 1
+      address: 0x62
+    data:
+      - lpgbt: trig
+        pin: EDIN12
+        dor_global: 23
+    clock:
+      lpgbt: trig
+      pin: ECLK7
+  D3H4:
+    daughter: 3
+    hybrid: 4
+    motherboard_channel: 2
+    connector: J406
+    i2c:
+      lpgbt: trig
+      channel: 1
+      address: 0x63
+    data:
+      - lpgbt: trig
+        pin: EDIN10
+        dor_global: 24
+    clock:
+      lpgbt: trig
+      pin: ECLK5
+  D4H1:
+    daughter: 4
+    hybrid: 1
+    motherboard_channel: 3
+    connector: J405
+    i2c:
+      lpgbt: trig
+      channel: 0
+      address: 0x60
+    data:
+      - lpgbt: trig
+        pin: EDIN62
+        dor_global: 17
+    clock:
+      lpgbt: trig
+      pin: ECLK25
+  D4H2:
+    daughter: 4
+    hybrid: 2
+    motherboard_channel: 3
+    connector: J405
+    i2c:
+      lpgbt: trig
+      channel: 0
+      address: 0x61
+    data:
+      - lpgbt: trig
+        pin: EDIN60
+        dor_global: 18
+    clock:
+      lpgbt: trig
+      pin: ECLK24
+  D4H3:
+    daughter: 4
+    hybrid: 3
+    motherboard_channel: 3
+    connector: J405
+    i2c:
+      lpgbt: trig
+      channel: 0
+      address: 0x62
+    data:
+      - lpgbt: trig
+        pin: EDIN52
+        dor_global: 19
+    clock:
+      lpgbt: trig
+      pin: ECLK20
+  D4H4:
+    daughter: 4
+    hybrid: 4
+    motherboard_channel: 3
+    connector: J405
+    i2c:
+      lpgbt: trig
+      channel: 0
+      address: 0x63
+    data:
+      - lpgbt: trig
+        pin: EDIN50
+        dor_global: 20
+    clock:
+      lpgbt: trig
+      pin: ECLK18
+  D5H1:
+    daughter: 5
+    hybrid: 1
+    motherboard_channel: 4
+    connector: J402
+    i2c:
+      lpgbt: daq
+      channel: 1
+      address: 0x60
+    data:
+      - lpgbt: daq
+        pin: EDIN32
+        dor_global: 5
+    clock:
+      lpgbt: daq
+      pin: ECLK14
+  D5H2:
+    daughter: 5
+    hybrid: 2
+    motherboard_channel: 4
+    connector: J402
+    i2c:
+      lpgbt: daq
+      channel: 1
+      address: 0x61
+    data:
+      - lpgbt: daq
+        pin: EDIN30
+        dor_global: 6
+    clock:
+      lpgbt: daq
+      pin: ECLK13
+  D5H3:
+    daughter: 5
+    hybrid: 3
+    motherboard_channel: 4
+    connector: J402
+    i2c:
+      lpgbt: daq
+      channel: 1
+      address: 0x62
+    data:
+      - lpgbt: daq
+        pin: EDIN22
+        dor_global: 7
+    clock:
+      lpgbt: daq
+      pin: ECLK10
+  D5H4:
+    daughter: 5
+    hybrid: 4
+    motherboard_channel: 4
+    connector: J402
+    i2c:
+      lpgbt: daq
+      channel: 1
+      address: 0x63
+    data:
+      - lpgbt: daq
+        pin: EDIN20
+        dor_global: 8
+    clock:
+      lpgbt: daq
+      pin: ECLK8
+  D6H1:
+    daughter: 6
+    hybrid: 1
+    motherboard_channel: 5
+    connector: J403
+    i2c:
+      lpgbt: daq
+      channel: 2
+      address: 0x60
+    data:
+      - lpgbt: daq
+        pin: EDIN12
+        dor_global: 9
+    clock:
+      lpgbt: daq
+      pin: ECLK7
+  D6H2:
+    daughter: 6
+    hybrid: 2
+    motherboard_channel: 5
+    connector: J403
+    i2c:
+      lpgbt: daq
+      channel: 2
+      address: 0x61
+    data:
+      - lpgbt: daq
+        pin: EDIN10
+        dor_global: 10
+    clock:
+      lpgbt: daq
+      pin: ECLK5
+  D6H3:
+    daughter: 6
+    hybrid: 3
+    motherboard_channel: 5
+    connector: J403
+    i2c:
+      lpgbt: daq
+      channel: 2
+      address: 0x62
+    data:
+      - lpgbt: daq
+        pin: EDIN02
+        dor_global: 11
+    clock:
+      lpgbt: daq
+      pin: ECLK4
+  D6H4:
+    daughter: 6
+    hybrid: 4
+    motherboard_channel: 5
+    connector: J403
+    i2c:
+      lpgbt: daq
+      channel: 2
+      address: 0x63
+    data:
+      - lpgbt: daq
+        pin: EDIN00
+        dor_global: 12
+    clock:
+      lpgbt: daq
+      pin: ECLK1
+  D7H1:
+    daughter: 7
+    hybrid: 1
+    motherboard_channel: 6
+    connector: J404
+    i2c:
+      lpgbt: daq
+      channel: 2
+      address: 0x64
+    data:
+      - lpgbt: trig
+        pin: EDIN02
+        dor_global: 13
+    clock:
+      lpgbt: daq
+      pin: ECLK20
+  D7H2:
+    daughter: 7
+    hybrid: 2
+    motherboard_channel: 6
+    connector: J404
+    i2c:
+      lpgbt: daq
+      channel: 2
+      address: 0x65
+    data:
+      - lpgbt: trig
+        pin: EDIN00
+        dor_global: 14
+    clock:
+      lpgbt: daq
+      pin: ECLK18
+  D7H3:
+    daughter: 7
+    hybrid: 3
+    motherboard_channel: 6
+    connector: J404
+    i2c:
+      lpgbt: daq
+      channel: 2
+      address: 0x66
+    data:
+      - lpgbt: daq
+        pin: EDIN62
+        dor_global: 15
+    clock:
+      lpgbt: daq
+      pin: ECLK17
+  D7H4:
+    daughter: 7
+    hybrid: 4
+    motherboard_channel: 6
+    connector: J404
+    i2c:
+      lpgbt: daq
+      channel: 2
+      address: 0x67
+    data:
+      - lpgbt: daq
+        pin: EDIN60
+        dor_global: 16
+    clock:
+      lpgbt: daq
+      pin: ECLK16

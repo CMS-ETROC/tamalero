@@ -35,11 +35,13 @@ class ETROC():
             no_init = False,
             hard_reset = False,
             no_hard_reset_on_init = False,
-            path_to_address_table = '../address_table/ETROC2_example.yaml'
+            path_to_address_table = '../address_table/ETROC2_example.yaml',
+            i2c_master = None
     ):
         self.QINJ_delay = 504  # this is a fixed value for the default settings of ETROC2
         self.isfake = False
-        self.I2C_master = rb.DAQ_LPGBT if master.lower() == 'lpgbt' else rb.SCA
+        # self.I2C_master = rb.DAQ_LPGBT if master.lower() == 'lpgbt' else rb.SCA
+        self.I2C_master = i2c_master if i2c_master is not None else (rb.DAQ_LPGBT if master.lower() == 'lpgbt' else rb.SCA)
         self.master = master
         self.rb = rb
         # check if connected
@@ -171,6 +173,7 @@ class ETROC():
                     if time.time() - start_time > 2:
                         print(f"I2C write has failed in ETROC {self.chip_id} and retries have timed out.")
                         raise Exception(f'I2C write time out for ETROC {self.chip_id}')
+                        # raise Exception(f"I2C write timeout for ETROC {self.chip_id}")
                         # return 0
 
     def rd_adr(self, adr):
@@ -186,8 +189,7 @@ class ETROC():
                     #print(f"I2C read has failed in ETROC {self.chip_id}, retrying")
                     if time.time() - start_time > 2:
                         print(f"I2C read has failed in ETROC {self.chip_id} and retries have timed out")
-                        raise Exception(f'I2C read time out for ETROC {self.chip_id}')
-                        # return 0
+                        return 0
 
     # read & write using register name & pix num
     def wr_reg(self, reg, val, row=0, col=0, broadcast=False):
@@ -510,6 +512,7 @@ class ETROC():
         if self.is_connected():
             self.reset()  # soft reset of the global readout
             self.set_singlePort('right')
+            # self.set_singlePort('both')
             self.set_mergeTriggerData('merge')
             self.disable_Scrambler()
             self.set_triggerGranularity(1)
@@ -517,7 +520,21 @@ class ETROC():
             # self.enable_fcDataDelay()
             # set ETROC in 320Mbps mode
             # self.wr_reg('serRateLeft', 0)
-            self.wr_reg('serRateRight', 0)
+            # self.wr_reg('serRateRight', 0)
+            self.wr_reg('serRateLeft', 1)
+            self.wr_reg('serRateRight',1)
+            current_left_rate = self.rd_reg('serRateLeft')
+            current_right_rate = self.rd_reg('serRateRight')
+            rate_map = {0: '320 Mbps', 1: '640 Mbps', 2: '1280 Mbps'}
+            print(f"Current serRateLeft: {current_left_rate} ({rate_map.get(current_left_rate, 'Unknown')})")
+            print(f"Current serRateRight: {current_right_rate} ({rate_map.get(current_right_rate, 'Unknown')})")
+            # if current_rate != 1:
+            #     print(f"Changing serRateRight from {rate_map.get(current_rate, 'Unknown')} to 640 Mbps...")
+            #     self.wr_reg('serRateRight', 1) 
+            #     new_rate = self.rd_reg('serRateRight')
+            #     print(f"New serRateRight: {new_rate} ({rate_map.get(new_rate, 'Unknown')})")
+            # else:
+            #     print("Already set to 640 Mbps, no change needed.")
             # get the current number of invalid fast commands received
             self.invalid_FC_counter = self.get_invalidFCCount()
 
@@ -725,7 +742,7 @@ class ETROC():
             fig.savefig(f'{outdir}/module_{self.module_id}_etroc_{self.chip_no}_baseline.png')
 
 
-    def auto_threshold_scan(self, row=0, col=0, time_out=1, repeat_count=0):
+    def auto_threshold_scan(self, row=0, col=0, broadcast=False, offset='auto', time_out=5, verbose=False, use=True):
         '''
         From the manual:
         1. set "Bypass" low.
@@ -741,39 +758,74 @@ class ETROC():
         baseline = 0
         noise_width = 0
 
-        # Hardware setup
-        self.wr_reg("enable_TDC", 0, row=row, col=col)
-        self.wr_reg("CLKEn_THCal", 1, row=row, col=col)
-        self.wr_reg('BufEn_THCal', 1, row=row, col=col)
-        self.wr_reg('Bypass_THCal', 0, row=row, col=col)
+        self.wr_reg("enable_TDC", 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg("CLKEn_THCal", 1, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('Bypass_THCal', 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('BufEn_THCal', 1, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('RSTn_THCal', 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('RSTn_THCal', 1, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('ScanStart_THCal', 1, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
+        done = False
+        start_time = time.time()
+        timed_out = False
+        while not done:
+            done = True
+            if broadcast:
+                for i in range(16):
+                    for j in range(16):
+                        try:
+                            tmp = self.rd_reg("ScanDone", row=i, col=j)
+                            done &= tmp
+                        except:
+                            print("ScanDone read failed.")
 
-        # Pulse reset and start
-        self.wr_reg('RSTn_THCal', 0, row=row, col=col)
-        self.wr_reg('RSTn_THCal', 1, row=row, col=col)
+                #if not done: print("not done")
+            else:
+                try:
+                    done = self.rd_reg("ScanDone", row=row, col=col)
+                except:
+                    print("ScanDone read failed.")
+                time.sleep(0.001)
+                if time.time() - start_time > time_out:
+                    if verbose:
+                        print(f"Auto threshold scan timed out for pixel {row=}, {col=}")
+                    timed_out = True
+                    break
+        # self.wr_reg('ScanStart_THCal', 0, row=row, col=col, broadcast=broadcast) # Murtaza
+        self.wr_reg("CLKEn_THCal", 0, row=row, col=col, broadcast=broadcast)
+        self.wr_reg('BufEn_THCal', 0, row=row, col=col, broadcast=broadcast)
 
-        self.wr_reg('ScanStart_THCal', 1, row=row, col=col)
-        self.wr_reg('ScanStart_THCal', 0, row=row, col=col) # Murtaza
+        if offset == 'auto':
+            if broadcast:
+                # Don't care about this, broken anyway
+                for i in range(16):
+                    for j in range(16):
+                        nw = self.get_noisewidth(row=i, col=j)
+                        self.wr_reg('TH_offset', nw, row=i, col=j)
+                        noise_width[i][j] = nw
+                        baseline[i][j] = self.get_baseline(row=i, col=j)
+            else:
+                noise_width = self.get_noisewidth(row=row, col=col)
+                baseline = self.get_baseline(row=row, col=col)
+                self.wr_reg('Bypass_THCal', 1, row=row, col=col, broadcast=broadcast)
+                if use:
+                    self.wr_reg('DAC', min(baseline+noise_width, 1023), row=row, col=col, broadcast=broadcast)
 
-        start_time = time.monotonic()
-        while True:
-            done = self.rd_reg("ScanDone", row=row, col=col)
-            if done == 1:
-                break
-            if time.monotonic() - start_time > time_out:
-                print(f"Auto threshold scan timed out for pixel {row}, {col}")
-                break
-
-        baseline = self.get_baseline(row=row, col=col)
-        noise_width = self.get_noisewidth(row=row, col=col)
-
-        # Clean up
-        self.wr_reg("CLKEn_THCal", 0, row=row, col=col)
-        self.wr_reg('BufEn_THCal', 0, row=row, col=col)
-        self.wr_reg('Bypass_THCal', 1, row=row, col=col)
-
-        if repeat_count < 5 and baseline == 0:
-            print("Repeating threshold scan, baseline was 0")
-            baseline, noise_width = self.auto_threshold_scan(row=row, col=col, time_out=time_out, repeat_count=repeat_count+1)
+        else:
+            #self.wr_reg('TH_offset', offset, row=row, col=col, broadcast=broadcast)
+            if broadcast:
+                # broken anyway
+                for i in range(16):
+                    for j in range(16):
+                        noise_width[i][j] = self.get_noisewidth(row=i, col=j)
+                        baseline[i][j] = self.get_baseline(row=i, col=j)
+            else:
+                noise_width = self.get_noisewidth(row=row, col=col)
+                baseline = self.get_baseline(row=row, col=col)
+                self.wr_reg('Bypass_THCal', 1, row=row, col=col, broadcast=broadcast)
+                if use:
+                    self.wr_reg('DAC', min(baseline+offset, 1023), row=row, col=col, broadcast=broadcast)
 
         return baseline, noise_width
 

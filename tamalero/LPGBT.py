@@ -158,7 +158,6 @@ class LPGBT(RegParser):
             else:
                 print (" > unsure about lpGBT version. This case should have been impossible to reach.")
                 raise Exception("Spurious lpGBT version.")
-
         if self.rbver is None:
             self.rbver = self.ver + 1
 
@@ -170,7 +169,7 @@ class LPGBT(RegParser):
 
         ## for Constellation use
         here = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(here, '..', 'configs', 'lpgbt_smu_config.yaml')
+        config_path = os.path.join(here, '..', 'configs', 'lpgbt_smu_config_pathfinder.yaml')
         self.base_config = load_yaml(config_path)['base'][f'v{self.ver}']
         self.ec_config = load_yaml(config_path)['ec'][f'v{self.ver}']
         
@@ -246,9 +245,9 @@ class LPGBT(RegParser):
         if not self.power_up_done():
             print(" > Running power up within LPGBT.configure()")
             self.power_up_init()
-
+        
         self.invert_links()
-
+        self.set_eprx_datarate(2)
         self.set_dac(1.0)  # set the DAC / Vref to 1.0V.
         # Callibrate ADCs
         # will automatically load from the config file if it is found
@@ -258,7 +257,7 @@ class LPGBT(RegParser):
         #self.current_adcs = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/current_adcs.yaml'))['lpGBT']
         #for adc in self.current_adcs:
         #    self.set_current_adc(adc)
-
+        # self.configure_eprx()
     def read_base_config(self):
         #
         print("{:80}{:10}{:10}".format("Register", "value", "default"))
@@ -768,21 +767,27 @@ class LPGBT(RegParser):
 
 
     def configure_eprx(self):
+        print("Configure_eprx is running")
+        rate_map = {1: '320 Mbps', 2: '640 Mbps', 3: '1280 Mbps'}
         if self.verbose:
             print("Configuring elink inputs...")
 
-        #rx_chn_indices = [0, 2, 4, 6, 8, 10, 12, 14]
-        rx_chn_indices = [0, 4, 8, 12] # etroc2 right output selected
+        rx_chn_indices = [0, 2, 4, 6, 8, 10, 12, 14]
+        # rx_chn_indices = [0, 4, 8, 12] # etroc2 right output selected
         groups = list(set([i // 4 for i in rx_chn_indices]))
         groups.sort()
 
         for group in groups:
-            self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}DATARATE", 1)  # 1 for 320 mbps and 2 for 640 Mbps
+            self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}DATARATE", 2)  # 1 for 320 mbps and 2 for 640 Mbps
             self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}TRACKMODE", 2)  # continuous phase tracking
-
+            data_rate= self.rd_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}DATARATE")
+            print(f"Group: {group}: datarate:({rate_map.get(data_rate, 'Unknown')})")
+            
+            # indices_in_group = [i for i in rx_chn_indices if (i // 4) == group]
+            # for i in indices_in_group:
+            #     link = i % 4
             for link in range(3, -1, -1):
                 self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}{link}ENABLE", 0x1)
-
                 i = group * 4 + link
                 self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{i}PHASESELECT", 5)
                 self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{i}INVERT", 0)
@@ -793,6 +798,17 @@ class LPGBT(RegParser):
         self.wr_reg("LPGBT.RWF.EPORTRX.EPRXLOCKTHRESHOLD", 0x5)
         self.wr_reg("LPGBT.RWF.EPORTRX.EPRXRELOCKTHRESHOLD", 0x5)
 
+    def set_eprx_datarate(self, datarate):
+    
+        rx_chn_indices = [0, 2, 4, 6, 8, 10, 12, 14]
+        groups = list(set([i // 4 for i in rx_chn_indices]))
+        groups.sort()
+
+        for group in groups:
+            self.wr_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}DATARATE", datarate)
+        
+        
+        print(f"EPRX datarate set to {'320' if datarate == 1 else '640'} Mbps")
     # def configure_eptx(self):
 
     #     for i in range(4):
@@ -1431,7 +1447,7 @@ class LPGBT(RegParser):
         pass
 
     # def I2C_write(self, reg=0x0, val=10, master=2, slave_addr=0x70, adr_nbytes=2, freq=2, verbose=False, ignore_response=False):
-    def I2C_write(self, reg=0x0, val=10, master=0, slave_addr=0x72, adr_nbytes=2, freq=2, verbose=False, ignore_response=False):
+    def I2C_write(self, reg=0x0, val=10, master=0, slave_addr=0x72, adr_nbytes=2, freq=0, verbose=False, ignore_response=False):
         '''
         reg: target register
         val: has to be a single byte, or a list of single bytes.
@@ -1511,7 +1527,7 @@ class LPGBT(RegParser):
                     raise TimeoutError(f"I2C write failed after 50 retries, status={status}")
 
     # def I2C_read(self, reg=0x0, master=2, slave_addr=0x71, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
-    def I2C_read(self, reg=0x0, master=0, slave_addr=0x72, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
+    def I2C_read(self, reg=0x0, master=0, slave_addr=0x72, nbytes=1, adr_nbytes=2, freq=0, verbose=False, timeout=0.1):
         #https://gitlab.cern.ch/lpgbt/pigbt/-/blob/master/backend/apiapp/lpgbtLib/lowLevelDrivers/MASTERI2C.py#L83
 
         # debugging

@@ -17,40 +17,65 @@ except ImportError:
 def revbits(x):
     return int(f'{x:08b}'[::-1],2)
 
+##  modifies merge words:
 def merge_words(res):
-    '''
-    this function merges 32 bit words from the fifo into 64 bit words (40bit ETROC2 + added meta data in the DAQ)
-    it strips empty entries and removes orphan 32 bit words that could be present at the end of a FIFO read
-    '''
-    # if len(res) % 2 != 0:
-    #     res = res[:-1]
-    # if not res:
-    #     return []
-    if len(res) > 0:
-        # offset is only needed when zero suppression is turned off, and packet boundaries are not defined
-        # it relies on the fact that the second 32 bit word is half empty (8 bit ETROC data + 12 bits meta data)
-        # if we ever add more meta data this has to be revisited
-        #offset = 1 if (res[1] > res[0]) else 0
-        offset = 0
-        #print(f"## Offset is {offset=}")
-        #offset = 0
-        res = res[offset:]
-        #empty_frame_mask = np.array(res[0::2]) > (2**8)  # masking empty fifo entries
-        #print(res)
-        empty_frame_mask = np.array(res[0::2]) > 0  # masking empty fifo entries FIXME verify that this does not cause troubles! remove mask if possible
-        
-        # words_part1 = np.array(res[0::2])
-        # words_part2 = np.array(res[1::2])
 
-        # valid_words_part1 = words_part1[empty_frame_mask]
-        # valid_words_part2 = words_part2[empty_frame_mask]
-
-        # return list(valid_words_part1 | (valid_words_part2 << 32))
-        
-        len_cut = min(len(res[0::2]), len(res[1::2]))  # ensuring equal length of arrays downstream
-        return list (np.array(res[0::2])[:len_cut][empty_frame_mask[:len_cut]] | (np.array(res[1::2]) << 32)[:len_cut][empty_frame_mask[:len_cut]])
-    else:
+    if not res or len(res) < 2:
         return []
+
+    try:
+        
+        raw_arr = np.array(res, dtype=np.uint32)
+       
+        low_words = raw_arr[0::2]
+        high_words = raw_arr[1::2]
+
+        length = min(len(low_words), len(high_words))
+      
+        merged = (low_words[:length].astype(np.uint64) | (high_words[:length].astype(np.uint64) << 32))
+
+        return merged.tolist() 
+
+    except Exception as e:
+        print(f"[MERGE ERROR] {e}")
+        return []
+##-- done 
+
+# def merge_words(res):
+#     '''
+#     this function merges 32 bit words from the fifo into 64 bit words (40bit ETROC2 + added meta data in the DAQ)
+#     it strips empty entries and removes orphan 32 bit words that could be present at the end of a FIFO read
+#     '''
+#     # if len(res) % 2 != 0:
+#     #     res = res[:-1]
+#     # if not res:
+#     #     return []
+#     if len(res) > 0:
+#         # offset is only needed when zero suppression is turned off, and packet boundaries are not defined
+#         # it relies on the fact that the second 32 bit word is half empty (8 bit ETROC data + 12 bits meta data)
+#         # if we ever add more meta data this has to be revisited
+#         #offset = 1 if (res[1] > res[0]) else 0
+#         offset = 0
+#         #print(f"## Offset is {offset=}")
+#         #offset = 0
+#         res = res[offset:]
+#         #empty_frame_mask = np.array(res[0::2]) > (2**8)  # masking empty fifo entries
+#         #print(res)
+#         empty_frame_mask = np.array(res[0::2]) > 0  # masking empty fifo entries FIXME verify that this does not cause troubles! remove mask if possible
+        
+#         # words_part1 = np.array(res[0::2])
+#         # words_part2 = np.array(res[1::2])
+
+#         # valid_words_part1 = words_part1[empty_frame_mask]
+#         # valid_words_part2 = words_part2[empty_frame_mask]
+
+#         # return list(valid_words_part1 | (valid_words_part2 << 32))
+        
+#         len_cut = min(len(res[0::2]), len(res[1::2]))  # ensuring equal length of arrays downstream
+#         return list (np.array(res[0::2])[:len_cut][empty_frame_mask[:len_cut]] | (np.array(res[1::2]) << 32)[:len_cut][empty_frame_mask[:len_cut]])
+#     else:
+#         return []
+    
 
 class FIFO:
     # def __init__(self, rb, block=255):
@@ -179,18 +204,82 @@ class FIFO:
                     except Exception as e:
                         print(f"Exception {e}")
                         print('read block error')
+                        raise
                     try:
-                        self.rb.kcu.dispatch()  # changed from more udp error prone self.rb.kcu.hw.dispatch()
+                        self.rb.kcu.dispatch()
+                        # time.sleep(0.005)  # changed from more udp error prone self.rb.kcu.hw.dispatch()
                     except Exception as e:
                         print(f'Dispatch Error {e}')
+                        raise
                     return reads
+                    # return list(reads.value())
                 else:
                     print("not dispatched~~~")
                     return self.rb.kcu.hw.getNode(f"DAQ_RB{self.rb.rb}").readBlock(block)
             except uhal_exception:
                 print(f"uhal UDP error in FIFO.read_block, block size is {block}")
                 raise
+
+    # def read_block_new(self, block, dispatch=False):
+    #     if not dispatch:
+    #         return self.rb.kcu.hw.getNode(f"DAQ_RB{self.rb.rb}").readBlock(block)
+    #     reads = None
+    #     try:
+    #         reads = self.rb.kcu.hw.getNode(f"DAQ_RB{self.rb.rb}").readBlock(block)
+    #         self.rb.kcu.dispatch()
+    #         data = list(reads.value())
+    #         if not isinstance(data, list):
+    #             raise TypeError(f"Expected list, got {type(data).__name__}")
+    #         if len(data) == 0:
+    #             self.logger.warning(f"[READ_BLOCK] Read 0 words when requested {block}")
             
+    #         return data
+            
+    #     except uhal_exception as e:
+
+    #         self.logger.error(
+    #             f"[READ_BLOCK] uHAL exception when reading {block} words: "
+    #             f"{type(e).__name__}: {e}"
+    #         )
+    #         raise  
+            
+    #     except Exception as e:
+
+    #         self.logger.error(
+    #             f"[READ_BLOCK] Unexpected exception when reading {block} words: "
+    #             f"{type(e).__name__}: {e}"
+    #         )
+    #         raise
+   
+    def readNew(self, dispatch=False, verbose=False):
+ 
+        block_size = 250
+        
+        try:
+            occupancy = self.get_occupancy()
+            if occupancy <= 0:
+                return []
+
+            chunk_size = min(occupancy, block_size)
+            if chunk_size % 2 != 0:
+                chunk_size -= 1
+            
+            if chunk_size == 0:
+                return []
+            
+            try:
+                return self.read_block(chunk_size, dispatch=dispatch).value()
+                
+            except uhal_exception:
+                self.logger.warning(f"[READ WARN] UDP Packet Loss (NonValidatedMemory). Chunk: {chunk_size}. Skipping.")
+                return []
+            except Exception as e:
+                self.logger.warning(f"[READ WARN] Block read error: {e}. Skipping.")
+                return []
+        
+        except Exception as e:           
+            self.logger.error(f"[READ ERROR] Critical DAQ error: {e}")
+            return []
 
     # def read(self, dispatch=False, verbose=False):
     #     #occupancy = self.get_occupancy()*4 + 2  # FIXME don't know where factor of 4 comes from??
@@ -222,9 +311,11 @@ class FIFO:
                     self.logger.error('uhal UDP error, Data read failed')
                     print(f"[READ ERROR] Caught uHAL exception: {type(e).__name__}: {e}")
                     print('uhal UDP error, Data read failed')
+                    # raise
         except Exception as e:
             self.logger.error(f"Occupancy error: {e}")
             print(f"Error: {e}")
+            # raise
         return data
 
         #if (num_blocks_to_read or last_block):
@@ -313,6 +404,7 @@ class FIFO:
     def pretty_read(self, df, dispatch=True, raw=False):
         try:
             merged = merge_words(self.read(dispatch=dispatch))
+            # merged = merge_words(self.readNew(dispatch=dispatch))
             if raw:
                 return merged
             else:

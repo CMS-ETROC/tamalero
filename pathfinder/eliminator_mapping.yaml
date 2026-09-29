@@ -1,0 +1,72 @@
+# Eliminator: four daughter cards, one Hybrid per daughter card.
+# Daughter numbering follows the supplied connector/address entry order.
+# Connector identifies the daughter-to-motherboard connection.
+# No TRIG device or unconfirmed upstream address is declared.
+# EDINgc maps to software E-link 4*g+c.
+system: eliminator
+schema_version: 1
+lpgbts:
+  daq:
+    hardware_id: 1
+    elink_bank: 0
+etrocs:
+  D1H1:
+    daughter: 1
+    hybrid: 1
+    connector: J401
+    i2c:
+      lpgbt: daq
+      channel: 1
+      address: 0x60
+    data:
+      - lpgbt: daq
+        pin: EDIN00
+        dor_global: 1
+    clock:
+      lpgbt: daq
+      pin: ECLK0
+  D2H1:
+    daughter: 2
+    hybrid: 1
+    connector: J404
+    i2c:
+      lpgbt: daq
+      channel: 1
+      address: 0x61
+    data:
+      - lpgbt: daq
+        pin: EDIN10
+        dor_global: 2
+    clock:
+      lpgbt: daq
+      pin: ECLK3
+  D3H1:
+    daughter: 3
+    hybrid: 1
+    connector: J402
+    i2c:
+      lpgbt: daq
+      channel: 1
+      address: 0x62
+    data:
+      - lpgbt: daq
+        pin: EDIN20
+        dor_global: 3
+    clock:
+      lpgbt: daq
+      pin: ECLK11
+  D4H1:
+    daughter: 4
+    hybrid: 1
+    connector: J403
+    i2c:
+      lpgbt: daq
+      channel: 1
+      address: 0x63
+    data:
+      - lpgbt: daq
+        pin: EDIN30
+        dor_global: 4
+    clock:
+      lpgbt: daq
+      pin: ECLK19

@@ -56,6 +56,8 @@ class ReadoutBoard:
             self.kcu = kcu
             self.kcu.readout_boards.append(self)
             self.DAQ_LPGBT.configure()
+            # self.DAQ_LPGBT.configure_eprx()
+            # self.DAQ_LPGBT.power_up_init()
             # If version is undetermined or older than 3, get version from LPGBT and try to connect SCA to KCU
             # self.SCA = SCA(rb=rb, flavor=flavor, ver=self.DAQ_LPGBT.ver, config=self.config, poke=poke)
             if self.DAQ_LPGBT.ver == 1:
