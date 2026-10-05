@@ -346,10 +346,10 @@ class ReadoutBoard:
         if not quiet:
             print("{:<8}{:<8}{:<50}{:<8}".format("Address", "Perm.", "Name", "Value"))
             self.kcu.print_reg(self.kcu.hw.getNode("READOUT_BOARD_%s.LPGBT.UPLINK_0.FEC_ERR_CNT" % self.rb), use_color=True, invert=True)
-            # self.kcu.print_reg(self.kcu.hw.getNode("READOUT_BOARD_%s.LPGBT.UPLINK_1.FEC_ERR_CNT" % self.rb), use_color=True, invert=True)
+            self.kcu.print_reg(self.kcu.hw.getNode("READOUT_BOARD_%s.LPGBT.UPLINK_1.FEC_ERR_CNT" % self.rb), use_color=True, invert=True)
         return {
             'DAQ': self.kcu.read_node("READOUT_BOARD_%s.LPGBT.UPLINK_0.FEC_ERR_CNT" % self.rb).value(),
-            # 'TRIGGER': self.kcu.read_node("READOUT_BOARD_%s.LPGBT.UPLINK_1.FEC_ERR_CNT" % self.rb).value()
+            'TRIGGER': self.kcu.read_node("READOUT_BOARD_%s.LPGBT.UPLINK_1.FEC_ERR_CNT" % self.rb).value()
         }
 
     def reset_FEC_error_count(self, quiet=False):

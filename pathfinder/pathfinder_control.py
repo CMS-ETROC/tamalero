@@ -424,6 +424,200 @@ def configure_readout_links(rb, mapping, ids):
     return masks
 
 
+import time
+from html import escape
+from IPython.display import HTML, display
+
+
+def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
+    """Configure and verify both Pathfinder optical uplinks.
+
+    Run after the existing motherboard and ECLK/E-link initialization.
+    Current-board settings are based on the successfully tested setup.
+    """
+    def status(message, ok=True):
+        color = "#16803c" if ok else "#c62828"
+        display(HTML(
+            f'<div style="color:{color};font-weight:600">'
+            f'{escape(message)}</div>'
+        ))
+
+    if monitor_seconds < 1:
+        raise ValueError("monitor_seconds must be at least 1")
+
+    if not getattr(rb, "trigger", False) or not hasattr(rb, "TRIG_LPGBT"):
+        raise RuntimeError("TRIG lpGBT was not detected during initialization")
+
+    chips = {
+        "DAQ": rb.DAQ_LPGBT,
+        "TRIG": rb.TRIG_LPGBT,
+    }
+
+    # Apply these settings on every initialization, even when PUSM is ready.
+    lpgbt_settings = {
+        "LPGBT.RWF.LINE_DRIVER.LDMODULATIONCURRENT": 0x7F,
+        "LPGBT.RWF.LINE_DRIVER.LDEMPHASISENABLE": 0,
+        "LPGBT.RWF.LINE_DRIVER.LDEMPHASISAMP": 0,
+        "LPGBT.RWF.LINE_DRIVER.LDEMPHASISSHORT": 0,
+        "LPGBT.RWF.CHIPCONFIG.HIGHSPEEDDATAOUTINVERT": 1,
+        "LPGBT.RW.DEBUG.ULDPBYPASSINTERLEAVER": 0,
+        "LPGBT.RW.DEBUG.ULDPBYPASSSCRAMBLER": 0,
+        "LPGBT.RW.DEBUG.ULDPBYPASSFECCODER": 0,
+    }
+
+    vtrx_settings = {
+        "CHxBIAS": 0x30,
+        "CHxMOD": 0x20,
+        "CHxMODEN": 1,
+        "CHxEN": 1,
+    }
+
+    # Validate field availability before making changes.
+    for chip in chips.values():
+        for field in lpgbt_settings:
+            chip.rd_reg(field)
+
+    for field in vtrx_settings:
+        if field not in rb.VTRX.regs:
+            raise RuntimeError(
+                f"VTRx+ register table does not support {field}"
+            )
+
+    # Prototype-only enables: configure only if supported.
+    for field in ("CHxLAEN", "CHxBEN"):
+        if field in rb.VTRX.regs:
+            vtrx_settings[field] = 1
+
+    def snapshot():
+        return {
+            "lpGBT": {
+                name: {
+                    field: chip.rd_reg(field)
+                    for field in lpgbt_settings
+                }
+                for name, chip in chips.items()
+            },
+            "VTRx+": {
+                name: {
+                    field: rb.VTRX.rd_reg_ch(field, ch)
+                    for field in vtrx_settings
+                }
+                for ch, name in [(0, "TX1"), (1, "TX2")]
+            },
+        }
+
+    print("1. Checking lpGBT modes")
+    expected_modes = {"DAQ": 0xB, "TRIG": 0x9}
+
+    for name, chip in chips.items():
+        mode = chip.rd_reg("LPGBT.RO.LPGBTSETTINGS.LPGBTMODE")
+        state = chip.rd_reg("LPGBT.RO.PUSM.PUSMSTATE")
+        print(f"{name}: MODE=0x{mode:X}, PUSMSTATE={state}")
+
+        if mode != expected_modes[name]:
+            raise RuntimeError(
+                f"{name}: expected MODE=0x{expected_modes[name]:X}, "
+                f"read 0x{mode:X}; check MODE configuration"
+            )
+
+    before = snapshot()
+
+    print("\n2. Configuring both lpGBT transmitters")
+    for name, chip in chips.items():
+        for field, value in lpgbt_settings.items():
+            chip.wr_reg(field, value)
+            actual = chip.rd_reg(field)
+            if actual != value:
+                raise RuntimeError(
+                    f"{name}: {field} write/read mismatch: "
+                    f"expected {value}, read {actual}"
+                )
+
+    print("\n3. Configuring VTRx+ TX1 and TX2")
+    print(f"VTRx+ version: {getattr(rb.VTRX, 'ver', 'unknown')}")
+
+    for ch in (0, 1):
+        for field, value in vtrx_settings.items():
+            rb.VTRX.wr_reg_ch(field, ch, value)
+            actual = rb.VTRX.rd_reg_ch(field, ch)
+            if actual != value:
+                raise RuntimeError(
+                    f"TX{ch + 1}: {field} write/read mismatch: "
+                    f"expected {value}, read {actual}"
+                )
+
+    after = snapshot()
+
+    print("\n4. Configuration comparison: before -> after")
+    for section, devices in after.items():
+        print(f"\n[{section}]")
+        for field in next(iter(devices.values())):
+            values = []
+            for name, registers in devices.items():
+                old = before[section][name][field]
+                new = registers[field]
+                values.append(f"{name}: 0x{old:02X} -> 0x{new:02X}")
+            print(f"{field.split('.')[-1]:30s} {' | '.join(values)}")
+
+    # Allow link acquisition before clearing historical errors.
+    prefix = f"READOUT_BOARD_{rb.rb}.LPGBT"
+
+    def read_links():
+        result = {}
+        for ilpgbt, name in [(0, "DAQ"), (1, "TRIG")]:
+            node = f"{prefix}.UPLINK_{ilpgbt}"
+            result[name] = {
+                "ready": rb.kcu.read_node(f"{node}.READY").value(),
+                "fec": rb.kcu.read_node(f"{node}.FEC_ERR_CNT").value(),
+            }
+        return result
+
+    print("\n5. Waiting for both uplinks")
+    deadline = time.monotonic() + 10
+    while True:
+        links = read_links()
+        if all(link["ready"] == 1 for link in links.values()):
+            break
+        if time.monotonic() >= deadline:
+            status(f"Uplink acquisition failed: {links}", ok=False)
+            raise RuntimeError("Both uplinks did not become READY")
+        time.sleep(0.2)
+
+    # Shared reset clears both uplink FEC counters.
+    rb.reset_FEC_error_count(quiet=True)
+
+    print("\n6. Monitoring READY and FEC counters")
+    samples = [read_links()]
+    for second in range(1, monitor_seconds + 1):
+        time.sleep(1)
+        links = read_links()
+        samples.append(links)
+        print(
+            f"{second:2d}s | "
+            + " | ".join(
+                f"{name}: READY={link['ready']}, FEC={link['fec']}"
+                for name, link in links.items()
+            )
+        )
+
+    passed = all(
+        link["ready"] == 1 and link["fec"] == 0
+        for sample in samples
+        for link in sample.values()
+    )
+
+    if not passed:
+        status("Optical-link verification failed", ok=False)
+        raise RuntimeError("READY dropped or FEC errors were observed")
+
+    status(
+        f"Both uplinks passed: READY=1 and FEC=0 "
+        f"at all samples during the {monitor_seconds}-second check"
+    )
+
+    return {"before": before, "after": after, "samples": samples}
+
+
 def main():
     """Print the wiring map without accessing hardware."""
     parser = argparse.ArgumentParser(description=__doc__)

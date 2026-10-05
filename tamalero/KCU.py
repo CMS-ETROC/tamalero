@@ -146,12 +146,20 @@ class KCU:
         # Check downlink
         self.print_reg(self.hw.getNode(f"READOUT_BOARD_{rb_id}.LPGBT.DOWNLINK.READY"), 
                     use_color=True, threshold=1)
+        # Check both optical uplinks.
+        for ilpgbt, name in [(0, "DAQ"), (1, "TRIG")]:
+            print(f"\n{name} optical uplink:")
+            prefix = f"READOUT_BOARD_{rb_id}.LPGBT.UPLINK_{ilpgbt}"
+            self.print_reg(self.hw.getNode(f"{prefix}.READY"), 
+                        use_color=True, threshold=1)
+            self.print_reg(self.hw.getNode(f"{prefix}.FEC_ERR_CNT"), 
+                        use_color=True, threshold=1, invert=True)
         
         # Check DAQ uplink (UPLINK_0)
-        self.print_reg(self.hw.getNode(f"READOUT_BOARD_{rb_id}.LPGBT.UPLINK_0.READY"), 
-                    use_color=True, threshold=1)
-        self.print_reg(self.hw.getNode(f"READOUT_BOARD_{rb_id}.LPGBT.UPLINK_0.FEC_ERR_CNT"), 
-                    use_color=True, threshold=1, invert=True)
+        # self.print_reg(self.hw.getNode(f"READOUT_BOARD_{rb_id}.LPGBT.UPLINK_0.READY"), 
+        #             use_color=True, threshold=1)
+        # self.print_reg(self.hw.getNode(f"READOUT_BOARD_{rb_id}.LPGBT.UPLINK_0.FEC_ERR_CNT"), 
+        #             use_color=True, threshold=1, invert=True)
         # for id in self.hw.getNodes(".*LPGBT.*DOWNLINK.*READY"):
         #     self.print_reg(self.hw.getNode(id), use_color=True, threshold=1)
         # for id in self.hw.getNodes(".*LPGBT.*UPLINK_0.*READY"):
