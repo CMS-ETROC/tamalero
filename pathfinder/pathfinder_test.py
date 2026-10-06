@@ -41,6 +41,8 @@ def build_parser():
     parser.add_argument("--trigger-delay", type=int, default=466)
     parser.add_argument("--charge-fc", type=int, default=15)
     parser.add_argument("--qinj-count", type=int, default=1)
+    parser.add_argument("--interactive", action="store_true",
+                        help="Open repeatable diagnostics after a hardware stage")
     return parser
 
 
@@ -75,8 +77,78 @@ def show_run_plan(args):
         print("Hardware configuration will run. Selected ETROC daughter boards must be connected.")
     if args.stage == "qinj":
         print(f"Includes a fresh BL/NW scan, trigger setup and QInj: {args.charge_fc} fC, count={args.qinj_count}.")
-    print("Stages run automatically in order; no Enter key is required.")
+    print("Test stages run automatically; an interactive menu follows a hardware stage when --interactive is set.")
     print("On failure, the script stops. Partial hardware configuration may remain.", flush=True)
+
+
+
+def interactive_checks(kcu, rb, *, pathfinder_profile=False):
+    """Repeat diagnostics without reconstructing KCU or ReadoutBoard."""
+    from pathfinder_control import (
+        read_optical_link_status, monitor_optical_links,
+        read_clock_configuration, reset_optical_fec_counters,
+        initialize_pathfinder_optical_links,
+    )
+
+    actions = {
+        "1": ("KCU status", "READ ONLY", "Read KCU status, clocks and available E-link lock flags."),
+        "2": ("Uplink READY/FEC", "READ ONLY", "Read current counters without clearing them."),
+        "3": ("Monitor uplinks for 10 seconds", "READ ONLY", "Sample READY/FEC once per second; counters are not reset."),
+        "4": ("Clock register readback", "READ ONLY", "Read ECLK0-27 frequency and drive strength; this does not measure waveforms."),
+        "5": ("Reset FEC counters", "WRITES HARDWARE", "Clear historical FEC counts on both uplinks."),
+        "6": ("Configure and verify optical links", "WRITES HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
+    }
+    while True:
+        print("\n" + "=" * 72)
+        print("Interactive diagnostics - reuse the current hardware connection")
+        for key, (title, kind, _) in actions.items():
+            suffix = " (unavailable for this mapping)" if key == "6" and not pathfinder_profile else ""
+            print(f"{key}. {title} [{kind}]{suffix}")
+        print("0. Exit (does not power down hardware)")
+        try:
+            choice = input("Select an action: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[EXIT] Leaving diagnostics; hardware is not restored or powered down.")
+            return
+        if choice == "0":
+            print("[EXIT] Leaving diagnostics; hardware is not powered down.")
+            return
+        if choice not in actions:
+            print("[WARNING] Enter a number from 0 to 6.")
+            continue
+        if choice == "6" and not pathfinder_profile:
+            print("[SKIPPED] This configuration profile is restricted to pathfinder_mapping.yaml.")
+            continue
+        title, kind, explanation = actions[choice]
+        print(f"\n[START] {title} [{kind}]")
+        print(f"[INFO] {explanation}")
+        try:
+            if choice == "1":
+                kcu.status()
+            elif choice == "2":
+                read_optical_link_status(rb)
+            elif choice == "3":
+                monitor_optical_links(rb, seconds=10)
+                print("[CHECK] A saturated counter at 65535 cannot demonstrate error-free operation.")
+            elif choice == "4":
+                results = read_clock_configuration(rb)
+                errors = sum(item["error"] is not None for rows in results.values() for item in rows)
+                print(f"[CHECK] Clock register read errors: {errors}")
+            elif choice == "5":
+                reset_optical_fec_counters(rb)
+            elif choice == "6":
+                initialize_pathfinder_optical_links(rb, monitor_seconds=10)
+                print("[PASS] Optical configuration and verification completed.")
+            if choice != "6":
+                print("[DONE] Operation completed. Review the readings above; this is not an automatic pass verdict.")
+        except KeyboardInterrupt:
+            print("\n[STOPPED] Action interrupted. Partial configuration may remain; no rollback performed.")
+        except Exception as exc:
+            import traceback
+            print(f"[FAILED] {title}: {type(exc).__name__}: {exc}")
+            print("[INFO] No automatic rollback performed. Review before retrying.")
+            traceback.print_exc()
+        print("[MENU] Returning to action selection.")
 
 
 def main(args):
@@ -127,6 +199,7 @@ def main(args):
     import inspect
 
     from pathfinder_control import (
+        read_clock_configuration,
         load_mapping, expand_selection, build_elinks, build_readout_masks,
         initialize_etrocs, InitializationError,
         check_connections, check_links, configure_readout_links, build_trigger_mask, initialize_pathfinder_optical_links,
@@ -183,6 +256,8 @@ def main(args):
     print(f"Trigger mask: 0x{preview_trigger_mask:07X}")
 
     if args.stage == "preview":
+        if args.interactive:
+            print("[INFO] Interactive hardware diagnostics are skipped in offline preview mode.")
         print('Offline preview complete. Next: --stage motherboard to configure and check the motherboard.', flush=True)
         return
 
@@ -270,31 +345,7 @@ def main(args):
 
     # Notebook code cell 16
     announce('4.2. Clock register readback', 'Read ECLK frequency and drive registers.', 'Register readback does not measure a physical clock waveform.')
-    def show_clock_config(lpgbt, name):
-        results = []
-        print(f"\n{name} clock configuration")
-        for channel in range(28):
-            prefix = f"LPGBT.RWF.EPORTCLK.EPCLK{channel}"
-            result = {"channel": channel, "frequency": None,
-                      "drive_strength": None, "error": None}
-            try:
-                result["frequency"] = lpgbt.rd_reg(f"{prefix}FREQ")
-                result["drive_strength"] = lpgbt.rd_reg(f"{prefix}DRIVESTRENGTH")
-                print(f"ECLK{channel:02d}: FREQ={result['frequency']}, "
-                      f"DRIVESTRENGTH={result['drive_strength']}")
-            except Exception as exc:
-                result["error"] = str(exc)
-                print(f"ECLK{channel:02d}: read failed: {exc}")
-            results.append(result)
-        return results
-
-
-    clock_readback = {"daq": show_clock_config(rb.DAQ_LPGBT, "DAQ")}
-    trig_lpgbt = getattr(rb, "TRIG_LPGBT", None)
-    if trig_lpgbt is not None:
-        clock_readback["trig"] = show_clock_config(trig_lpgbt, "TRIG")
-    else:
-        print("\nTRIG object is unavailable; skipping TRIG clock readback.")
+    clock_readback = read_clock_configuration(rb)
 
     clock_read_errors = sum(
         result["error"] is not None
@@ -322,6 +373,8 @@ def main(args):
 
     if args.stage == "motherboard":
         print('Motherboard stage complete. With no daughter boards, stop here. Review whether the Pathfinder optical profile ran or was skipped.', flush=True)
+        if args.interactive:
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml")
         return
 
     # Notebook code cell 20
@@ -666,6 +719,8 @@ def main(args):
 
     if args.stage == "blnw":
         print('BL/NW stage complete. Review scan failures and figures. Use --stage qinj for a new run including initialization and a fresh scan.', flush=True)
+        if args.interactive:
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml")
         return
 
     # Notebook code cell 34
@@ -1036,6 +1091,8 @@ def main(args):
     show_status("All declared readout banks are masked", "info")
 
     print("QInj workflow finished; declared data links are masked. Review readout results above.", flush=True)
+    if args.interactive:
+        interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml")
 
 
 if __name__ == "__main__":

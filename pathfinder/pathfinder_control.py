@@ -429,6 +429,81 @@ from html import escape
 from IPython.display import HTML, display
 
 
+def read_optical_link_status(rb, *, verbose=True):
+    """Read initialized uplinks without changing configuration or counters."""
+    result = {}
+    for ilpgbt, name in [(0, "DAQ"), (1, "TRIG")]:
+        if ilpgbt == 1 and not getattr(rb, "trigger", False):
+            continue
+        prefix = f"READOUT_BOARD_{rb.rb}.LPGBT.UPLINK_{ilpgbt}"
+        result[name] = {
+            "ready": rb.kcu.read_node(f"{prefix}.READY").value(),
+            "fec": rb.kcu.read_node(f"{prefix}.FEC_ERR_CNT").value(),
+        }
+    if verbose:
+        print(format_optical_link_status(result))
+    return result
+
+
+def format_optical_link_status(result):
+    """Format a previously read sample without accessing hardware."""
+    return " | ".join(
+        f"{name}: READY={link['ready']}, FEC_ERR_CNT={link['fec']}"
+        for name, link in result.items()
+    )
+
+
+def monitor_optical_links(rb, seconds=10, *, verbose=True):
+    """Sample uplinks immediately and once per second; do not reset counters."""
+    if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 1:
+        raise ValueError("seconds must be a positive integer")
+    samples = [read_optical_link_status(rb, verbose=False)]
+    for second in range(1, seconds + 1):
+        time.sleep(1)
+        sample = read_optical_link_status(rb, verbose=False)
+        samples.append(sample)
+        if verbose:
+            print(f"{second:2d}s | {format_optical_link_status(sample)}")
+    return samples
+
+
+def reset_optical_fec_counters(rb):
+    """Print before/after values and clear both uplink FEC counters."""
+    print("Before reset:")
+    before = read_optical_link_status(rb)
+    rb.reset_FEC_error_count(quiet=True)
+    print("After reset:")
+    after = read_optical_link_status(rb)
+    return {"before": before, "after": after}
+
+
+def read_clock_configuration(rb, *, verbose=True):
+    """Read ECLK0-27 on initialized lpGBTs; retain per-channel errors."""
+    chips = {"daq": rb.DAQ_LPGBT}
+    if getattr(rb, "TRIG_LPGBT", None) is not None:
+        chips["trig"] = rb.TRIG_LPGBT
+    results = {}
+    for name, chip in chips.items():
+        results[name] = []
+        if verbose:
+            print(f"\n{name.upper()} clock configuration")
+        for channel in range(28):
+            prefix = f"LPGBT.RWF.EPORTCLK.EPCLK{channel}"
+            entry = {"channel": channel, "frequency": None,
+                     "drive_strength": None, "error": None}
+            try:
+                entry["frequency"] = chip.rd_reg(prefix + "FREQ")
+                entry["drive_strength"] = chip.rd_reg(prefix + "DRIVESTRENGTH")
+                if verbose:
+                    print(f"ECLK{channel:02d}: FREQ={entry['frequency']}, DRIVESTRENGTH={entry['drive_strength']}")
+            except Exception as exc:
+                entry["error"] = str(exc)
+                if verbose:
+                    print(f"ECLK{channel:02d}: read failed: {exc}")
+            results[name].append(entry)
+    return results
+
+
 def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
     """Configure and verify both Pathfinder optical uplinks.
 
@@ -560,22 +635,10 @@ def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
             print(f"{field.split('.')[-1]:30s} {' | '.join(values)}")
 
     # Allow link acquisition before clearing historical errors.
-    prefix = f"READOUT_BOARD_{rb.rb}.LPGBT"
-
-    def read_links():
-        result = {}
-        for ilpgbt, name in [(0, "DAQ"), (1, "TRIG")]:
-            node = f"{prefix}.UPLINK_{ilpgbt}"
-            result[name] = {
-                "ready": rb.kcu.read_node(f"{node}.READY").value(),
-                "fec": rb.kcu.read_node(f"{node}.FEC_ERR_CNT").value(),
-            }
-        return result
-
     print("\n5. Waiting for both uplinks")
     deadline = time.monotonic() + 10
     while True:
-        links = read_links()
+        links = read_optical_link_status(rb, verbose=False)
         if all(link["ready"] == 1 for link in links.values()):
             break
         if time.monotonic() >= deadline:
@@ -587,18 +650,7 @@ def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
     rb.reset_FEC_error_count(quiet=True)
 
     print("\n6. Monitoring READY and FEC counters")
-    samples = [read_links()]
-    for second in range(1, monitor_seconds + 1):
-        time.sleep(1)
-        links = read_links()
-        samples.append(links)
-        print(
-            f"{second:2d}s | "
-            + " | ".join(
-                f"{name}: READY={link['ready']}, FEC={link['fec']}"
-                for name, link in links.items()
-            )
-        )
+    samples = monitor_optical_links(rb, seconds=monitor_seconds)
 
     passed = all(
         link["ready"] == 1 and link["fec"] == 0
