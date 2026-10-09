@@ -371,6 +371,24 @@ def main(args):
             "info",
         )
 
+    # ADC monitoring uses the selected YAML, not the driver's legacy default map.
+    announce('4.4. lpGBT ADC monitoring',
+             'Load mapped ADC channels, calibrate and read DAQ/TRIG monitoring values.',
+             'Limits and conversion factors are provisional; missing or unpowered daughter cards may show ERR.')
+    if "adc_monitoring" not in mapping:
+        show_status("Skipping ADC monitoring: selected YAML has no adc_monitoring section", "info")
+    else:
+        from pathfinder_control import configure_adc_mapping
+        adc_groups = configure_adc_mapping(rb, mapping)
+        for adc_bank, adc_entries in adc_groups.items():
+            if not adc_entries:
+                continue
+            adc_lpgbt = rb.DAQ_LPGBT if adc_bank == "daq" else rb.TRIG_LPGBT
+            print(f"\n{adc_bank.upper()} ADC monitoring ({len(adc_entries)} entries):")
+            adc_lpgbt.calibrate_adc()
+            adc_lpgbt.read_adcs(check=True, strict_limits=False)
+        show_status("ADC reads completed. Review the table; completion does not mean all values passed.", "info")
+
     if args.stage == "motherboard":
         print('Motherboard stage complete. With no daughter boards, stop here. Review whether the Pathfinder optical profile ran or was skipped.', flush=True)
         if args.interactive:
