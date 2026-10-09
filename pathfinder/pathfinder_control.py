@@ -683,5 +683,291 @@ def main():
               f"0x{bus['address']:02X}, elinks={build_elinks(mapping, identity)}")
 
 
+class TamaleroWaveformSampler:
+    def __init__(self, rb, lpgbt, ws_addr, i2c_master):
+        self.rb = rb
+        self.lpgbt = lpgbt
+        self.kcu = rb.kcu
+        self.ws_addr = ws_addr
+        self.i2c_master = i2c_master
+        self.adr_nbytes = 1
+
+    def i2c_write(self, reg, val):
+        self.lpgbt.I2C_write(reg=reg, val=val, master=self.i2c_master,
+                             slave_addr=self.ws_addr, adr_nbytes=self.adr_nbytes)
+
+    def i2c_read(self, reg, nbytes=1):
+        return self.lpgbt.I2C_read(reg=reg, master=self.i2c_master,
+                                   slave_addr=self.ws_addr, nbytes=nbytes, adr_nbytes=self.adr_nbytes)
+
+    def modify_reg_bit(self, reg, bit_mask, val_bool):
+        current = self.i2c_read(reg)
+        if isinstance(current, list):
+            current = current[0]
+        if val_bool:
+            new_val = current | bit_mask
+        else:
+            new_val = current & (~bit_mask)
+        self.i2c_write(reg, new_val)
+
+    def init_ws(self):
+        print(f"  [{hex(self.ws_addr)}] Initializing WS Global Config...")
+        self.i2c_write(0x1F, 0x2B)
+        self.i2c_write(0x0F, 0x00)
+        self.i2c_write(0x0E, 0x00)
+        self.i2c_write(0x0D, 0x10)
+
+    def arm_ws(self):
+        print(f"  [{hex(self.ws_addr)}] Configing WS Memory Config...")
+        self.i2c_write(0x1F, 0x22)
+        self.i2c_write(0x1F, 0x0B)
+
+    def trigger_ws_start(self):
+        print(f"  [{hex(self.ws_addr)}] Sending WS_START_PULSE via KCU...")
+        self.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.WS_START_PULSE", 0x1)
+
+    def trigger_ws_stop(self):
+        print(f"  [{hex(self.ws_addr)}] Sending WS_STOP_PULSE via KCU...")
+        self.kcu.write_node(f"READOUT_BOARD_{self.rb.rb}.WS_STOP_PULSE", 0x1)
+
+    def stop_and_close_ws(self):
+        self.i2c_write(0x1F, 0x09)
+
+    def read_data(self):
+        import pandas as pd
+        import numpy as np
+        from tqdm import tqdm
+        print(f"  [{hex(self.ws_addr)}] Reading 1024 words from WS RAM...")
+        self.modify_reg_bit(0x1F, 0b00000100, True)
+
+        max_steps = 1024
+        base_data = []
+        coeff = 0.085
+        time_coeff = 0.390625
+
+        for address in tqdm(range(max_steps), desc="  Reading WS", ncols=80):
+            rd_add_MSB = address // 4
+            rd_add_LSB = (address % 4) * 64
+
+            self.i2c_write(0x1D, rd_add_MSB)
+            self.i2c_write(0x1C, rd_add_LSB)
+
+            tmp_data = None
+            for _ in range(3):
+                tmp_data = self.i2c_read(0x20, nbytes=2)
+                if tmp_data is not None and len(tmp_data) >= 2:
+                    break
+                time.sleep(0.005)
+
+            if tmp_data is None or len(tmp_data) < 2:
+                raise RuntimeError(f"Incomplete WS RAM read at address {address}")
+
+            data_int = (tmp_data[0] >> 2) | (tmp_data[1] << 6)
+            pointer = (data_int >> 13) & 1
+            Dout_S1 = (data_int >> 7) & 0x3F
+
+            Dout_S2 = (((data_int >> 6) & 1) * 24 +
+                       ((data_int >> 5) & 1) * 16 +
+                       ((data_int >> 4) & 1) * 10 +
+                       ((data_int >> 3) & 1) * 6 +
+                       ((data_int >> 2) & 1) * 4 +
+                       ((data_int >> 1) & 1) * 2 +
+                        (data_int & 1))
+
+            base_data.append({
+                "Address": address,
+                "Data": data_int,
+                "Raw": f"{data_int:014b}",
+                "pointer": pointer,
+                "Dout_S1": Dout_S1,
+                "Dout_S2": Dout_S2,
+                "Dout": Dout_S1 - (coeff * Dout_S2),
+            })
+
+        df = pd.DataFrame(base_data)
+        if len(df) == 0:
+            self.modify_reg_bit(0x1F, 0b00000100, False)
+            return df
+
+        channels = 8
+        steps_per_ch = len(df) // channels
+
+        df['Channel'] = np.repeat(np.arange(1, channels + 1), steps_per_ch)
+        df['Step'] = np.tile(np.arange(steps_per_ch), channels)
+
+        pointer_mask = (df['Channel'] == channels) & (df['pointer'] != 0)
+        if pointer_mask.any():
+            pointer_step = df.loc[pointer_mask, 'Step'].iloc[0]
+            df['Step'] = (df['Step'] - (pointer_step + 1)) % steps_per_ch
+
+        df['Time_Index'] = df['Step'] * channels + (channels - df['Channel'])
+        df['Time_ns'] = df['Time_Index'] * time_coeff
+        df = df.sort_values('Time_Index').reset_index(drop=True)
+
+        self.modify_reg_bit(0x1F, 0b00000100, False)
+        return df
+
+def capture_ws_all(samplers, rb, hold_seconds):
+    """Arm all, request shared FC START/QInj/STOP; host timing is not deterministic."""
+    try:
+        for identity, ws in samplers.items():
+            print(f"Arming {identity}")
+            ws.arm_ws()
+        time.sleep(0.1)
+        print("Sending shared WS_START")
+        rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.WS_START_PULSE", 1)
+        print("Sending shared QInj FC")
+        rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.QINJ_PULSE", 1)
+        time.sleep(hold_seconds)
+    finally:
+        # Also stop on interrupted/failed arm or START; never read before STOP.
+        print("Sending shared WS_STOP")
+        rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.WS_STOP_PULSE", 1)
+    time.sleep(0.1)
+
+
+def run_ws_test(rb, mapping, chips, target_ids, *, samples=1, hold_seconds=0.1,
+                output_dir="waveform_data", plots=True):
+    import math
+    from datetime import datetime
+
+    if not target_ids or len(set(target_ids)) != len(target_ids):
+        raise ValueError("WS targets must be nonempty and unique")
+    if samples < 1 or not math.isfinite(hold_seconds) or hold_seconds <= 0:
+        raise ValueError("WS samples and hold time must be positive")
+    samplers = {}
+    routes = set()
+    # Validate all routes before writing any WS registers.
+    for identity in target_ids:
+        if identity not in chips:
+            raise ValueError(f"{identity}: ETROC must be selected and initialized")
+        bus = mapping["etrocs"][identity]["i2c"]
+        addr, channel, bank = bus["ws_address"], bus["channel"], bus["lpgbt"]
+        if type(addr) is not int or not 0 <= addr <= 127:
+            raise ValueError(f"{identity}: invalid WS address")
+        if type(channel) is not int or channel not in (0, 1, 2):
+            raise ValueError(f"{identity}: invalid I2C master channel")
+        if bank not in ("daq", "trig"):
+            raise ValueError(f"{identity}: invalid lpGBT")
+        if bank == "trig" and not getattr(rb, "trigger", False):
+            raise RuntimeError("TRIG lpGBT is not initialized")
+        route = (bank, channel, addr)
+        if route in routes:
+            raise ValueError(f"Duplicate WS route: {route}")
+        routes.add(route)
+        lpgbt = rb.DAQ_LPGBT if bank == "daq" else rb.TRIG_LPGBT
+        samplers[identity] = TamaleroWaveformSampler(rb, lpgbt, addr, channel)
+        print(f"WS {identity}: {bank.upper()} / M{channel} / 0x{addr:02X}")
+    output = Path(output_dir) / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    output.mkdir(parents=True, exist_ok=False)
+    print("WS 1. Check I2C and initialize all samplers")
+    for identity, ws in samplers.items():
+        val = ws.i2c_read(0)
+        if isinstance(val, list):
+            val = val[0] if val else None
+        if val is None:
+            raise RuntimeError(f"{identity}: WS probe failed")
+        print(f"{identity}: register 0 = 0x{val:02X}")
+        ws.init_ws()
+    print("WS 2. Configure original notebook test pixel (0, 14)")
+    WS_TEST_PIXELS, WS_OFFSET = [(0, 14)], 10
+    for chip_name in target_ids:
+        etroc = chips[chip_name]
+        for row, col in WS_TEST_PIXELS:
+            baseline, nw = etroc.auto_threshold_scan(row=row, col=col, broadcast=False, offset=1023, use=False, verbose=False)
+            print(f"  {chip_name} ({row},{col}): baseline={baseline}, NW={nw}")
+
+            etroc.wr_reg("workMode", 0, row=row, col=col, broadcast=False)
+            etroc.wr_reg("enable_TDC", 1, row=row, col=col, broadcast=False)
+            etroc.wr_reg("disDataReadout", 0, row=row, col=col, broadcast=False)
+            etroc.wr_reg("disTrigPath", 0, row=row, col=col, broadcast=False)
+            etroc.wr_reg("DAC", baseline + WS_OFFSET, row=row, col=col, broadcast=False)
+            etroc.wr_reg("QSel", 0x1E, row=row, col=col, broadcast=False)
+            etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
+            etroc.wr_reg("RfSel", 0x00, row=row, col=col, broadcast=False)
+
+
+    print("WS 3. Shared FC START/QInj/STOP; sequential readout. Host timing is not precise.")
+    try:
+        for sample_idx in range(samples):
+            capture_ws_all(samplers, rb, hold_seconds)
+            captured_at = datetime.now().isoformat()
+            for identity, ws in samplers.items():
+                print(f"Reading {identity}, capture {sample_idx + 1}/{samples}")
+                df = ws.read_data()
+                if len(df) != 1024:
+                    raise RuntimeError(f"{identity}: incomplete capture ({len(df)} words)")
+                df["sample_idx"] = sample_idx
+                df["timestamp"] = captured_at
+                df["etroc_id"] = identity
+                bus = mapping["etrocs"][identity]["i2c"]
+                for field in ("lpgbt", "channel", "ws_address"):
+                    df[field] = bus[field]
+                # Filename uses validated selection index; ID is recorded in the CSV.
+                stem = output / f"ws_{target_ids.index(identity):02d}_sample_{sample_idx:04d}"
+                df.to_csv(stem.with_suffix(".csv"), index=False)
+                print(f"Saved {identity}: {stem.with_suffix('.csv')}")
+                if plots:
+                    import matplotlib.pyplot as plt
+                    fig, ax = plt.subplots()
+                    ax.plot(df["Time_ns"], df["Dout"])
+                    ax.set(xlabel="Time [ns]", ylabel="Dout",
+                           title=f"{identity}: raw WS capture {sample_idx + 1}")
+                    ax.grid(True, alpha=0.3)
+                    fig.tight_layout()
+                    fig.savefig(stem.with_suffix(".png"), dpi=150)
+                    plt.close(fig)
+    finally:
+        for identity, ws in samplers.items():
+            try:
+                ws.stop_and_close_ws()
+            except Exception as exc:
+                print(f"WARNING: WS cleanup failed for {identity}: {exc}")
+    print(f"WS complete. Results: {output.resolve()}")
+    return output
+
+
+
+def configure_adc_mapping(rb, mapping):
+    """Assign legacy-format ADC entries to each lpGBT; no hardware writes.
+
+    Call after ReadoutBoard initialization. read_adcs() still performs ADC
+    conversions using the existing driver. Missing limits display N/A.
+    This does not change ADC current-source settings or calibration.
+    """
+    from copy import deepcopy
+    import math
+
+    entries = mapping["adc_monitoring"]["adc"]
+    grouped = {"daq": {}, "trigger": {}}
+    for name, source in entries.items():
+        entry = deepcopy(source)
+        bank = entry["lpgbt"]
+        if bank == "trig":
+            bank = "trigger"
+        if bank not in grouped:
+            raise ValueError(f"{name}: unknown lpGBT {bank}")
+        pins = [entry["pin_pos"], entry["pin_neg"]] if entry.get("differential", False) else [entry["pin"]]
+        if any(type(pin) is not int or not 0 <= pin < 8 for pin in pins):
+            raise ValueError(f"{name}: external ADC pins must be integers 0..7")
+        if len(pins) == 2 and pins[0] == pins[1]:
+            raise ValueError(f"{name}: H and L must differ")
+        if entry.get("current", 0) != 0:
+            raise ValueError(f"{name}: this passive monitoring profile requires current=0")
+        if not math.isfinite(entry["conv"]) or entry["conv"] <= 0:
+            raise ValueError(f"{name}: invalid conversion factor")
+        grouped[bank][name] = entry
+    if grouped["trigger"] and (not getattr(rb, "trigger", False) or not hasattr(rb, "TRIG_LPGBT")):
+        raise RuntimeError("ADC mapping requires an initialized TRIG lpGBT")
+    rb.DAQ_LPGBT.adc_mapping = grouped["daq"]
+    if hasattr(rb, "TRIG_LPGBT"):
+        rb.TRIG_LPGBT.adc_mapping = grouped["trigger"]
+    provisional = [name for name, entry in entries.items() if entry.get("conversion_verified") is False]
+    if provisional:
+        print("WARNING: legacy conversion factors need Pathfinder verification: " + ", ".join(provisional))
+    print(f"ADC mapping loaded: DAQ={len(grouped['daq'])}, TRIG={len(grouped['trigger'])}")
+    return grouped
+
+
 if __name__ == "__main__":
     main()

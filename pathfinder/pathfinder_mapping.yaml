@@ -1,7 +1,7 @@
 # Pathfinder wiring map: user-provided table, 2026-09-19.
 # EDINgc -> software E-link = 4*g+c (confirmed by user).
 # DnHm is a software identity, not the ETROC hardware chip_id.
-# Reset/FC/ADC mappings are not defined here; retain existing configuration.
+# Reset/FC retain existing configuration. ADC monitoring is defined below.
 # WS addresses added from the user-provided table, 2026-10-07.
 # i2c.address is the ETROC address; i2c.ws_address is the WS address.
 # Both devices share i2c.lpgbt and i2c.channel.
@@ -495,3 +495,132 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK16
+
+# No ADC connections for D2/D3/D4; only H2 VTEMP is connected on D1/D5/D6/D7.
+# Legacy conversions and min/max limits are provisional; verify on Pathfinder.
+adc_monitoring:
+  adc:
+    D1_VREF:
+      pin: 5
+      current: 0
+      conv: 1.247
+      min: 0.65
+      max: 1.05
+      flavor: small
+      comment: D1 shared Vref; legacy conversion, verify on Pathfinder
+      lpgbt: daq
+      conversion_verified: false
+    D1H2_VTEMP:
+      pin: 2
+      current: 0
+      conv: 1
+      min: 0
+      max: 1.2
+      flavor: small
+      comment: D1H2 VTEMP voltage (not degrees C)
+      lpgbt: daq
+    D1_1V2_CURRENT:
+      pin_pos: 0
+      pin_neg: 1
+      current: 0
+      conv: 15.037
+      min: 0.35
+      max: 0.75
+      flavor: small
+      comment: D1 supply current H-L; legacy conversion, verify on Pathfinder
+      differential: true
+      lpgbt: trigger
+      conversion_verified: false
+    D5_VREF:
+      pin: 3
+      current: 0
+      conv: 1.247
+      min: 0.65
+      max: 1.05
+      flavor: small
+      comment: D5 shared Vref; legacy conversion, verify on Pathfinder
+      lpgbt: daq
+      conversion_verified: false
+    D5H2_VTEMP:
+      pin: 6
+      current: 0
+      conv: 1
+      min: 0
+      max: 1.2
+      flavor: small
+      comment: D5H2 VTEMP voltage (not degrees C)
+      lpgbt: daq
+    D5_1V2_CURRENT:
+      pin_pos: 2
+      pin_neg: 3
+      current: 0
+      conv: 15.037
+      min: 0.35
+      max: 0.75
+      flavor: small
+      comment: D5 supply current H-L; legacy conversion, verify on Pathfinder
+      differential: true
+      lpgbt: trigger
+      conversion_verified: false
+    D6_VREF:
+      pin: 7
+      current: 0
+      conv: 1.247
+      min: 0.65
+      max: 1.05
+      flavor: small
+      comment: D6 shared Vref; legacy conversion, verify on Pathfinder
+      lpgbt: daq
+      conversion_verified: false
+    D6H2_VTEMP:
+      pin: 4
+      current: 0
+      conv: 1
+      min: 0
+      max: 1.2
+      flavor: small
+      comment: D6H2 VTEMP voltage (not degrees C)
+      lpgbt: daq
+    D6_1V2_CURRENT:
+      pin_pos: 4
+      pin_neg: 5
+      current: 0
+      conv: 15.037
+      min: 0.35
+      max: 0.75
+      flavor: small
+      comment: D6 supply current H-L; legacy conversion, verify on Pathfinder
+      differential: true
+      lpgbt: trigger
+      conversion_verified: false
+    D7_VREF:
+      pin: 0
+      current: 0
+      conv: 1.247
+      min: 0.65
+      max: 1.05
+      flavor: small
+      comment: D7 shared Vref; legacy conversion, verify on Pathfinder
+      lpgbt: daq
+      conversion_verified: false
+    D7H2_VTEMP:
+      pin: 1
+      current: 0
+      conv: 1
+      min: 0
+      max: 1.2
+      flavor: small
+      comment: D7H2 VTEMP voltage (not degrees C)
+      lpgbt: daq
+    D7_1V2_CURRENT:
+      pin_pos: 6
+      pin_neg: 7
+      current: 0
+      conv: 15.037
+      min: 0.35
+      max: 0.75
+      flavor: small
+      comment: D7 supply current H-L; legacy conversion, verify on Pathfinder
+      differential: true
+      lpgbt: trigger
+      conversion_verified: false
