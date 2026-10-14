@@ -767,13 +767,17 @@ class LPGBT(RegParser):
 
 
     def configure_eprx(self):
+        print(
+            f"[configure_eprx] "
+            f"{'TRIG' if self.trigger else 'DAQ'} lpGBT"
+        )
+        
         print("Configure_eprx is running")
         rate_map = {1: '320 Mbps', 2: '640 Mbps', 3: '1280 Mbps'}
         if self.verbose:
             print("Configuring elink inputs...")
 
-        rx_chn_indices = [0, 2, 4, 6, 8, 10, 12, 14]
-        # rx_chn_indices = [0, 4, 8, 12] # etroc2 right output selected
+        rx_chn_indices = list(range(0, 28, 2))
         groups = list(set([i // 4 for i in rx_chn_indices]))
         groups.sort()
 
@@ -799,8 +803,13 @@ class LPGBT(RegParser):
         self.wr_reg("LPGBT.RWF.EPORTRX.EPRXRELOCKTHRESHOLD", 0x5)
 
     def set_eprx_datarate(self, datarate):
+        print(
+            f"[set_eprx_datarate] "
+            f"{'TRIG' if self.trigger else 'DAQ'} lpGBT, "
+            f"datarate={datarate}"
+        )
     
-        rx_chn_indices = [0, 2, 4, 6, 8, 10, 12, 14]
+        rx_chn_indices = list(range(0, 28, 2))
         groups = list(set([i // 4 for i in rx_chn_indices]))
         groups.sort()
 
@@ -1651,7 +1660,7 @@ class LPGBT(RegParser):
             # debugging
             #print(f"tmp_adr: {tmp_adr}, \ttmp_adr_val: {self.rd_adr(tmp_adr).value()}")
             # read_values.append(self.rd_adr(tmp_adr).value())
-            
+
             value = self.rd_adr(tmp_adr)
 
             if hasattr(value, "value"):
