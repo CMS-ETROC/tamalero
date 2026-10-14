@@ -1650,7 +1650,14 @@ class LPGBT(RegParser):
             tmp_adr = abs(i-i2cm0read15)+OFFSET_RD
             # debugging
             #print(f"tmp_adr: {tmp_adr}, \ttmp_adr_val: {self.rd_adr(tmp_adr).value()}")
-            read_values.append(self.rd_adr(tmp_adr).value())
+            # read_values.append(self.rd_adr(tmp_adr).value())
+            
+            value = self.rd_adr(tmp_adr)
+
+            if hasattr(value, "value"):
+                value = value.value()
+
+            read_values.append(int(value))
 
         #read_value = self.rd_adr(self.LPGBT_CONST.I2CM0READ15+OFFSET_RD) # get the read value. this is just the first byte
         if nbytes==1:
