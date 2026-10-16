@@ -1140,6 +1140,74 @@ def check_link_rate(rb, chips, mbps=None, *, mapping=None, include_trig=None, ve
     return result
 
 
+def configure_receivers(rb, mapping, ids, *, phase=5, invert=None, verify=True):
+    """Enable the lpGBT elink receivers (EPRX) used by the selected ETROCs.
+
+    DAQ receivers are set up by LPGBT.configure_eprx() during power-up, but
+    the TRIG lpGBT never runs it (it only loads configs/config_slave_v1.txt),
+    so TRIG elinks can be disabled. For every data link of every selected
+    ETROC, on the matching lpGBT, this writes: group TRACKMODE=2, the
+    channel ENABLE=1, PHASESELECT=phase, ACBIAS=1, TERM=1, EQ1=0, and the
+    global lock/relock thresholds=5. Data rate and polarity are NOT touched
+    unless invert={(bank, elink): 0 or 1} is given (bank 0 = DAQ, 1 = TRIG),
+    e.g. invert={(0, 14): 1}. Rewriting the same values on DAQ is harmless.
+    Writes are verified by readback; a mismatch raises. Run before
+    ensure_locked(), with acquisition stopped.
+    Returns {(bank, elink): {"identity", "applied": {...}}}.
+    """
+    validate_mapping(mapping)
+    if isinstance(ids, (str, bytes)):
+        raise ValueError("ids must be a sequence of ETROC IDs, not a string")
+    invert = dict(invert or {})
+    for key, value in invert.items():
+        if (not isinstance(key, tuple) or len(key) != 2 or key[0] not in (0, 1)
+                or value not in (0, 1) or isinstance(value, bool)):
+            raise ValueError("invert must look like {(bank, elink): 0 or 1}")
+    targets = {}
+    for identity in ids:
+        if identity not in mapping["etrocs"]:
+            raise ValueError(f"Unknown ETROC ID: {identity!r}")
+        for bank, elinks in build_elinks(mapping, identity).items():
+            for elink in elinks:
+                targets[(bank, elink)] = identity
+    unknown = set(invert) - set(targets)
+    if unknown:
+        raise ValueError(f"invert refers to links not used by the selected ETROCs: {sorted(unknown)}")
+    lpgbts = {0: rb.DAQ_LPGBT, 1: getattr(rb, "TRIG_LPGBT", None)}
+    for bank, _ in targets:
+        if lpgbts[bank] is None:
+            raise RuntimeError("A selected ETROC uses the TRIG lpGBT, which is not initialized")
+
+    def put(lp, reg, value, label):
+        lp.wr_reg(reg, value)
+        if verify:
+            actual = _link_int(lp.rd_reg(reg))
+            if actual != value:
+                raise RuntimeError(f"{label}: {reg} wrote {value}, read {actual}")
+
+    report = {}
+    prefix = "LPGBT.RWF.EPORTRX."
+    for (bank, elink), identity in sorted(targets.items()):
+        lp, name = lpgbts[bank], ("DAQ" if bank == 0 else "TRIG")
+        group, channel = divmod(elink, 4)
+        label = f"{name} elink {elink} ({identity})"
+        applied = {}
+        put(lp, f"{prefix}EPRX{group}TRACKMODE", 2, label)
+        put(lp, f"{prefix}EPRX{group}{channel}ENABLE", 1, label)
+        for field, value in (("PHASESELECT", phase), ("ACBIAS", 1), ("TERM", 1), ("EQ1", 0)):
+            put(lp, f"{prefix}EPRX_CHN_CONTROL.EPRX{elink}{field}", value, label)
+        if (bank, elink) in invert:
+            put(lp, f"{prefix}EPRX_CHN_CONTROL.EPRX{elink}INVERT", invert[(bank, elink)], label)
+            applied["INVERT"] = invert[(bank, elink)]
+        report[(bank, elink)] = {"identity": identity, "applied": applied}
+    for bank in sorted({b for b, _ in targets}):
+        for reg in ("EPRXLOCKTHRESHOLD", "EPRXRELOCKTHRESHOLD"):
+            put(lpgbts[bank], prefix + reg, 5, "DAQ" if bank == 0 else "TRIG")
+    print("Receivers enabled: " + ", ".join(
+        f"{'DAQ' if b == 0 else 'TRIG'}:{e}({i})" for (b, e), i in sorted(targets.items())))
+    return report
+
+
 def ensure_locked(rb, mapping, ids, retries=3, wait=0.5, verbose=True):
     """Check selected links; retry automatic alignment without changing masks.
 
