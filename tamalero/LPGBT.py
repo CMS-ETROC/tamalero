@@ -767,12 +767,17 @@ class LPGBT(RegParser):
 
 
     def configure_eprx(self):
+        print(
+            f"[configure_eprx] "
+            f"{'TRIG' if self.trigger else 'DAQ'} lpGBT"
+        )
+
         print("Configure_eprx is running")
         rate_map = {1: '320 Mbps', 2: '640 Mbps', 3: '1280 Mbps'}
         if self.verbose:
             print("Configuring elink inputs...")
 
-        rx_chn_indices = [0, 2, 4, 6, 8, 10, 12, 14]
+        rx_chn_indices = list(range(0, 28, 2))
         # rx_chn_indices = [0, 4, 8, 12] # etroc2 right output selected
         groups = list(set([i // 4 for i in rx_chn_indices]))
         groups.sort()
@@ -1655,7 +1660,11 @@ class LPGBT(RegParser):
             tmp_adr = abs(i-i2cm0read15)+OFFSET_RD
             # debugging
             #print(f"tmp_adr: {tmp_adr}, \ttmp_adr_val: {self.rd_adr(tmp_adr).value()}")
-            read_values.append(self.rd_adr(tmp_adr).value())
+            # read_values.append(self.rd_adr(tmp_adr).value())
+            value = self.rd_adr(tmp_adr)
+            if hasattr(value, "value"):
+                value = value.value()
+            read_values.append(int(value))
 
         #read_value = self.rd_adr(self.LPGBT_CONST.I2CM0READ15+OFFSET_RD) # get the read value. this is just the first byte
         if nbytes==1:
