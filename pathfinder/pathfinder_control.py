@@ -1036,6 +1036,110 @@ def set_link_rate(rb, chips, mbps=320, include_trig=None, settle=0.2):
     return report
 
 
+_FPGA_RATE = {2: 320, 3: 640, 4: 1280}
+_LPGBT_RATE = {1: 320, 2: 640, 3: 1280}
+_ETROC_RATE = {0: 320, 1: 640, 2: 1280}
+_FPGA_STEP = {320: 1, 640: 2, 1280: 4}      # only elinks with elink % step == 0 are enabled
+
+
+def check_link_rate(rb, chips, mbps=None, *, mapping=None, include_trig=None, verbose=True):
+    """Read-only check that FPGA, lpGBT receivers and ETROCs share one rate.
+
+    mbps=None expects whatever the FPGA ELINK_WIDTH says; otherwise every
+    layer must equal mbps (320, 640 or 1280). Checks FPGA ELINK_WIDTH, the 7
+    EPRXnDATARATE groups of the DAQ (and an existing TRIG) lpGBT, and
+    serRateLeft/Right of each ETROC; with singlePort=1 only Right is used,
+    so only Right must match, and a Left difference is reported as a note.
+    With mapping, selected ETROC elinks that the FPGA rate disables
+    (elink % step != 0) are reported. Writes nothing.
+    Returns {"rate", "consistent", "mismatches", "notes", "layers"}.
+    """
+    def val(x):
+        return int(x.value() if hasattr(x, "value") else x)
+
+    layers, mismatches, notes = {}, [], []
+
+    def read(key, reader, table):
+        try:
+            code = val(reader())
+        except Exception as exc:
+            layers[key] = {"code": None, "mbps": None, "error": str(exc)}
+            mismatches.append(f"{key}: READ FAILED ({exc})")
+            return None
+        layers[key] = {"code": code, "mbps": table.get(code)}
+        return table.get(code)
+
+    fpga = read("FPGA.ELINK_WIDTH",
+                lambda: rb.kcu.read_node(f"READOUT_BOARD_{rb.rb}.ELINK_WIDTH"), _FPGA_RATE)
+    expected = mbps if mbps is not None else fpga
+    if mbps is not None and mbps not in (320, 640, 1280):
+        raise ValueError("mbps must be None, 320, 640 or 1280")
+    if expected is None:
+        mismatches.append("expected rate unknown (FPGA ELINK_WIDTH unreadable or unexpected)")
+
+    lps = [("DAQ", rb.DAQ_LPGBT)]
+    use_trig = (getattr(rb, "TRIG_LPGBT", None) is not None) if include_trig is None else include_trig
+    if use_trig:
+        lps.append(("TRIG", rb.TRIG_LPGBT))
+    for name, lp in lps:
+        try:
+            mode = val(lp.rd_reg("LPGBT.RO.LPGBTSETTINGS.LPGBTMODE"))
+        except Exception:
+            mode = None
+        if mode not in (9, 11):
+            notes.append(f"{name}: LPGBTMODE={mode}; rate codes are only validated for modes 9/11")
+        for g in range(7):
+            read(f"{name}.EPRX{g}DATARATE",
+                 lambda lp=lp, g=g: lp.rd_reg(f"LPGBT.RWF.EPORTRX.EPRX{g}DATARATE"), _LPGBT_RATE)
+
+    for ident, chip in chips.items():
+        port = None
+        try:
+            port = val(chip.rd_reg("singlePort"))
+        except Exception as exc:
+            mismatches.append(f"{ident}.singlePort: READ FAILED ({exc})")
+        layers[f"{ident}.singlePort"] = {"code": port}
+        for side in ("Left", "Right"):
+            r = read(f"{ident}.serRate{side}",
+                     lambda chip=chip, side=side: chip.rd_reg("serRate" + side), _ETROC_RATE)
+            if side == "Left" and port == 1:
+                if r is not None and expected is not None and r != expected:
+                    notes.append(f"{ident}.serRateLeft={r} Mbps differs, but singlePort=1 uses Right only")
+                layers[f"{ident}.serRateLeft"]["unused"] = True
+
+    for key, info in layers.items():
+        if "mbps" not in info or info.get("unused") or info.get("error"):
+            continue
+        if expected is not None and info["mbps"] != expected:
+            mismatches.append(f"{key}: {info['mbps']} Mbps (code {info['code']}), expected {expected}")
+
+    if mapping is not None and expected in _FPGA_STEP:
+        step = _FPGA_STEP[expected]
+        for ident in chips:
+            for bank, links in build_elinks(mapping, ident).items():
+                for elink in links:
+                    if elink % step:
+                        mismatches.append(f"{ident} elink {elink} ({'DAQ' if bank == 0 else 'TRIG'}) "
+                                          f"is disabled by the FPGA at {expected} Mbps")
+
+    result = {"rate": expected, "consistent": not mismatches,
+              "mismatches": mismatches, "notes": notes, "layers": layers}
+    if verbose:
+        print(f"Expected rate: {expected} Mbps" + ("" if mbps is not None else " (taken from FPGA)"))
+        for key, info in layers.items():
+            if "mbps" in info:
+                tag = "" if info.get("unused") or info.get("error") or info["mbps"] == expected else "   <-- MISMATCH"
+                print(f"  {key:<24} code={info['code']}  {info['mbps']} Mbps{tag}"
+                      + ("  (unused: singlePort=1)" if info.get("unused") else ""))
+            else:
+                print(f"  {key:<24} {info['code']}")
+        for n in notes:
+            print("  note:", n)
+        print("ALL LAYERS AGREE: " + str(expected) + " Mbps" if result["consistent"]
+              else "RATE CHECK FAILED:\n  " + "\n  ".join(mismatches))
+    return result
+
+
 def ensure_locked(rb, mapping, ids, retries=3, wait=0.5, verbose=True):
     """Check selected links; retry automatic alignment without changing masks.
 
