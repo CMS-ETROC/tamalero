@@ -1326,5 +1326,229 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
 
 
 
+# ---------------------------------------------------------------------------
+# QInj delay scans (ETROC L1Adelay, FPGA TRIG_DLY_SEL)
+# Needs: links locked, thresholds applied, TRIG_ENABLE_MASK != 0, QInj enabled
+# on scan_pixels. Hardware is touched only when a scan function is called.
+# ---------------------------------------------------------------------------
+
+DEFAULT_L1A_DELAY = 0x01F5
+
+
+def _qscan_expected_elinks(mapping, chips):
+    out = []
+    for identity in chips:
+        for bank, elinks in build_elinks(mapping, identity).items():
+            for e in elinks:
+                out.append((bank, e, identity))
+    return out
+
+
+def _qscan_set_delay(chips, scan_pixels, delay, verify=False):
+    for identity, etroc in chips.items():
+        for row, col in scan_pixels:
+            etroc.wr_reg("L1Adelay", delay, row=row, col=col, broadcast=False)
+        if verify:
+            row, col = scan_pixels[0]
+            got = etroc.rd_reg("L1Adelay", row=row, col=col)
+            if got != delay:
+                raise RuntimeError(
+                    f"{identity}: L1Adelay readback {got} != written {delay} "
+                    f"(value out of the register range?)")
+
+
+def _qscan_read_counts(fifo, df, expected):
+    """Read everything currently in the FIFO; count events per elink."""
+    per = {e: {"header": 0, "data": 0, "trailer": 0} for _, e, _ in expected}
+    tot = {"header": 0, "data": 0, "trailer": 0}
+    events = fifo.pretty_read(df)
+    for ev in events or []:
+        if not ev or len(ev) < 2 or ev[0] not in tot:
+            continue
+        kind = ev[0]
+        tot[kind] += 1
+        try:
+            elink = ev[1]["elink"]
+        except Exception:
+            continue
+        if elink in per:
+            per[elink][kind] += 1
+    return tot, per
+
+
+def _qscan_prepare(rb, chips, mapping, fifo, df, empty_slot_bcid):
+    """Common checks + setup for both scans. Returns (fifo, df, expected)."""
+    expected = _qscan_expected_elinks(mapping, chips)
+
+    # Refuse to scan on links that are not locked (that cost us hours before).
+    bad = [(i, e) for b, e, i in expected if not rb.etroc_locked(e, slave=(b == 1))]
+    if bad:
+        raise RuntimeError(f"not locked: {bad}. Open the mask with "
+                           "configure_readout_links(rb, mapping, ids) and run "
+                           "ensure_locked() first.")
+
+    mask = rb.kcu.read_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK").value()
+    if mask == 0:
+        raise RuntimeError("TRIG_ENABLE_MASK is 0: run configure_self_trigger() "
+                           "(section 9) first, otherwise no L1A is ever generated.")
+
+    if fifo is None:
+        from tamalero.FIFO import FIFO
+        fifo = FIFO(rb)
+    if df is None:
+        from tamalero.DataFrame import DataFrame
+        df = DataFrame()
+
+    # Same preparation as run_charge_injection_test(), minus the call that
+    # un-masks ALL 28 links (rb.enable_etroc_readout()): the mask you set in
+    # section 7 is kept.
+    fifo.reset()
+    rb.reset_data_error_count()
+    rb.rerun_bitslip()
+    time.sleep(0.5)
+    fifo.use_etroc_data()
+    rb.enable_etroc_trigger()
+    time.sleep(0.1)
+    for etroc in chips.values():
+        etroc.wr_reg("emptySlotBCID", empty_slot_bcid)
+    return fifo, df, expected
+
+
+def scan_l1a_delay(rb, chips, mapping, scan_pixels, delays=range(480, 512),
+                   qinj_count=20, settle=0.05, empty_slot_bcid=500,
+                   restore=DEFAULT_L1A_DELAY, fifo=None, df=None, verbose=True):
+    if not chips:
+        raise ValueError("chips is empty")
+    scan_pixels = list(scan_pixels)
+    if not scan_pixels:
+        raise ValueError("scan_pixels is empty")
+    delays = list(delays)
+
+    fifo, df, expected = _qscan_prepare(rb, chips, mapping, fifo, df, empty_slot_bcid)
+
+    results = {}
+    try:
+        _qscan_set_delay(chips, scan_pixels, delays[0], verify=True)   # range sanity check
+        for n, d in enumerate(delays):
+            _qscan_set_delay(chips, scan_pixels, d)
+            fifo.reset()
+            time.sleep(0.01)
+            fifo.send_Qinj_only(count=qinj_count)
+            time.sleep(settle)
+            tot, per = _qscan_read_counts(fifo, df, expected)
+            results[d] = {"total": tot, "per_elink": per}
+            if verbose:
+                bar = "#" * min(tot["data"], 60)
+                print(f"L1Adelay {d:>4} (0x{d:03x}): headers={tot['header']:<4} "
+                      f"data={tot['data']:<4} trailers={tot['trailer']:<4} {bar}")
+    finally:
+        # always put the pixels back, even if the scan is interrupted
+        try:
+            _qscan_set_delay(chips, scan_pixels, restore)
+        except Exception as exc:                       # pragma: no cover
+            print(f"WARNING: could not restore L1Adelay={restore}: {exc}")
+
+    hits = {d: r["total"]["data"] for d, r in results.items()}
+    best_hits = max(hits.values()) if hits else 0
+    window = [d for d, h in hits.items() if best_hits and h >= 0.5 * best_hits]
+    summary = {
+        "results": results,
+        "best_hits": best_hits,
+        "window_half_max": (min(window), max(window)) if window else None,
+        "centre": (min(window) + max(window)) / 2 if window else None,
+        "restored_to": restore,
+    }
+    if verbose:
+        if not window:
+            print("\nNo data words at any delay. Check: QInjEn/QSel on the "
+                  "pixels, thresholds, TRIG_ENABLE_MASK, FC_status(), or widen "
+                  "the delay range.")
+        else:
+            lo, hi = summary["window_half_max"]
+            print(f"\nPeak: {best_hits} data words; half-max window "
+                  f"L1Adelay {lo}..{hi}, centre ~{summary['centre']:.1f}. "
+                  f"Pixels restored to {restore}.")
+    return summary
+
+
+def scan_trigger_delay(rb, chips, mapping, scan_pixels, delays=range(440, 500),
+                       l1a_delay=DEFAULT_L1A_DELAY, qinj_count=20, settle=0.05,
+                       empty_slot_bcid=500, restore=None, fifo=None, df=None,
+                       verbose=True):
+    """Scan the FPGA self-trigger delay (READOUT_BOARD_n.TRIG_DLY_SEL) with
+    the ETROC L1Adelay held fixed (default 501).
+
+    TRIG_DLY_SEL selects a tap of a 512-stage, 40 MHz delay line (valid
+    0..511, 25 ns per step) between the self-trigger and the L1A sent to the
+    ETROC. The ETROC answers only if that L1A arrives L1Adelay bunch crossings
+    after the hit, so data words appear in a narrow window of TRIG_DLY_SEL.
+    Your current default is 466; the window should be close to
+    (L1Adelay - fixed round-trip latency), i.e. near 466 if the latency is 35.
+
+    TRIG_DLY_SEL is restored afterwards (to its value before the scan unless
+    `restore` is given). L1Adelay stays at `l1a_delay` on the scanned pixels.
+    """
+    scan_pixels = list(scan_pixels)
+    if not chips or not scan_pixels:
+        raise ValueError("chips and scan_pixels must not be empty")
+    delays = list(delays)
+    if not delays or min(delays) < 0 or max(delays) > 511:
+        raise ValueError("TRIG_DLY_SEL values must be within 0..511")
+
+    fifo, df, expected = _qscan_prepare(rb, chips, mapping, fifo, df, empty_slot_bcid)
+
+    node = f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL"
+    original = rb.kcu.read_node(node).value()
+    if restore is None:
+        restore = original
+    _qscan_set_delay(chips, scan_pixels, l1a_delay, verify=True)
+    if verbose:
+        print(f"L1Adelay fixed at {l1a_delay}; TRIG_DLY_SEL was {original}; "
+              f"scanning {delays[0]}..{delays[-1]} ({len(delays)} points)")
+
+    results = {}
+    try:
+        for d in delays:
+            rb.kcu.write_node(node, d)
+            fifo.reset()
+            time.sleep(0.01)
+            fifo.send_Qinj_only(count=qinj_count)
+            time.sleep(settle)
+            tot, per = _qscan_read_counts(fifo, df, expected)
+            results[d] = {"total": tot, "per_elink": per}
+            if verbose:
+                bar = "#" * min(tot["data"], 60)
+                print(f"TRIG_DLY_SEL {d:>4}: headers={tot['header']:<4} "
+                      f"data={tot['data']:<4} trailers={tot['trailer']:<4} {bar}")
+    finally:
+        try:
+            rb.kcu.write_node(node, restore)
+        except Exception as exc:                       # pragma: no cover
+            print(f"WARNING: could not restore TRIG_DLY_SEL={restore}: {exc}")
+
+    hits = {d: r["total"]["data"] for d, r in results.items()}
+    best_hits = max(hits.values()) if hits else 0
+    window = [d for d, h in hits.items() if best_hits and h >= 0.5 * best_hits]
+    summary = {
+        "results": results,
+        "best_hits": best_hits,
+        "window_half_max": (min(window), max(window)) if window else None,
+        "centre": (min(window) + max(window)) / 2 if window else None,
+        "l1a_delay": l1a_delay,
+        "restored_to": restore,
+    }
+    if verbose:
+        if not window:
+            print("\nNo data words at any TRIG_DLY_SEL in this range. Widen the "
+                  "range (0..511 is valid), and check QInjEn/QSel, thresholds, "
+                  "TRIG_ENABLE_MASK and FC_status().")
+        else:
+            lo, hi = summary["window_half_max"]
+            print(f"\nPeak: {best_hits} data words; half-max window "
+                  f"TRIG_DLY_SEL {lo}..{hi}, centre ~{summary['centre']:.1f}. "
+                  f"TRIG_DLY_SEL restored to {restore}.")
+    return summary
+
+
 if __name__ == "__main__":
     main()
