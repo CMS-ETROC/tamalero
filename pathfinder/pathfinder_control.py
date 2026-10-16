@@ -969,13 +969,134 @@ def configure_adc_mapping(rb, mapping):
     return grouped
 
 
-def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3):
+# E-link configuration and diagnostics. Acquisition must be stopped for writes.
+_LINK_RATES = {320: (2, 1), 640: (3, 2)}
+
+
+def _link_int(value):
+    return int(value.value() if hasattr(value, "value") else value)
+
+
+def set_link_rate(rb, chips, mbps=320, include_trig=None, settle=0.2):
+    """Set and verify FPGA width, all receiver groups, and all supplied ETROCs.
+
+    Supports 320/640 Mbps on the validated 10.24 Gbps lpGBT modes 9 and 11.
+    include_trig=None automatically includes an existing TRIG object.
+    FPGA width is shared: pass every ETROC that will remain enabled.
+    Does not alter masks, inversion, merge, trigger width, or run bitslip.
+    On failure writes may be partial; readbacks are required before acquisition.
+    """
+    import time
+    if isinstance(mbps, bool) or mbps not in _LINK_RATES:
+        raise ValueError("Supported rates are 320 and 640 Mbps")
+    if not chips:
+        raise ValueError("Pass the initialized ETROCs that will be enabled")
+    if include_trig is not None and type(include_trig) is not bool:
+        raise ValueError("include_trig must be None, True, or False")
+    if not isinstance(settle, (int, float)) or not 0 <= settle <= 60:
+        raise ValueError("settle must be between 0 and 60 seconds")
+    trig = getattr(rb, "TRIG_LPGBT", None)
+    use_trig = trig is not None if include_trig is None else include_trig
+    if use_trig and trig is None:
+        raise RuntimeError("TRIG lpGBT requested but not initialized")
+    controllers = [("DAQ", rb.DAQ_LPGBT)]
+    if use_trig:
+        controllers.append(("TRIG", trig))
+    # Complete preflight reads before the first write.
+    for name, lp in controllers:
+        mode = _link_int(lp.rd_reg("LPGBT.RO.LPGBTSETTINGS.LPGBTMODE"))
+        if mode not in (9, 11):
+            raise ValueError(f"{name}: unvalidated optical MODE={mode}; no rate writes made")
+    for identity, chip in chips.items():
+        for port in ("Left", "Right"):
+            _link_int(chip.rd_reg("serRate" + port))
+    width, rate = _LINK_RATES[mbps]
+    report = {}
+    def write_checked(key, value, writer, reader):
+        writer(value)
+        actual = _link_int(reader())
+        report[key] = actual
+        if actual != value:
+            raise RuntimeError(f"{key}: expected {value}, read {actual}; configuration may be partial")
+    node = f"READOUT_BOARD_{rb.rb}.ELINK_WIDTH"
+    write_checked("ELINK_WIDTH", width, lambda v: rb.kcu.write_node(node, v),
+                  lambda: rb.kcu.read_node(node))
+    for name, lp in controllers:
+        for group in range(7):
+            node = f"LPGBT.RWF.EPORTRX.EPRX{group}DATARATE"
+            write_checked(f"{name}.group{group}", rate,
+                          lambda v: lp.wr_reg(node, v), lambda: lp.rd_reg(node))
+    for identity, chip in chips.items():
+        for port in ("Left", "Right"):
+            node = "serRate" + port
+            write_checked(f"{identity}.{node}", {320: 0, 640: 1}[mbps],
+                          lambda v: chip.wr_reg(node, v), lambda: chip.rd_reg(node))
+    time.sleep(settle)
+    print(f"Rate verified: {mbps} Mbps; receivers={[n for n, _ in controllers]}, ETROCs={list(chips)}")
+    return report
+
+
+def ensure_locked(rb, mapping, ids, retries=3, wait=0.5, verbose=True):
+    """Check selected links; retry automatic alignment without changing masks.
+
+    Raises before alignment if a selected link is disabled. Each retry enables
+    automatic alignment for `wait` seconds, then restores its previous setting.
+    Returns check_links() results, even if some channels remain unlocked.
+    """
+    import time
+    if isinstance(ids, (str, bytes)):
+        raise ValueError("ids must be a sequence, not a string")
+    ids = list(ids)
+    if not ids:
+        raise ValueError("Select at least one ETROC")
+    if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+        raise ValueError("retries must be a non-negative integer")
+    if not isinstance(wait, (int, float)) or not 0 < wait <= 60:
+        raise ValueError("wait must be > 0 and <= 60 seconds")
+    build_readout_masks(mapping, ids)  # Validate the selection without writes.
+    prefix = f"READOUT_BOARD_{rb.rb}"
+    for identity in ids:
+        for bank, links in build_elinks(mapping, identity).items():
+            if not links:
+                continue
+            node = "ETROC_DISABLE" if bank == 0 else "ETROC_DISABLE_SLAVE"
+            mask = _link_int(rb.kcu.read_node(f"{prefix}.{node}"))
+            for elink in links:
+                if mask & (1 << elink):
+                    raise RuntimeError(f"{identity} bank {bank} E-link {elink} DISABLED; "
+                                       "call configure_readout_links(rb, mapping, ids) first")
+    result = check_links(rb, mapping, ids)
+    def all_locked():
+        return bool(result) and all(r["all_locked"] for r in result.values())
+    for attempt in range(retries):
+        if all_locked():
+            break
+        if verbose:
+            print(f"Alignment attempt {attempt + 1}/{retries}")
+        node = f"{prefix}.BITSLIP_AUTO_EN"
+        previous = _link_int(rb.kcu.read_node(node))
+        try:
+            rb.kcu.write_node(node, 1)
+            time.sleep(wait)
+            result = check_links(rb, mapping, ids)
+        finally:
+            rb.kcu.write_node(node, previous)
+    if verbose:
+        print("All selected links locked" if all_locked() else "Some selected links remain unlocked")
+    return result
+
+
+def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.0):
     """Read ETROC, lpGBT receiver, and FPGA link status without writes."""
     import time
 
     def as_int(value):
         return int(value.value() if hasattr(value, "value") else value)
 
+    if isinstance(pll_samples, bool) or not isinstance(pll_samples, int) or pll_samples < 1:
+        raise ValueError("pll_samples must be a positive integer")
+    if not isinstance(interval, (int, float)) or not 0 <= interval <= 60:
+        raise ValueError("interval must be between 0 and 60 seconds")
     results = {}
 
     def read(label, reader):
@@ -1009,11 +1130,14 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3):
         "serRateRight",
         "mergeTriggerData",
         "disScrambler",
+        "controllerState", "fcAlignFinalState", "fcAlignStatus",
+        "asyLinkReset", "TDCStrobeTest",
     ):
         read(name, lambda name=name: chip.rd_reg(name))
 
+    read("trigger_bits", lambda: chip.get_triggerGranularity())
     print("\n=== FPGA configuration ===")
-    for name in ("ELINK_WIDTH", "BITSLIP_AUTO_EN"):
+    for name in ("ELINK_WIDTH", "BITSLIP_AUTO_EN", "TRIG_DATA_SIZE"):
         read(name, lambda name=name:
              rb.kcu.read_node(f"{prefix}.{name}"))
 
@@ -1036,6 +1160,9 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3):
             node = f"{prefix}.LPGBT.UPLINK_{ilpgbt}.{name}"
             read(f"{label}.{name}",
                  lambda node=node: rb.kcu.read_node(node))
+
+        read(f"{label}.LPGBTMODE",
+             lambda: lpgbt.rd_reg("LPGBT.RO.LPGBTSETTINGS.LPGBTMODE"))
 
         # Software initialization marker, not hardware READY.
         read(f"{label}.power_up_done",
@@ -1112,13 +1239,89 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3):
                 lambda: rb.etroc_locked(elink, slave=(ilpgbt == 1))
             )
 
-    print("\n=== ETROC PLL unlock counter ===")
+    print("\n=== Stability samples (read-only; no counter resets) ===")
+    samples = []
     for i in range(pll_samples):
-        read(f"pllUnlockCount[{i}]",
-             lambda: chip.rd_reg("pllUnlockCount"))
+        sample = {}
+        for name in ("controllerState", "pllUnlockCount", "invalidFCCount"):
+            sample[name] = read(f"sample[{i}].{name}",
+                                lambda name=name: chip.rd_reg(name))
+        for bank, links in routes.items():
+            if not links:
+                continue
+            label = "DAQ" if bank == 0 else "TRIG"
+            for name in ("READY", "FEC_ERR_CNT"):
+                key = f"{label}.{name}"
+                sample[key] = read(f"sample[{i}].{key}", lambda bank=bank, name=name:
+                    rb.kcu.read_node(f"{prefix}.LPGBT.UPLINK_{bank}.{name}"))
+            for elink in links:
+                key = f"{label}.E{elink}.LOCKED"
+                sample[key] = read(f"sample[{i}].{key}", lambda bank=bank, elink=elink:
+                                   rb.etroc_locked(elink, slave=(bank == 1)))
+        samples.append(sample)
         if i + 1 < pll_samples:
-            time.sleep(1)
+            time.sleep(interval)
 
+    notes = []
+    def note(message):
+        notes.append(message)
+        print("  " + message)
+
+    print("\n=== Interpretation ===")
+    def decode(table, value):
+        return table.get(value) if isinstance(value, int) else None
+    fpga_rate = decode({2: 320, 3: 640, 4: 1280}, results.get("ELINK_WIDTH"))
+    left = decode({0: 320, 1: 640, 2: 1280}, results.get("serRateLeft"))
+    right = decode({0: 320, 1: 640, 2: 1280}, results.get("serRateRight"))
+    note(f"Rate readbacks: FPGA={fpga_rate}, ETROC Left={left}, Right={right} Mbps")
+    for bank, links in routes.items():
+        label = "DAQ" if bank == 0 else "TRIG"
+        for elink in links:
+            tag = f"{label}.E{elink}"
+            code = results.get(f"{tag}.EPRX{elink // 4}DATARATE")
+            # Restrict interpretation to the two modes validated on this setup.
+            mode = results.get(f"{label}.LPGBTMODE")
+            rate = decode({1: 320, 2: 640, 3: 1280}, code) if mode in (9, 11) else None
+            note(f"{tag}: lpGBT rate={rate} Mbps (mode={mode}, rate code={code})")
+            if results.get("singlePort") == 1 and all(v is not None for v in (fpga_rate, right, rate)):
+                note(f"{tag}: right-port rate " + ("MATCH" if fpga_rate == right == rate else "MISMATCH"))
+            else:
+                note(f"{tag}: rate match UNKNOWN; confirm optical mode and output-port routing")
+            disabled = results.get(f"{tag}.FPGA_DISABLED")
+            if disabled == 1:
+                note(f"{tag}: DISABLED; an unlocked receiver does not diagnose the incoming signal")
+            elif disabled == 0:
+                note(f"{tag}: enabled; FPGA frame lock={results.get(f'{tag}.FPGA_FRAME_LOCKED')}")
+            else:
+                note(f"{tag}: enable status UNKNOWN")
+            size = results.get("TRIG_DATA_SIZE")
+            bits = results.get("trigger_bits")
+            if isinstance(size, int) and isinstance(bits, int) and results.get("mergeTriggerData") == 1:
+                effective = 0 if (size & 0x20 and elink % 4 == 0) else size & 0x1f
+                note(f"{tag}: merge trigger width ETROC={bits}, FPGA={effective}: "
+                     + ("MATCH" if bits == effective else "MISMATCH"))
+            else:
+                note(f"{tag}: merge trigger-width comparison UNKNOWN / not applicable")
+    if results.get("BITSLIP_AUTO_EN") == 0:
+        note("Automatic alignment is currently off; rerun_bitslip() normally turns it off after its pulse.")
+    if results.get("controllerState") != 11:
+        note("controllerState differs from driver expectation 11; no state-name interpretation is assumed.")
+    if len(samples) > 1:
+        for key in samples[0]:
+            values = [sample[key] for sample in samples]
+            if any(v is None for v in values):
+                note(f"{key}: incomplete reads; stability UNKNOWN")
+            elif "Count" in key or key.endswith("FEC_ERR_CNT"):
+                if any(b < a for a, b in zip(values, values[1:])):
+                    note(f"{key}: decreased; possible reset/wrap, delta not inferred ({values})")
+                elif values[-1] != values[0]:
+                    note(f"{key}: increased by {values[-1] - values[0]} ({values})")
+                else:
+                    note(f"{key}: unchanged at {values[0]}; saturation or historical errors are not excluded")
+            else:
+                note(f"{key}: {'stable' if len(set(values)) == 1 else 'CHANGING'} {values}")
+    results["samples"] = samples
+    results["notes"] = notes
     return results
 
 
