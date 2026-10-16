@@ -519,10 +519,10 @@ class ETROC():
             # self.enable_fcClkDelay()
             # self.enable_fcDataDelay()
             # set ETROC in 320Mbps mode
-            # self.wr_reg('serRateLeft', 0)
-            # self.wr_reg('serRateRight', 0)
-            self.wr_reg('serRateLeft', 1)
-            self.wr_reg('serRateRight',1)
+            self.wr_reg('serRateLeft', 0)
+            self.wr_reg('serRateRight', 0)
+            # self.wr_reg('serRateLeft', 1)
+            # self.wr_reg('serRateRight',1)
             current_left_rate = self.rd_reg('serRateLeft')
             current_right_rate = self.rd_reg('serRateRight')
             rate_map = {0: '320 Mbps', 1: '640 Mbps', 2: '1280 Mbps'}

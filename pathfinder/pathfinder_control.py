@@ -969,5 +969,159 @@ def configure_adc_mapping(rb, mapping):
     return grouped
 
 
+def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3):
+    """Read ETROC, lpGBT receiver, and FPGA link status without writes."""
+    import time
+
+    def as_int(value):
+        return int(value.value() if hasattr(value, "value") else value)
+
+    results = {}
+
+    def read(label, reader):
+        try:
+            value = as_int(reader())
+            results[label] = value
+            print(f"  {label}: {value}")
+            return value
+        except Exception as exc:
+            results[label] = {"error": str(exc)}
+            print(f"  {label}: READ FAILED — {exc}")
+            return None
+
+    if identity not in mapping["etrocs"]:
+        raise ValueError(f"Unknown ETROC: {identity}")
+    if identity not in chips:
+        raise ValueError(f"{identity} has not been initialized")
+
+    chip = chips[identity]
+    routes = build_elinks(mapping, identity)
+    prefix = f"READOUT_BOARD_{rb.rb}"
+
+    print(f"\n=== {identity}: mapping ===")
+    print("  I2C:", mapping["etrocs"][identity]["i2c"])
+    print("  Data links:", routes)
+
+    print("\n=== ETROC output ===")
+    for name in (
+        "singlePort",
+        "serRateLeft",
+        "serRateRight",
+        "mergeTriggerData",
+        "disScrambler",
+    ):
+        read(name, lambda name=name: chip.rd_reg(name))
+
+    print("\n=== FPGA configuration ===")
+    for name in ("ELINK_WIDTH", "BITSLIP_AUTO_EN"):
+        read(name, lambda name=name:
+             rb.kcu.read_node(f"{prefix}.{name}"))
+
+    for ilpgbt, elinks in routes.items():
+        if not elinks:
+            continue
+        if ilpgbt not in (0, 1):
+            raise ValueError(f"Unsupported ilpgbt: {ilpgbt}")
+
+        label = "DAQ" if ilpgbt == 0 else "TRIG"
+        lpgbt = getattr(
+            rb, "DAQ_LPGBT" if ilpgbt == 0 else "TRIG_LPGBT", None
+        )
+        if lpgbt is None:
+            print(f"\n{label}: lpGBT object unavailable")
+            continue
+
+        print(f"\n=== {label}: optical uplink ===")
+        for name in ("READY", "FEC_ERR_CNT"):
+            node = f"{prefix}.LPGBT.UPLINK_{ilpgbt}.{name}"
+            read(f"{label}.{name}",
+                 lambda node=node: rb.kcu.read_node(node))
+
+        # Software initialization marker, not hardware READY.
+        read(f"{label}.power_up_done",
+             lambda: lpgbt.power_up_done())
+
+        disable_name = (
+            "ETROC_DISABLE" if ilpgbt == 0 else "ETROC_DISABLE_SLAVE"
+        )
+        disable_mask = read(
+            f"{label}.{disable_name}",
+            lambda: rb.kcu.read_node(f"{prefix}.{disable_name}")
+        )
+
+        for elink in elinks:
+            group, channel = divmod(elink, 4)
+            tag = f"{label}.E{elink}"
+
+            print(
+                f"\n=== {identity}: {label} E-link {elink}, "
+                f"Group {group}, Channel {channel} ==="
+            )
+
+            nodes = [
+                f"LPGBT.RWF.EPORTRX.EPRX{group}{channel}ENABLE",
+                f"LPGBT.RWF.EPORTRX.EPRX{group}DATARATE",
+                f"LPGBT.RWF.EPORTRX.EPRX{group}TRACKMODE",
+            ]
+
+            for suffix in ("PHASESELECT", "INVERT", "ACBIAS", "TERM", "EQ1"):
+                nodes.append(
+                    "LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL."
+                    f"EPRX{elink}{suffix}"
+                )
+
+            for node in nodes:
+                read(f"{tag}.{node.split('.')[-1]}",
+                     lambda node=node: lpgbt.rd_reg(node))
+
+            # Raw status addresses verified for driver ver=1.
+            if lpgbt.ver == 1:
+                rx = read(
+                    f"{tag}.RX_STATUS_RAW",
+                    lambda: lpgbt.rd_adr(0x152 + 3 * group)
+                )
+                dll = read(
+                    f"{tag}.DLL_STATUS_RAW",
+                    lambda: lpgbt.rd_adr(0x168 + group)
+                )
+                phase = read(
+                    f"{tag}.PHASE_RAW",
+                    lambda: lpgbt.rd_adr(
+                        0x153 + 3 * group + channel // 2
+                    )
+                )
+
+                if dll is not None:
+                    read(f"{tag}.DLL_LOCKED",
+                         lambda: (dll >> 7) & 1)
+                if rx is not None:
+                    read(f"{tag}.PHASE_TRACKING_LOCKED",
+                         lambda: (rx >> (4 + channel)) & 1)
+                if phase is not None:
+                    read(f"{tag}.CURRENT_PHASE",
+                         lambda: (phase >> (4 * (channel % 2))) & 0xF)
+            else:
+                print("  DLL/phase status skipped: unsupported register version")
+
+            if disable_mask is not None:
+                read(f"{tag}.FPGA_DISABLED",
+                     lambda: (disable_mask >> elink) & 1)
+
+            read(
+                f"{tag}.FPGA_FRAME_LOCKED",
+                lambda: rb.etroc_locked(elink, slave=(ilpgbt == 1))
+            )
+
+    print("\n=== ETROC PLL unlock counter ===")
+    for i in range(pll_samples):
+        read(f"pllUnlockCount[{i}]",
+             lambda: chip.rd_reg("pllUnlockCount"))
+        if i + 1 < pll_samples:
+            time.sleep(1)
+
+    return results
+
+
+
 if __name__ == "__main__":
     main()
