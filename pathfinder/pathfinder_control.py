@@ -510,8 +510,44 @@ def read_clock_configuration(rb, *, verbose=True):
     return results
 
 
+def initialize_pathfinder_eprx(rb):
+    """Enable and invert the 14 wired even inputs on each Pathfinder lpGBT.
+
+    Run with acquisition stopped, after base lpGBT initialization. Does not
+    change rates, phase, termination, odd inputs, or FPGA readout masks.
+    Every write is verified; failure can leave a partially applied setup.
+    """
+    controllers = [("DAQ", getattr(rb, "DAQ_LPGBT", None), "uplink"),
+                   ("TRIG", getattr(rb, "TRIG_LPGBT", None), "trigger")]
+    for name, lp, key in controllers:
+        if lp is None:
+            raise RuntimeError(f"{name} lpGBT is required for Pathfinder EPRX initialization")
+    def number(value):
+        return int(value.value() if hasattr(value, "value") else value)
+    used_elinks = list(range(0, 28, 2))
+    report = {}
+    for name, lp, key in controllers:
+        lp.link_inversions[key] = used_elinks.copy()
+        report[name] = {}
+        for elink in used_elinks:
+            group, channel = divmod(elink, 4)
+            fields = {
+                "INVERT": f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}INVERT",
+                "ENABLE": f"LPGBT.RWF.EPORTRX.EPRX{group}{channel}ENABLE",
+            }
+            report[name][elink] = {}
+            for field, node in fields.items():
+                lp.wr_reg(node, 1)
+                actual = number(lp.rd_reg(node))
+                if actual != 1:
+                    raise RuntimeError(f"{name} E-link {elink}: {field} expected=1, readback={actual}")
+                report[name][elink][field] = actual
+        print(f"{name}: {len(used_elinks)} wired E-links verified (ENABLE=1, INVERT=1)")
+    return report
+
+
 def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
-    """Configure and verify both Pathfinder optical uplinks.
+    """Configure wired EPRX inputs and verify both Pathfinder optical uplinks.
 
     Run after the existing motherboard and ECLK/E-link initialization.
     Current-board settings are based on the successfully tested setup.
@@ -601,6 +637,9 @@ def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
                 f"read 0x{mode:X}; check MODE configuration"
             )
 
+    print("\n1.1. Enabling and inverting wired EPRX inputs")
+    eprx = initialize_pathfinder_eprx(rb)
+
     before = snapshot()
 
     print("\n2. Configuring both lpGBT transmitters")
@@ -673,7 +712,7 @@ def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
         f"at all samples during the {monitor_seconds}-second check"
     )
 
-    return {"before": before, "after": after, "samples": samples}
+    return {"before": before, "after": after, "samples": samples, "eprx": eprx}
 
 
 def main():
