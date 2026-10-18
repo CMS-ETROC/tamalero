@@ -5,6 +5,8 @@
 # WS addresses added from the user-provided table, 2026-10-07.
 # i2c.address is the ETROC address; i2c.ws_address is the WS address.
 # Both devices share i2c.lpgbt and i2c.channel.
+# Software D/H numbering: D0..D6, H0..H3. Hardware routing is unchanged.
+index_base: 0
 schema_version: 1
 lpgbts:
   daq:
@@ -19,9 +21,9 @@ lpgbts:
       address: 0x72
 # TRIG control route above comes from the supplied get_trigger()/LPGBT code.
 etrocs:
-  D1H1:
-    daughter: 1
-    hybrid: 1
+  D0H0:
+    daughter: 0
+    hybrid: 0
     motherboard_channel: 0
     connector: J401
     i2c:
@@ -36,9 +38,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK4
-  D1H2:
-    daughter: 1
-    hybrid: 2
+  D0H1:
+    daughter: 0
+    hybrid: 1
     motherboard_channel: 0
     connector: J401
     i2c:
@@ -53,9 +55,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK1
-  D1H3:
-    daughter: 1
-    hybrid: 3
+  D0H2:
+    daughter: 0
+    hybrid: 2
     motherboard_channel: 0
     connector: J401
     i2c:
@@ -70,9 +72,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK23
-  D1H4:
-    daughter: 1
-    hybrid: 4
+  D0H3:
+    daughter: 0
+    hybrid: 3
     motherboard_channel: 0
     connector: J401
     i2c:
@@ -87,9 +89,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK24
-  D2H1:
-    daughter: 2
-    hybrid: 1
+  D1H0:
+    daughter: 1
+    hybrid: 0
     motherboard_channel: 1
     connector: J407
     i2c:
@@ -104,9 +106,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK17
-  D2H2:
-    daughter: 2
-    hybrid: 2
+  D1H1:
+    daughter: 1
+    hybrid: 1
     motherboard_channel: 1
     connector: J407
     i2c:
@@ -121,9 +123,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK16
-  D2H3:
-    daughter: 2
-    hybrid: 3
+  D1H2:
+    daughter: 1
+    hybrid: 2
     motherboard_channel: 1
     connector: J407
     i2c:
@@ -138,9 +140,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK14
-  D2H4:
-    daughter: 2
-    hybrid: 4
+  D1H3:
+    daughter: 1
+    hybrid: 3
     motherboard_channel: 1
     connector: J407
     i2c:
@@ -155,9 +157,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK13
-  D3H1:
-    daughter: 3
-    hybrid: 1
+  D2H0:
+    daughter: 2
+    hybrid: 0
     motherboard_channel: 2
     connector: J406
     i2c:
@@ -172,9 +174,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK10
-  D3H2:
-    daughter: 3
-    hybrid: 2
+  D2H1:
+    daughter: 2
+    hybrid: 1
     motherboard_channel: 2
     connector: J406
     i2c:
@@ -189,9 +191,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK8
-  D3H3:
-    daughter: 3
-    hybrid: 3
+  D2H2:
+    daughter: 2
+    hybrid: 2
     motherboard_channel: 2
     connector: J406
     i2c:
@@ -206,9 +208,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK7
-  D3H4:
-    daughter: 3
-    hybrid: 4
+  D2H3:
+    daughter: 2
+    hybrid: 3
     motherboard_channel: 2
     connector: J406
     i2c:
@@ -223,9 +225,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK5
-  D4H1:
-    daughter: 4
-    hybrid: 1
+  D3H0:
+    daughter: 3
+    hybrid: 0
     motherboard_channel: 3
     connector: J405
     i2c:
@@ -240,9 +242,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK25
-  D4H2:
-    daughter: 4
-    hybrid: 2
+  D3H1:
+    daughter: 3
+    hybrid: 1
     motherboard_channel: 3
     connector: J405
     i2c:
@@ -257,9 +259,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK24
-  D4H3:
-    daughter: 4
-    hybrid: 3
+  D3H2:
+    daughter: 3
+    hybrid: 2
     motherboard_channel: 3
     connector: J405
     i2c:
@@ -274,9 +276,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK20
-  D4H4:
-    daughter: 4
-    hybrid: 4
+  D3H3:
+    daughter: 3
+    hybrid: 3
     motherboard_channel: 3
     connector: J405
     i2c:
@@ -291,9 +293,9 @@ etrocs:
     clock:
       lpgbt: trig
       pin: ECLK18
-  D5H1:
-    daughter: 5
-    hybrid: 1
+  D4H0:
+    daughter: 4
+    hybrid: 0
     motherboard_channel: 4
     connector: J402
     i2c:
@@ -308,9 +310,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK14
-  D5H2:
-    daughter: 5
-    hybrid: 2
+  D4H1:
+    daughter: 4
+    hybrid: 1
     motherboard_channel: 4
     connector: J402
     i2c:
@@ -325,9 +327,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK13
-  D5H3:
-    daughter: 5
-    hybrid: 3
+  D4H2:
+    daughter: 4
+    hybrid: 2
     motherboard_channel: 4
     connector: J402
     i2c:
@@ -342,9 +344,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK10
-  D5H4:
-    daughter: 5
-    hybrid: 4
+  D4H3:
+    daughter: 4
+    hybrid: 3
     motherboard_channel: 4
     connector: J402
     i2c:
@@ -359,9 +361,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK8
-  D6H1:
-    daughter: 6
-    hybrid: 1
+  D5H0:
+    daughter: 5
+    hybrid: 0
     motherboard_channel: 5
     connector: J403
     i2c:
@@ -376,9 +378,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK7
-  D6H2:
-    daughter: 6
-    hybrid: 2
+  D5H1:
+    daughter: 5
+    hybrid: 1
     motherboard_channel: 5
     connector: J403
     i2c:
@@ -393,9 +395,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK5
-  D6H3:
-    daughter: 6
-    hybrid: 3
+  D5H2:
+    daughter: 5
+    hybrid: 2
     motherboard_channel: 5
     connector: J403
     i2c:
@@ -410,9 +412,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK4
-  D6H4:
-    daughter: 6
-    hybrid: 4
+  D5H3:
+    daughter: 5
+    hybrid: 3
     motherboard_channel: 5
     connector: J403
     i2c:
@@ -427,9 +429,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK1
-  D7H1:
-    daughter: 7
-    hybrid: 1
+  D6H0:
+    daughter: 6
+    hybrid: 0
     motherboard_channel: 6
     connector: J404
     i2c:
@@ -444,9 +446,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK20
-  D7H2:
-    daughter: 7
-    hybrid: 2
+  D6H1:
+    daughter: 6
+    hybrid: 1
     motherboard_channel: 6
     connector: J404
     i2c:
@@ -461,9 +463,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK18
-  D7H3:
-    daughter: 7
-    hybrid: 3
+  D6H2:
+    daughter: 6
+    hybrid: 2
     motherboard_channel: 6
     connector: J404
     i2c:
@@ -478,9 +480,9 @@ etrocs:
     clock:
       lpgbt: daq
       pin: ECLK17
-  D7H4:
-    daughter: 7
-    hybrid: 4
+  D6H3:
+    daughter: 6
+    hybrid: 3
     motherboard_channel: 6
     connector: J404
     i2c:
@@ -496,30 +498,30 @@ etrocs:
       lpgbt: daq
       pin: ECLK16
 
-# No ADC connections for D2/D3/D4; only H2 VTEMP is connected on D1/D5/D6/D7.
+# No ADC connections for D1/D2/D3; only H2 VTEMP is connected on D0/D4/D5/D6.
 # Legacy conversions and min/max limits are provisional; verify on Pathfinder.
 adc_monitoring:
   adc:
-    D1_VREF:
+    D0_VREF:
       pin: 5
       current: 0
       conv: 1.247
       min: 0.65
       max: 1.05
       flavor: small
-      comment: D1 shared Vref; legacy conversion, verify on Pathfinder
+      comment: D0 shared Vref; legacy conversion, verify on Pathfinder
       lpgbt: daq
       conversion_verified: false
-    D1H2_VTEMP:
+    D0H1_VTEMP:
       pin: 2
       current: 0
       conv: 1
       min: 0
       max: 1.2
       flavor: small
-      comment: D1H2 VTEMP voltage (not degrees C)
+      comment: D0H1 VTEMP voltage (not degrees C)
       lpgbt: daq
-    D1_1V2_CURRENT:
+    D0_1V2_CURRENT:
       pin_pos: 0
       pin_neg: 1
       current: 0
@@ -527,12 +529,43 @@ adc_monitoring:
       min: 0.35
       max: 0.75
       flavor: small
-      comment: D1 supply current H-L; legacy conversion, verify on Pathfinder
+      comment: D0 supply current H-L; legacy conversion, verify on Pathfinder
+      differential: true
+      lpgbt: trigger
+      conversion_verified: false
+    D4_VREF:
+      pin: 3
+      current: 0
+      conv: 1.247
+      min: 0.65
+      max: 1.05
+      flavor: small
+      comment: D4 shared Vref; legacy conversion, verify on Pathfinder
+      lpgbt: daq
+      conversion_verified: false
+    D4H1_VTEMP:
+      pin: 6
+      current: 0
+      conv: 1
+      min: 0
+      max: 1.2
+      flavor: small
+      comment: D4H1 VTEMP voltage (not degrees C)
+      lpgbt: daq
+    D4_1V2_CURRENT:
+      pin_pos: 2
+      pin_neg: 3
+      current: 0
+      conv: 15.037
+      min: 0.35
+      max: 0.75
+      flavor: small
+      comment: D4 supply current H-L; legacy conversion, verify on Pathfinder
       differential: true
       lpgbt: trigger
       conversion_verified: false
     D5_VREF:
-      pin: 3
+      pin: 7
       current: 0
       conv: 1.247
       min: 0.65
@@ -541,18 +574,18 @@ adc_monitoring:
       comment: D5 shared Vref; legacy conversion, verify on Pathfinder
       lpgbt: daq
       conversion_verified: false
-    D5H2_VTEMP:
-      pin: 6
+    D5H1_VTEMP:
+      pin: 4
       current: 0
       conv: 1
       min: 0
       max: 1.2
       flavor: small
-      comment: D5H2 VTEMP voltage (not degrees C)
+      comment: D5H1 VTEMP voltage (not degrees C)
       lpgbt: daq
     D5_1V2_CURRENT:
-      pin_pos: 2
-      pin_neg: 3
+      pin_pos: 4
+      pin_neg: 5
       current: 0
       conv: 15.037
       min: 0.35
@@ -563,7 +596,7 @@ adc_monitoring:
       lpgbt: trigger
       conversion_verified: false
     D6_VREF:
-      pin: 7
+      pin: 0
       current: 0
       conv: 1.247
       min: 0.65
@@ -572,47 +605,16 @@ adc_monitoring:
       comment: D6 shared Vref; legacy conversion, verify on Pathfinder
       lpgbt: daq
       conversion_verified: false
-    D6H2_VTEMP:
-      pin: 4
-      current: 0
-      conv: 1
-      min: 0
-      max: 1.2
-      flavor: small
-      comment: D6H2 VTEMP voltage (not degrees C)
-      lpgbt: daq
-    D6_1V2_CURRENT:
-      pin_pos: 4
-      pin_neg: 5
-      current: 0
-      conv: 15.037
-      min: 0.35
-      max: 0.75
-      flavor: small
-      comment: D6 supply current H-L; legacy conversion, verify on Pathfinder
-      differential: true
-      lpgbt: trigger
-      conversion_verified: false
-    D7_VREF:
-      pin: 0
-      current: 0
-      conv: 1.247
-      min: 0.65
-      max: 1.05
-      flavor: small
-      comment: D7 shared Vref; legacy conversion, verify on Pathfinder
-      lpgbt: daq
-      conversion_verified: false
-    D7H2_VTEMP:
+    D6H1_VTEMP:
       pin: 1
       current: 0
       conv: 1
       min: 0
       max: 1.2
       flavor: small
-      comment: D7H2 VTEMP voltage (not degrees C)
+      comment: D6H1 VTEMP voltage (not degrees C)
       lpgbt: daq
-    D7_1V2_CURRENT:
+    D6_1V2_CURRENT:
       pin_pos: 6
       pin_neg: 7
       current: 0
@@ -620,7 +622,7 @@ adc_monitoring:
       min: 0.35
       max: 0.75
       flavor: small
-      comment: D7 supply current H-L; legacy conversion, verify on Pathfinder
+      comment: D6 supply current H-L; legacy conversion, verify on Pathfinder
       differential: true
       lpgbt: trigger
       conversion_verified: false

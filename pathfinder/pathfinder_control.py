@@ -98,6 +98,12 @@ def build_trigger_mask(mapping, ids):
     return trigger_mask
 
 
+def _index_base(mapping):
+    base = mapping.get("index_base", 1)
+    _integer(base, 0, 1, "index_base")
+    return base
+
+
 def validate_mapping(mapping):
     """Validate wiring entries without reading or changing any hardware.
 
@@ -137,8 +143,8 @@ def validate_mapping(mapping):
     for identity, cfg in etrocs.items():
         _require_dict(cfg, str(identity))
         daughter, hybrid = cfg.get("daughter"), cfg.get("hybrid")
-        _integer(daughter, 1, 7, f"{identity}.daughter")
-        _integer(hybrid, 1, 4, f"{identity}.hybrid")
+        _integer(daughter, _index_base(mapping), _index_base(mapping) + 6, f"{identity}.daughter")
+        _integer(hybrid, _index_base(mapping), _index_base(mapping) + 3, f"{identity}.hybrid")
         if identity != f"D{daughter}H{hybrid}":
             raise ValueError(f"ID {identity!r} does not match its Daughter/Hybrid position")
         position = (daughter, hybrid)
@@ -183,7 +189,7 @@ def load_mapping(path):
 
 
 def expand_selection(mapping, selection):
-    """Expand {1: 'all', 7: [1]} into IDs in the supplied selection order.
+    """Expand selections using the mapping's index_base (default 1) into IDs in the supplied selection order.
 
     'all' selects the Hybrids actually declared for that module, sorted by
     Hybrid number. This does not enable or disable hardware links.
@@ -191,7 +197,7 @@ def expand_selection(mapping, selection):
     _require_dict(selection, "selection")
     result = []
     for module, hybrids in selection.items():
-        _integer(module, 1, 7, "Module ID")
+        _integer(module, _index_base(mapping), _index_base(mapping) + 6, "Module ID")
         if isinstance(hybrids, str) and hybrids == "all":
             hybrids = sorted(cfg["hybrid"] for cfg in mapping["etrocs"].values()
                              if cfg["daughter"] == module)
@@ -200,7 +206,7 @@ def expand_selection(mapping, selection):
         if not hybrids:
             raise ValueError(f"Module {module}: Hybrid selection is empty")
         for hybrid in hybrids:
-            _integer(hybrid, 1, 4, f"Module {module} Hybrid ID")
+            _integer(hybrid, _index_base(mapping), _index_base(mapping) + 3, f"Module {module} Hybrid ID")
             identity = f"D{module}H{hybrid}"
             if identity not in mapping["etrocs"]:
                 raise ValueError(f"ETROC {identity} is missing from the mapping")
