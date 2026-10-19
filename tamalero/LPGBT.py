@@ -80,6 +80,28 @@ class LPGBT(RegParser):
             print("RB version could not be correctly identified by LPGBT")
 
 
+    def configure_i2c_drive(self):
+        """Set and verify SCL/SDA drive strength on all three I2C masters.
+
+        Applies to this lpGBT (DAQ or TRIG). Pull-ups and frequency are
+        unchanged. A failure may leave some drive fields already updated.
+        """
+        name = "TRIG" if self.trigger else "DAQ"
+        for master in range(3):
+            for signal in ("SCL", "SDA"):
+                node = (
+                    f"LPGBT.RW.I2C."
+                    f"I2CM{master}{signal}DRIVESTRENGTH"
+                )
+                self.wr_reg(node, 1)
+                value = self.rd_reg(node)
+                value = int(value.value() if hasattr(value, "value") else value)
+                if value != 1:
+                    raise RuntimeError(
+                        f"{name}: {node} expected=1, readback={value}"
+                    )
+        print(f"{name}: I2C M0/M1/M2 SCL/SDA DRIVESTRENGTH=1 verified")
+
     def configure(self, do_adc_calibration=True):
         if not hasattr(self, 'kcu'):
             raise Exception("Connect to KCU first.")
@@ -176,8 +198,7 @@ class LPGBT(RegParser):
         self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, self.ver)
         self.parse_xml(ver=self.ver)
 
-        self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
-        self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
+        self.configure_i2c_drive()
 
         # Change I2C to selected frequency
         selFreq = 100
@@ -208,8 +229,7 @@ class LPGBT(RegParser):
         elif freq_bits == 0b11:
             print("1 Mhz")
 
-        self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
-        self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
+
         
 
         I2CM1SCLPULLUPENABLE = self.rd_reg('LPGBT.RW.I2C.I2CM1SCLPULLUPENABLE')
@@ -253,6 +273,9 @@ class LPGBT(RegParser):
         # will automatically load from the config file if it is found
         if do_adc_calibration and not self.calibrated:
             self.calibrate_adc()
+
+        # Reapply after configuration-file loading, before board peripherals initialize.
+        self.configure_i2c_drive()
 
         #self.current_adcs = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/current_adcs.yaml'))['lpGBT']
         #for adc in self.current_adcs:
