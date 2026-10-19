@@ -534,6 +534,7 @@ def initialize_pathfinder_eprx(rb):
             fields = {
                 "INVERT": f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}INVERT",
                 "ENABLE": f"LPGBT.RWF.EPORTRX.EPRX{group}{channel}ENABLE",
+                "TERM":   f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}TERM",
             }
             report[name][elink] = {}
             for field, node in fields.items():
