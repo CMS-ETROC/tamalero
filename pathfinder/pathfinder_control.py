@@ -1648,7 +1648,7 @@ def _cmp_stability(samples, routes, name):
 
 
 def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
-                        interval=1.0, html=False, only_differences=False, verbose=True):
+                        interval=1.0, html=False, only_differences=False, overview=False, verbose=True):
     """Run debug_etroc_link for several ETROCs and show them side by side.
 
     One column per ETROC, one row per setting, so equal settings line up and
@@ -1658,9 +1658,14 @@ def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
 
     identities: IDs to compare (default: every initialized ETROC, in mapping
     order). only_differences=True hides rows that are identical everywhere.
-    A failed ETROC shows ERR in its column and the others are still shown.
-    Returns {"identities", "rows", "results"}; rows are
-    (section, label, [cell per ETROC], differs).
+    overview=True adds an Overview section at the top with one verdict per
+    ETROC (locked, mask, uplink, rate chain, FC, PLL) and a "problems" line;
+    "none" means none of the checks it knows about fired. Off by default: the
+    table alone already holds every compared status. A failed ETROC shows ERR
+    in its column and the others are still shown.
+    Returns a dict {"identities", "rows", "results"} (rows are
+    (section, label, [cell per ETROC], differs)) whose repr is a single line,
+    so ending a notebook cell with the call does not print the data again.
     """
     if identities is None:
         identities = [i for i in mapping["etrocs"] if i in chips]
@@ -1748,15 +1753,75 @@ def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
     for label in extra:
         add("Other", label, [_cmp_cell(label, v) for v in values(label)])
 
+    # optional overview: one verdict per ETROC, shown above the detail rows
+    ov = {k: [] for k in ("locked", "readout mask", "lpGBT uplink", "rate chain",
+                          "FC invalid count", "PLL", "problems")}
+    for k, identity in enumerate(identities):
+        n, err = norm[identity], raw[identity].get("error")
+        if err:
+            for key in ov:
+                ov[key].append("ERR")
+            ov["problems"][-1] = "READ FAILED"
+            continue
+        st = {label: _cmp_stability(raw[identity].get("samples"), routes[identity], label)
+              for label in _CMP_STABILITY}
+        rising = lambda text: isinstance(text, str) and "->" in text
+        locked, disabled = n.get("link.FPGA_FRAME_LOCKED"), n.get("link.FPGA_DISABLED")
+        ready, fec = n.get("lpGBT.READY"), n.get("lpGBT.FEC_ERR_CNT")
+        problems = []
+        if disabled == 1:
+            problems.append("readout masked")
+        if n.get("link.EPRX_ENABLE") == 0:
+            problems.append("EPRX disabled")
+        if ready is not None and ready != 1:
+            problems.append("uplink not ready")
+        if rising(st["lpGBT.FEC_ERR_CNT"]):
+            problems.append("FEC errors rising")
+        if disabled != 1 and locked is not None and not locked:
+            problems.append("not locked")
+        if chain[k] == "MISMATCH":
+            problems.append("rate mismatch")
+        if rising(st["invalidFCCount"]):
+            problems.append("FC invalid count rising")
+        if rising(st["pllUnlockCount"]):
+            problems.append("PLL unlocking")
+        if n.get("controllerState") not in (None, 11):
+            problems.append("controllerState != 11")
+        ov["locked"].append("?" if locked is None else ("yes" if locked else "NO"))
+        ov["readout mask"].append("?" if disabled is None else ("MASKED" if disabled else "open"))
+        ov["lpGBT uplink"].append(f"READY={'?' if ready is None else ready}, FEC={'?' if fec is None else fec}")
+        ov["rate chain"].append(f"{chain[k]} ({fpga_r[k]}/{etr_r[k]}/{lp_r[k]})")
+        ov["FC invalid count"].append(st["invalidFCCount"] or "-")
+        ov["PLL"].append(f"state {n.get('controllerState', '?')}, unlock {st['pllUnlockCount'] or '-'}")
+        ov["problems"].append(", ".join(problems) if problems else "none")
+    if overview:
+        rows[3:3] = [("Overview", label, cells, len(set(cells)) > 1) for label, cells in ov.items()]
+
     if only_differences:
-        rows = [r for r in rows if r[3] or r[0] == "Mapping"]
+        rows = [r for r in rows if r[3] or r[0] in ("Mapping", "Overview")]
 
     if verbose:
         if html:
             _cmp_show_html(identities, rows, raw)
         else:
             _cmp_show_text(identities, rows, raw)
-    return {"identities": identities, "rows": rows, "results": raw}
+    return _CompareResult(identities=identities, rows=rows, results=raw)
+
+
+class _CompareResult(dict):
+    """Return value of compare_etroc_links: a normal dict with a one-line repr.
+
+    The table is printed by the function itself; without this, a notebook cell
+    ending in the call would echo the whole dict a second time.
+    """
+
+    def __repr__(self):
+        differing = sum(1 for row in self["rows"] if row[3])
+        return (f"<compare_etroc_links: {len(self['identities'])} ETROCs, "
+                f"{len(self['rows'])} rows, {differing} differ; "
+                f"keys: identities, rows, results>")
+
+    __str__ = __repr__
 
 
 def _cmp_show_text(identities, rows, raw):
