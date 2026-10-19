@@ -1307,9 +1307,14 @@ def ensure_locked(rb, mapping, ids, retries=3, wait=0.5, verbose=True):
     return result
 
 
-def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.0):
-    """Read ETROC, lpGBT receiver, and FPGA link status without writes."""
+def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.0, verbose=True):
+    """Read ETROC, lpGBT receiver, and FPGA link status without writes.
+
+    verbose=False reads everything and returns the results dict without
+    printing (used by compare_etroc_links).
+    """
     import time
+    _p = print if verbose else (lambda *args, **kwargs: None)
 
     def as_int(value):
         return int(value.value() if hasattr(value, "value") else value)
@@ -1324,11 +1329,11 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
         try:
             value = as_int(reader())
             results[label] = value
-            print(f"  {label}: {value}")
+            _p(f"  {label}: {value}")
             return value
         except Exception as exc:
             results[label] = {"error": str(exc)}
-            print(f"  {label}: READ FAILED — {exc}")
+            _p(f"  {label}: READ FAILED — {exc}")
             return None
 
     if identity not in mapping["etrocs"]:
@@ -1340,11 +1345,11 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
     routes = build_elinks(mapping, identity)
     prefix = f"READOUT_BOARD_{rb.rb}"
 
-    print(f"\n=== {identity}: mapping ===")
-    print("  I2C:", mapping["etrocs"][identity]["i2c"])
-    print("  Data links:", routes)
+    _p(f"\n=== {identity}: mapping ===")
+    _p("  I2C:", mapping["etrocs"][identity]["i2c"])
+    _p("  Data links:", routes)
 
-    print("\n=== ETROC output ===")
+    _p("\n=== ETROC output ===")
     for name in (
         "singlePort",
         "serRateLeft",
@@ -1357,7 +1362,7 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
         read(name, lambda name=name: chip.rd_reg(name))
 
     read("trigger_bits", lambda: chip.get_triggerGranularity())
-    print("\n=== FPGA configuration ===")
+    _p("\n=== FPGA configuration ===")
     for name in ("ELINK_WIDTH", "BITSLIP_AUTO_EN", "TRIG_DATA_SIZE"):
         read(name, lambda name=name:
              rb.kcu.read_node(f"{prefix}.{name}"))
@@ -1373,10 +1378,10 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
             rb, "DAQ_LPGBT" if ilpgbt == 0 else "TRIG_LPGBT", None
         )
         if lpgbt is None:
-            print(f"\n{label}: lpGBT object unavailable")
+            _p(f"\n{label}: lpGBT object unavailable")
             continue
 
-        print(f"\n=== {label}: optical uplink ===")
+        _p(f"\n=== {label}: optical uplink ===")
         for name in ("READY", "FEC_ERR_CNT"):
             node = f"{prefix}.LPGBT.UPLINK_{ilpgbt}.{name}"
             read(f"{label}.{name}",
@@ -1401,7 +1406,7 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
             group, channel = divmod(elink, 4)
             tag = f"{label}.E{elink}"
 
-            print(
+            _p(
                 f"\n=== {identity}: {label} E-link {elink}, "
                 f"Group {group}, Channel {channel} ==="
             )
@@ -1449,7 +1454,7 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
                     read(f"{tag}.CURRENT_PHASE",
                          lambda: (phase >> (4 * (channel % 2))) & 0xF)
             else:
-                print("  DLL/phase status skipped: unsupported register version")
+                _p("  DLL/phase status skipped: unsupported register version")
 
             if disable_mask is not None:
                 read(f"{tag}.FPGA_DISABLED",
@@ -1460,7 +1465,7 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
                 lambda: rb.etroc_locked(elink, slave=(ilpgbt == 1))
             )
 
-    print("\n=== Stability samples (read-only; no counter resets) ===")
+    _p("\n=== Stability samples (read-only; no counter resets) ===")
     samples = []
     for i in range(pll_samples):
         sample = {}
@@ -1486,9 +1491,9 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
     notes = []
     def note(message):
         notes.append(message)
-        print("  " + message)
+        _p("  " + message)
 
-    print("\n=== Interpretation ===")
+    _p("\n=== Interpretation ===")
     def decode(table, value):
         return table.get(value) if isinstance(value, int) else None
     fpga_rate = decode({2: 320, 3: 640, 4: 1280}, results.get("ELINK_WIDTH"))
@@ -1545,6 +1550,251 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
     results["notes"] = notes
     return results
 
+
+# ---------------------------------------------------------------------------
+# Side-by-side view of debug_etroc_link for several ETROCs
+# ---------------------------------------------------------------------------
+
+_CMP_ERPX_NAME = re.compile(r"^EPRX\d+")
+_CMP_LINK_KEY = re.compile(r"^(?:DAQ|TRIG)\.E\d+\.(?P<name>.+)$")
+_CMP_BANK_KEY = re.compile(r"^(?:DAQ|TRIG)\.(?P<name>READY|FEC_ERR_CNT|LPGBTMODE|power_up_done|"
+                           r"ETROC_DISABLE(?:_SLAVE)?)$")
+_CMP_HEX_ROWS = {"ETROC_DISABLE", "TRIG_DATA_SIZE", "RX_STATUS_RAW", "DLL_STATUS_RAW", "PHASE_RAW"}
+_CMP_SECTIONS = [
+    ("ETROC", ["singlePort", "serRateLeft", "serRateRight", "mergeTriggerData", "disScrambler",
+               "controllerState", "fcAlignFinalState", "fcAlignStatus", "asyLinkReset",
+               "TDCStrobeTest", "trigger_bits"]),
+    ("FPGA", ["ELINK_WIDTH", "BITSLIP_AUTO_EN", "TRIG_DATA_SIZE"]),
+    ("lpGBT optical uplink", ["lpGBT.READY", "lpGBT.FEC_ERR_CNT", "lpGBT.LPGBTMODE",
+                              "lpGBT.power_up_done", "lpGBT.ETROC_DISABLE"]),
+    ("E-link receiver (lpGBT EPRX + FPGA)", [
+        "link.EPRX_ENABLE", "link.EPRX_DATARATE", "link.EPRX_TRACKMODE", "link.EPRX_PHASESELECT",
+        "link.EPRX_INVERT", "link.EPRX_ACBIAS", "link.EPRX_TERM", "link.EPRX_EQ1",
+        "link.RX_STATUS_RAW", "link.DLL_STATUS_RAW", "link.PHASE_RAW", "link.DLL_LOCKED",
+        "link.PHASE_TRACKING_LOCKED", "link.CURRENT_PHASE", "link.FPGA_DISABLED",
+        "link.FPGA_FRAME_LOCKED"]),
+]
+_CMP_STABILITY = ["controllerState", "pllUnlockCount", "invalidFCCount",
+                  "lpGBT.READY", "lpGBT.FEC_ERR_CNT", "link.LOCKED"]
+
+
+def _cmp_normalize(results, routes):
+    """Map one ETROC's debug results onto labels shared by all ETROCs.
+
+    DAQ.E14.EPRX3DATARATE -> link.EPRX_DATARATE; TRIG.READY -> lpGBT.READY.
+    The bank and the elink number are shown in the mapping rows instead, so
+    an ETROC on the DAQ lpGBT lines up with one on the TRIG lpGBT. A second
+    link or bank of the same ETROC gets link2./lpGBT#2. labels.
+    """
+    banks = [bank for bank, links in sorted(routes.items()) if links]
+    links = [(bank, e) for bank, es in sorted(routes.items()) for e in es]
+    bank_rank = {("DAQ", "TRIG")[b]: i for i, b in enumerate(banks)}
+    link_rank = {f"{('DAQ', 'TRIG')[b]}.E{e}": i for i, (b, e) in enumerate(links)}
+
+    def label(prefix, rank):
+        return prefix if rank == 0 else f"{prefix}#{rank + 1}" if prefix == "lpGBT" else f"link{rank + 1}"
+
+    out = {}
+    for key, value in results.items():
+        if key in ("samples", "notes", "error") or key.startswith("sample["):
+            continue                      # per-sample readings are summarised separately
+        m = _CMP_LINK_KEY.match(key)
+        if m:
+            tag = key[:key.index(".", key.index(".") + 1)]
+            name = _CMP_ERPX_NAME.sub("EPRX_", m.group("name"))
+            out[f"{label('link', link_rank.get(tag, 0))}.{name}"] = value
+            continue
+        m = _CMP_BANK_KEY.match(key)
+        if m:
+            name = m.group("name").replace("ETROC_DISABLE_SLAVE", "ETROC_DISABLE")
+            out[f"{label('lpGBT', bank_rank.get(key.split('.')[0], 0))}.{name}"] = value
+            continue
+        out[key] = value
+    return out
+
+
+def _cmp_cell(label, value):
+    if isinstance(value, dict):
+        return "ERR"
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return str(int(value))
+    if isinstance(value, int):
+        return f"0x{value:X}" if label.split(".")[-1] in _CMP_HEX_ROWS else str(value)
+    return str(value)
+
+
+def _cmp_stability(samples, routes, name):
+    """first -> last over the samples for one stability row (None if absent)."""
+    tags = {"lpGBT.READY": "READY", "lpGBT.FEC_ERR_CNT": "FEC_ERR_CNT", "link.LOCKED": "LOCKED"}
+    values = []
+    for sample in samples or []:
+        if name in tags:
+            hits = [v for k, v in sample.items() if k.endswith("." + tags[name])]
+            values.append(hits[0] if len(hits) == 1 else (None if not hits else tuple(hits)))
+        else:
+            values.append(sample.get(name))
+    if not values:
+        return None
+    if any(v is None for v in values):
+        return "?"
+    if len(set(values)) == 1:
+        return f"{values[0]} (const)"
+    if "Count" in name or name.endswith("ERR_CNT"):
+        return f"{values[0]}->{values[-1]}" + (f" (+{values[-1] - values[0]})"
+                                              if isinstance(values[0], int) else "")
+    return "changing " + ",".join(map(str, values))
+
+
+def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
+                        interval=1.0, html=False, only_differences=False, verbose=True):
+    """Run debug_etroc_link for several ETROCs and show them side by side.
+
+    One column per ETROC, one row per setting, so equal settings line up and
+    a row that differs between ETROCs is marked with '*' (highlighted with
+    html=True). Reads only; nothing is written. ETROCs are read one after
+    another, each for about (pll_samples - 1) * interval seconds.
+
+    identities: IDs to compare (default: every initialized ETROC, in mapping
+    order). only_differences=True hides rows that are identical everywhere.
+    A failed ETROC shows ERR in its column and the others are still shown.
+    Returns {"identities", "rows", "results"}; rows are
+    (section, label, [cell per ETROC], differs).
+    """
+    if identities is None:
+        identities = [i for i in mapping["etrocs"] if i in chips]
+    identities = list(identities)
+    if not identities:
+        raise ValueError("No initialized ETROCs to compare")
+    for identity in identities:
+        if identity not in mapping["etrocs"]:
+            raise ValueError(f"Unknown ETROC: {identity}")
+
+    raw, norm, routes = {}, {}, {}
+    for identity in identities:
+        routes[identity] = build_elinks(mapping, identity)
+        try:
+            raw[identity] = debug_etroc_link(rb, mapping, chips, identity, pll_samples,
+                                             interval=interval, verbose=False)
+            norm[identity] = _cmp_normalize(raw[identity], routes[identity])
+        except Exception as exc:
+            raw[identity] = {"error": f"{type(exc).__name__}: {exc}"}
+            norm[identity] = {}
+
+    def values(label):
+        return [norm[i].get(label) if raw[i].get("error") is None else {"error": raw[i]["error"]}
+                for i in identities]
+
+    rows = []
+
+    def add(section, label, cells, check_diff=True):
+        differs = check_diff and len(set(cells)) > 1
+        rows.append((section, label, cells, differs))
+
+    # mapping (always different by nature, never flagged)
+    def link_list(identity):
+        return [(("DAQ", "TRIG")[b], e) for b, es in sorted(routes[identity].items()) for e in es]
+    add("Mapping", "lpGBT", ["+".join(sorted({b for b, _ in link_list(i)})) or "-" for i in identities], False)
+    add("Mapping", "I2C", [f"{mapping['etrocs'][i]['i2c']['lpgbt']}/M{mapping['etrocs'][i]['i2c']['channel']}"
+                           f"/0x{mapping['etrocs'][i]['i2c']['address']:02X}" for i in identities], False)
+    add("Mapping", "E-link", [",".join(str(e) for _, e in link_list(i)) or "-" for i in identities], False)
+
+    shown = set()
+    for section, labels in _CMP_SECTIONS:
+        for label in labels:
+            shown.add(label)
+            add(section, label, [_cmp_cell(label, v) for v in values(label)])
+
+    # derived rate / trigger-width verdicts (same rules as the notes in debug_etroc_link)
+    dec = {"fpga": {2: 320, 3: 640, 4: 1280}, "etroc": {0: 320, 1: 640, 2: 1280},
+           "lpgbt": {1: 320, 2: 640, 3: 1280}}
+    def rate(kind, v):
+        return dec[kind].get(v) if isinstance(v, int) and not isinstance(v, bool) else None
+    fpga_r, etr_r, lp_r, chain, width = [], [], [], [], []
+    for identity in identities:
+        n = norm[identity]
+        f, l, mode = rate("fpga", n.get("ELINK_WIDTH")), n.get("lpGBT.LPGBTMODE"), None
+        port = n.get("singlePort")
+        e = rate("etroc", n.get("serRateRight"))
+        g = rate("lpgbt", n.get("link.EPRX_DATARATE")) if n.get("lpGBT.LPGBTMODE") in (9, 11) else None
+        fpga_r.append(str(f) if f else "?"); etr_r.append(str(e) if e else "?"); lp_r.append(str(g) if g else "?")
+        if port == 1 and all(v is not None for v in (f, e, g)):
+            chain.append("MATCH" if f == e == g else "MISMATCH")
+        else:
+            chain.append("UNKNOWN")
+        size, bits = n.get("TRIG_DATA_SIZE"), n.get("trigger_bits")
+        first = link_list(identity)[0][1] if link_list(identity) else None
+        if isinstance(size, int) and isinstance(bits, int) and n.get("mergeTriggerData") == 1 and first is not None:
+            eff = 0 if (size & 0x20 and first % 4 == 0) else size & 0x1f
+            width.append(f"{'MATCH' if bits == eff else 'MISMATCH'} (ETROC {bits}, FPGA {eff})")
+        else:
+            width.append("n/a")
+    for label, cells in (("FPGA", fpga_r), ("ETROC right port", etr_r), ("lpGBT EPRX", lp_r)):
+        add("Rate (Mbps)", label, cells)
+    add("Rate (Mbps)", "FPGA = ETROC = lpGBT", chain)
+    add("Rate (Mbps)", "merged trigger width", width)
+
+    for label in _CMP_STABILITY:
+        cells = []
+        for identity in identities:
+            cell = None if raw[identity].get("error") else _cmp_stability(
+                raw[identity].get("samples"), routes[identity], label)
+            cells.append("ERR" if raw[identity].get("error") else (cell if cell is not None else "-"))
+        add("Stability (first -> last)", label, cells)
+
+    # anything the single-ETROC view read that is not listed above is kept, not dropped
+    extra = sorted({k for n in norm.values() for k in n} - shown)
+    for label in extra:
+        add("Other", label, [_cmp_cell(label, v) for v in values(label)])
+
+    if only_differences:
+        rows = [r for r in rows if r[3] or r[0] == "Mapping"]
+
+    if verbose:
+        if html:
+            _cmp_show_html(identities, rows, raw)
+        else:
+            _cmp_show_text(identities, rows, raw)
+    return {"identities": identities, "rows": rows, "results": raw}
+
+
+def _cmp_show_text(identities, rows, raw):
+    name_w = max(len(r[1]) for r in rows) + 2
+    col_w = [max(len(i), *(len(r[2][k]) for r in rows)) + 2 for k, i in enumerate(identities)]
+    print("Rows marked * differ between ETROCs.")
+    section = None
+    for sec, label, cells, differs in rows:
+        if sec != section:
+            section = sec
+            print(f"\n== {sec} ==")
+            print(" " * 2 + "setting".ljust(name_w) + "".join(i.ljust(w) for i, w in zip(identities, col_w)))
+        print(("* " if differs else "  ") + label.split(".", 1)[-1].ljust(name_w)
+              + "".join(c.ljust(w) for c, w in zip(cells, col_w)))
+    for identity in identities:
+        if raw[identity].get("error"):
+            print(f"\n{identity}: READ FAILED: {raw[identity]['error']}")
+
+
+def _cmp_show_html(identities, rows, raw):
+    parts = ['<table style="border-collapse:collapse;font-family:monospace;font-size:12px">']
+    section = None
+    for sec, label, cells, differs in rows:
+        if sec != section:
+            section = sec
+            parts.append(f'<tr><th colspan="{len(identities) + 1}" style="text-align:left;'
+                         f'padding-top:10px">{escape(sec)}</th></tr>'
+                         '<tr><td></td>' + "".join(f'<td style="font-weight:bold;padding:1px 10px">'
+                                                    f'{escape(i)}</td>' for i in identities) + '</tr>')
+        bg = ' style="background:rgba(255,193,7,0.28)"' if differs else ""
+        parts.append(f"<tr{bg}><td style=\"padding:1px 10px\">{escape(label.split('.', 1)[-1])}</td>"
+                     + "".join(f'<td style="padding:1px 10px">{escape(c)}</td>' for c in cells) + "</tr>")
+    parts.append("</table>")
+    display(HTML("".join(parts)))
+    for identity in identities:
+        if raw[identity].get("error"):
+            display(HTML(f'<div style="color:#c62828">{escape(identity)}: READ FAILED: '
+                         f'{escape(raw[identity]["error"])}</div>'))
 
 
 # ---------------------------------------------------------------------------
