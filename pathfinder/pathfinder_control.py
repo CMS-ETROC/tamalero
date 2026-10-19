@@ -546,7 +546,7 @@ def initialize_pathfinder_eprx(rb):
     return report
 
 
-def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
+def initialize_pathfinder_links(rb, monitor_seconds=10):
     """Configure wired EPRX inputs and verify both Pathfinder optical uplinks.
 
     Run after the existing motherboard and ECLK/E-link initialization.
@@ -713,6 +713,10 @@ def initialize_pathfinder_optical_links(rb, monitor_seconds=10):
     )
 
     return {"before": before, "after": after, "samples": samples, "eprx": eprx}
+
+
+# Compatibility for notebooks using the previous entry-point name.
+initialize_pathfinder_optical_links = initialize_pathfinder_links
 
 
 def main():
