@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """CLI example derived from pathfinder_test.ipynb, sections 0-12.
-Hardware sequences are retained; WS sections are not included.
+Notebook-aligned staged diagnostics. WS sections are not included.
 Default run is an offline preview. Hardware execution has not been validated.
 Place this file in the repository's pathfinder directory.
 """
@@ -24,9 +24,9 @@ def build_parser():
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--mapping", default="pathfinder_mapping.yaml",
                         help="Absolute path or filename relative to repo/pathfinder")
-    parser.add_argument("--stage", choices=["preview", "motherboard", "blnw", "qinj"], default="preview",
+    parser.add_argument("--stage", choices=["preview", "motherboard", "links", "phase-scan", "blnw", "qinj", "trigger-scan", "fc-scan"], default="preview",
                         help="Run all prerequisite sections through this stage")
-    parser.add_argument("--selection", type=selection, default={1: "all", 3: [1]},
+    parser.add_argument("--selection", type=selection, default={0: "all"},
                         help='JSON, e.g. {"1":"all","3":[1]}')
     parser.add_argument("--trigger-selection", type=selection, default=None,
                         help="Defaults to the readout selection")
@@ -38,11 +38,22 @@ def build_parser():
     parser.add_argument("--pixels", choices=["sample", "all"], default="sample")
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
     parser.add_argument("--no-plots", action="store_true", help="Skip BL/NW map and histogram display")
-    parser.add_argument("--trigger-delay", type=int, default=466)
+    parser.add_argument("--trigger-delay", type=int, default=469)
     parser.add_argument("--charge-fc", type=int, default=15)
     parser.add_argument("--qinj-count", type=int, default=1)
     parser.add_argument("--interactive", action="store_true",
                         help="Open repeatable diagnostics after a hardware stage")
+    parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
+    parser.add_argument("--trigger-bits", type=int, choices=[0, 1, 2], default=1)
+    parser.add_argument("--l1a-delay", type=int, default=501, help="ETROC pixel L1Adelay; distinct from FPGA trigger delay and FC input delay bits")
+    parser.add_argument("--scan-selection", type=selection, help="Subset of initialized D/H to phase-scan; defaults to --selection")
+    parser.add_argument("--phase-settings", type=json.loads, default={}, help='Explicit fixed phases, e.g. {"D3H1":4}; applied after initialization')
+    parser.add_argument("--delay-start", type=int, default=440)
+    parser.add_argument("--delay-stop", type=int, default=500, help="Exclusive trigger-delay scan upper bound")
+    parser.add_argument("--fc-target", help="One initialized ETROC to scan FC input delay bits, e.g. D3H1")
+    parser.add_argument("--scan-output", type=Path, default=Path("diagnostic_results"))
+    parser.add_argument("--print-records", action="store_true", help="Print full header/data/trailer records grouped by E-link")
+    parser.add_argument("--fifo-reads", type=int, default=3, help="Read passes after one QInj burst; does not send extra injections")
     return parser
 
 
@@ -77,17 +88,18 @@ def show_run_plan(args):
         print("Hardware configuration will run. Selected ETROC daughter boards must be connected.")
     if args.stage == "qinj":
         print(f"Includes a fresh BL/NW scan, trigger setup and QInj: {args.charge_fc} fC, count={args.qinj_count}.")
+    print(f"Rate: {args.rate} Mbps; merged trigger bits: {args.trigger_bits}; pixel L1Adelay: {args.l1a_delay}")
     print("Test stages run automatically; an interactive menu follows a hardware stage when --interactive is set.")
     print("On failure, the script stops. Partial hardware configuration may remain.", flush=True)
 
 
 
-def interactive_checks(kcu, rb, *, pathfinder_profile=False):
+def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None):
     """Repeat diagnostics without reconstructing KCU or ReadoutBoard."""
     from pathfinder_control import (
         read_optical_link_status, monitor_optical_links,
         read_clock_configuration, reset_optical_fec_counters,
-        initialize_pathfinder_optical_links,
+        initialize_pathfinder_links,
     )
 
     actions = {
@@ -98,6 +110,8 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False):
         "5": ("Reset FEC counters", "WRITES HARDWARE", "Clear historical FEC counts on both uplinks."),
         "6": ("Configure and verify optical links", "WRITES HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
     }
+    if mapping is not None and chips:
+        actions["7"] = ("Compare ETROC links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
     while True:
         print("\n" + "=" * 72)
         print("Interactive diagnostics - reuse the current hardware connection")
@@ -114,7 +128,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False):
             print("[EXIT] Leaving diagnostics; hardware is not powered down.")
             return
         if choice not in actions:
-            print("[WARNING] Enter a number from 0 to 6.")
+            print("[WARNING] Select one of the displayed action numbers.")
             continue
         if choice == "6" and not pathfinder_profile:
             print("[SKIPPED] This configuration profile is restricted to pathfinder_mapping.yaml.")
@@ -137,8 +151,19 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False):
             elif choice == "5":
                 reset_optical_fec_counters(rb)
             elif choice == "6":
-                initialize_pathfinder_optical_links(rb, monitor_seconds=10)
+                initialize_pathfinder_links(rb, monitor_seconds=10)
                 print("[PASS] Optical configuration and verification completed.")
+            elif choice == "7":
+                from pathfinder_control import compare_etroc_links
+                available = [i for i in (ids if ids is not None else chips) if i in chips]
+                print("Initialized ETROCs:", ", ".join(available))
+                raw = input("ETROC IDs separated by commas (Enter = all): ").strip()
+                targets = list(dict.fromkeys(i.strip() for i in raw.split(",") if i.strip())) if raw else available
+                if not targets or any(i not in available for i in targets):
+                    print("[SKIPPED] Select only initialized IDs listed above.")
+                    continue
+                differences = input("Only differences? [y/N]: ").strip().lower() in ("y", "yes")
+                compare_etroc_links(rb, mapping, chips, targets, only_differences=differences)
             if choice != "6":
                 print("[DONE] Operation completed. Review the readings above; this is not an automatic pass verdict.")
         except KeyboardInterrupt:
@@ -151,10 +176,105 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False):
         print("[MENU] Returning to action selection.")
 
 
+def restore_phase_groups(saved):
+    errors = []
+    for lp, node, value in saved:
+        try:
+            lp.wr_reg(node, value)
+            if int(lp.rd_reg(node)) != value:
+                raise RuntimeError("TRACKMODE restore mismatch")
+        except Exception as exc:
+            errors.append(f"{node}: {exc}")
+    if errors:
+        raise RuntimeError("; ".join(errors))
+
+
+def set_fixed_phase_groups(rb, mapping, ids):
+    from pathfinder_control import build_elinks
+    targets = {}
+    for identity in ids:
+        for bank, links in build_elinks(mapping, identity).items():
+            for elink in links:
+                targets[bank, elink // 4] = getattr(rb, "DAQ_LPGBT" if bank == 0 else "TRIG_LPGBT")
+    saved = [(lp, f"LPGBT.RWF.EPORTRX.EPRX{group}TRACKMODE",
+              int(lp.rd_reg(f"LPGBT.RWF.EPORTRX.EPRX{group}TRACKMODE")))
+             for (bank, group), lp in targets.items()]
+    try:
+        for lp, node, old in saved:
+            print(f"{node}: {old} -> 0 (shared by four EPRX inputs)")
+            lp.wr_reg(node, 0)
+            if int(lp.rd_reg(node)) != 0:
+                raise RuntimeError("TRACKMODE fixed-mode readback mismatch")
+    except BaseException:
+        restore_phase_groups(saved)
+        raise
+    return saved
+
+
+def save_diagnostic(folder, name, report):
+    from datetime import datetime, timezone
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / (name + "_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ") + ".json")
+    path.write_text(json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8")
+    print(f"Saved: {path.resolve()}")
+    return path
+
+
+def run_fc_scan(chips, identity, acquire, output_dir):
+    """Scan FC 00/01/10; omit equivalent 11/00. Restore exact original bits.
+
+    Does not change pixel L1Adelay or FPGA trigger delay.
+    """
+    chip = chips[identity]
+    regs = ("fcClkDelayEn", "fcDataDelayEn")
+    def integer(v):
+        return int(v.value() if hasattr(v, "value") else v)
+    original = {reg: integer(chip.rd_reg(reg)) for reg in regs}
+    report = {"identity": identity, "original": original, "results": {}, "status": "running"}
+    try:
+        for clk, data in ((0, 0), (0, 1), (1, 0)):
+            for reg, value in zip(regs, (clk, data)):
+                chip.wr_reg(reg, value)
+                if integer(chip.rd_reg(reg)) != value:
+                    raise RuntimeError(f"{identity}: {reg} readback mismatch")
+            result = acquire()
+            report["results"][f"clk={clk},data={data}"] = result
+            print(f"{identity} clk={clk} data={data}: {result['per_elink']}")
+        report["status"] = "complete"
+    except BaseException as exc:
+        report["status"] = "failed"
+        report["error"] = str(exc)
+        raise
+    finally:
+        errors = []
+        for reg, value in original.items():
+            try:
+                chip.wr_reg(reg, value)
+                if integer(chip.rd_reg(reg)) != value:
+                    raise RuntimeError("restore readback mismatch")
+            except Exception as exc:
+                errors.append(f"{reg}: {exc}")
+        report["restore_errors"] = errors
+        save_diagnostic(output_dir, "fc_delay", report)
+        if errors:
+            raise RuntimeError("FC settings restoration failed: " + "; ".join(errors))
+    return report
+
+
 def main(args):
     show_run_plan(args)
-    if args.monitor_seconds < 1 or args.qinj_count < 1:
+    if args.monitor_seconds < 1 or args.qinj_count < 1 or args.fifo_reads < 1:
         raise ValueError("monitor-seconds and qinj-count must be positive")
+
+    if not 0 <= args.trigger_delay <= 511 or not 0 <= args.l1a_delay <= 511:
+        raise ValueError("trigger-delay and l1a-delay must be in 0..511")
+    if not 0 <= args.delay_start < args.delay_stop <= 512:
+        raise ValueError("delay scan requires 0 <= start < stop <= 512")
+    if not 1 <= args.charge_fc <= 32:
+        raise ValueError("charge-fc must be in 1..32")
+    if args.stage == "fc-scan" and not args.fc_target:
+        raise ValueError("fc-scan requires --fc-target, e.g. D3H1")
 
     # Notebook code cell 2
     announce('0. Repository setup', 'Set repository paths and locate drivers.', 'Repository and driver paths must match this test installation.')
@@ -202,7 +322,7 @@ def main(args):
         read_clock_configuration,
         load_mapping, expand_selection, build_elinks, build_readout_masks,
         initialize_etrocs, InitializationError,
-        check_connections, check_links, configure_readout_links, build_trigger_mask, initialize_pathfinder_optical_links,
+        check_connections, check_links, configure_readout_links, build_trigger_mask, initialize_pathfinder_links,
     )
 
     MAPPING_PATH = Path(args.mapping) if Path(args.mapping).is_absolute() else TAMALERO_ROOT / "pathfinder" / args.mapping
@@ -216,7 +336,7 @@ def main(args):
     KCU_IP = args.ip
     READOUTBOARD_ID = args.rb_id
     READOUTBOARD_CONFIG = args.board_config
-    ELINK_WIDTH = 0x3  # Retained from the existing test notebook.
+    ELINK_WIDTH = {320: 2, 640: 3}[args.rate]
     TAMALERO_BASE = os.environ.get("TAMALERO_BASE")
 
     basic_checks_passed = False
@@ -235,6 +355,14 @@ def main(args):
         print(f"{identity}: I2C={bus['lpgbt']}/M{bus['channel']}/"
               f"0x{bus['address']:02X}, elinks={build_elinks(mapping, identity)}")
 
+    if args.fc_target and args.fc_target not in ids:
+        raise ValueError("fc-target must be in --selection")
+    if args.scan_selection and not set(expand_selection(mapping, args.scan_selection)).issubset(ids):
+        raise ValueError("scan-selection must be a subset of --selection")
+    if not isinstance(args.phase_settings, dict) or any(
+        i not in ids or type(p) is not int or not 0 <= p <= 14 for i, p in args.phase_settings.items()
+    ):
+        raise ValueError("phase-settings must map selected IDs to integer phases 0..14")
     preview_masks = build_readout_masks(mapping, ids)
     for bank, mask in preview_masks.items():
         print(f"Bank {bank} disable mask: 0x{mask:07X}")
@@ -360,7 +488,7 @@ def main(args):
     optical_init_result = None
 
     if Path(MAPPING_PATH).name == "pathfinder_mapping.yaml":
-        optical_init_result = initialize_pathfinder_optical_links(
+        optical_init_result = initialize_pathfinder_links(
             rb,
             monitor_seconds=args.monitor_seconds,
         )
@@ -392,7 +520,8 @@ def main(args):
     if args.stage == "motherboard":
         print('Motherboard stage complete. With no daughter boards, stop here. Review whether the Pathfinder optical profile ran or was skipped.', flush=True)
         if args.interactive:
-            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml")
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
+                               mapping=mapping, chips=chips, ids=ids)
         return
 
     # Notebook code cell 20
@@ -483,9 +612,71 @@ def main(args):
     etroc_power_checks_done = True
     show_status("High power mode configured; sampled pixel readbacks passed", "success")
 
+    import time
+    # Configure merged data and keep ETROC/FPGA trigger widths consistent.
+    TRIGGER_BITS = args.trigger_bits  # Current test: 0, 1, or 2 bits
+
+    def as_int(value):
+        return int(value.value() if hasattr(value, "value") else value)
+
+    if TRIGGER_BITS not in (0, 1, 2):
+        raise ValueError("This test supports TRIGGER_BITS = 0, 1, or 2")
+
+    if not ids or any(identity not in chips for identity in ids):
+        raise RuntimeError("Initialize all selected ETROCs first")
+
+    for identity in ids:
+        chip = chips[identity]
+        chip.set_mergeTriggerData("merge")
+        chip.set_triggerGranularity(TRIGGER_BITS)
+
+        merge = as_int(chip.rd_reg("mergeTriggerData"))
+        bits = as_int(chip.get_triggerGranularity())
+        if merge != 1 or bits != TRIGGER_BITS:
+            raise RuntimeError(
+                f"{identity}: merge={merge}, trigger_bits={bits}"
+            )
+        print(f"{identity}: merge={merge}, trigger_bits={bits}")
+
+    node = f"READOUT_BOARD_{rb.rb}.TRIG_DATA_SIZE"
+    rb.kcu.write_node(node, TRIGGER_BITS)
+    actual = as_int(rb.kcu.read_node(node))
+    if actual != TRIGGER_BITS:
+        raise RuntimeError(f"FPGA TRIG_DATA_SIZE readback={actual}")
+
+    print(f"FPGA: TRIG_DATA_SIZE={actual}")
+    from pathfinder_control import set_link_rate, compare_etroc_links, apply_etroc_phases
+    set_link_rate(rb, chips, mbps=args.rate)
+    configure_readout_links(rb, mapping, ids)
+    if args.phase_settings:
+        set_fixed_phase_groups(rb, mapping, list(args.phase_settings))
+        apply_etroc_phases(rb, mapping, chips, args.phase_settings)
+    rb.rerun_bitslip()
+    time.sleep(1.0)
+    if args.stage in ("links", "phase-scan"):
+        announce("5.4. Link diagnostics", "Read settings, masks, controllerState and lock status.",
+                 "Check optical link, rate/merge, ENABLE/INVERT/TERM and masks before scanning phase.")
+        compare_etroc_links(rb, mapping, chips, ids)
+        if args.stage == "phase-scan":
+            from pathfinder_control import scan_etroc_phases
+            scan_ids = expand_selection(mapping, args.scan_selection or args.selection)
+            saved_groups = set_fixed_phase_groups(rb, mapping, scan_ids)
+            try:
+                scan_etroc_phases(rb, mapping, chips, args.scan_selection or args.selection,
+                                 output_dir=args.scan_output)
+            finally:
+                restore_phase_groups(saved_groups)
+            print("Scan restored original phases. Select a candidate explicitly with --phase-settings.")
+        print("Diagnostic stage ended; selected receivers remain enabled for inspection.")
+        if args.interactive:
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
+                               mapping=mapping, chips=chips, ids=ids)
+        return
+
+
     # Notebook code cell 28
-    announce('6. BL/NW scan settings', 'Apply pixel coverage and BL/NW save options.', 'sample scans 8 pixels per chip; all scans 256 pixels per chip.')
-    # Choose "sample" for 8 pixels or "all" for the full 16 x 16 matrix.
+    announce('6. BL/NW scan settings', 'Apply pixel coverage and BL/NW save options.', 'sample scans 4 pixels per chip; all scans 256 pixels per chip.')
+    # Choose "sample" for 4 pixels or "all" for the full 16 x 16 matrix.
     BLNW_SCAN_MODE = args.pixels
     BLNW_SAVE_RESULTS = not args.no_save
     BLNW_OUTPUT_DIR = TAMALERO_ROOT / "pathfinder" / "results" / "blnw" 
@@ -499,7 +690,7 @@ def main(args):
 
     def build_blnw_pixels(mode):
         if mode == "sample":
-            return [(row, col) for row in (0, 15) for col in (0, 7, 8, 15)]
+            return [(row, col) for row in (0, 15) for col in (0, 15)]
         if mode == "all":
             return [(row, col) for row in range(16) for col in range(16)]
         raise ValueError("BLNW_SCAN_MODE must be 'sample' or 'all'")
@@ -738,7 +929,8 @@ def main(args):
     if args.stage == "blnw":
         print('BL/NW stage complete. Review scan failures and figures. Use --stage qinj for a new run including initialization and a fresh scan.', flush=True)
         if args.interactive:
-            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml")
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
+                               mapping=mapping, chips=chips, ids=ids)
         return
 
     # Notebook code cell 34
@@ -764,10 +956,9 @@ def main(args):
         if not all(result["all_locked"] for result in link_results.values()):
             raise RuntimeError("One or more selected data links are not locked")
     except Exception:
-        try:
-            configure_readout_links(rb, mapping, [])
-        except Exception as cleanup_error:
-            print(f"Failed to mask readout links: {cleanup_error}")
+        print("Link check failed; preserving selected masks for diagnosis. No acquisition will run.")
+        compare_etroc_links(rb, mapping, chips, ids)
+        print("Review ENABLE/INVERT/TERM, rate/merge, masks, controllerState (expected 11), then phase scan.")
         raise
 
     basic_checks_passed = True
@@ -779,7 +970,7 @@ def main(args):
     import time
 
     THRESHOLD_OFFSET = 50   # DAC code; threshold = baseline + this offset
-    L1A_DELAY_DEFAULT = 0x01f5   # = 501 decimal; matches the L1Adelay readback in section 5.2
+    L1A_DELAY_DEFAULT = args.l1a_delay
 
     # Full-range TOA/TOT/Cal trigger- and data-path windows: accept every hit
     # instead of filtering by pulse shape. Narrow these later if you actually
@@ -795,7 +986,7 @@ def main(args):
 
 
     def configure_thresholds(chips, blnw_results, offset=THRESHOLD_OFFSET,
-                              l1a_delay=L1A_DELAY_DEFAULT, reset_first=True,
+                              l1a_delay=L1A_DELAY_DEFAULT, reset_first=False,
                               toa_range=TOA_RANGE, tot_range=TOT_RANGE, cal_range=CAL_RANGE):
         """Apply DAC threshold (baseline + offset), activate the pixels that
         were BL/NW-scanned in section 6.1, and open their TOA/TOT/Cal trigger-
@@ -916,7 +1107,7 @@ def main(args):
                         locked = rb.etroc_locked(elink, slave=(bank == 1))
                         print(f"{identity} elink {elink}: locked={locked} (after re-lock)")
                         if not locked:
-                            show_status(f"{identity} elink {elink} FAILED to lock", "error")
+                            raise RuntimeError(f"{identity} elink {elink} FAILED to lock after self-trigger setup")
 
         show_status("Self-trigger configured", "success")
         for identity, etroc in chips.items():
@@ -925,10 +1116,9 @@ def main(args):
             print(f"{identity}: FC status={fc_status}, invalid FC count={invalid_count}")
 
 
-    configure_self_trigger(rb, mapping, ids, chips, trigger_delay=TRIGGER_DELAY_DEFAULT, trigger_board_ids=trigger_ids, trigger_combination_logic=TRIGGER_COMBINATION_LOGIC,)
+    configure_self_trigger(rb, mapping, ids, chips, trigger_delay=TRIGGER_DELAY_DEFAULT, trigger_board_ids=trigger_ids, trigger_combination_logic=TRIGGER_COMBINATION_LOGIC, trigger_data_size=args.trigger_bits)
 
-    # Notebook code cell 40
-    announce('10. Charge injection', 'Run the original charge-injection and readout sequence.', 'Inspect returned data and errors; completion alone is not a physics-data validation.')
+    announce('10. QInj preparation', 'Enable injection on calibrated pixels.', 'No automatic trigger/FC delay tuning is performed.')
     import time
     from datetime import datetime, timezone
     from tamalero.FIFO import FIFO
@@ -939,11 +1129,11 @@ def main(args):
 
     QINJ_COUNT_DEFAULT = args.qinj_count
     EMPTY_SLOT_BCID = 500   # must be < 3563
-    CHARGE_FC_DEFAULT = args.charge_fc
+    CHARGE_FC_DEFAULT = args.charge_fc   # placeholder - confirm the injected charge (fC) used on this setup
 
 
     def enable_qinj_pixels(chips, blnw_results, charge_fc=CHARGE_FC_DEFAULT):
-        """Enable charge injection on the pixels scanned in section 6.1.
+        """Enable charge injection on the pixels scanned in section 6d.
 
         QSel selects the injected charge amplitude (QSel = charge_fc - 1, per
         the reference confChip()). QInjEn=1 turns injection on for that pixel;
@@ -973,7 +1163,7 @@ def main(args):
 
 
     def disable_qinj_pixels(chips, blnw_results):
-        """Turn QInjEn back off on the pixels scanned in section 6.1."""
+        """Turn QInjEn back off on the pixels scanned in section 6d."""
         scan_pixels = blnw_results["pixels"]
         for identity, etroc in chips.items():
             for row, col in scan_pixels:
@@ -986,7 +1176,8 @@ def main(args):
 
     def run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
                                    empty_slot_bcid=EMPTY_SLOT_BCID,
-                                   report_interval=10, max_iterations=1):
+                                   report_interval=10, max_iterations=1,
+                                   show_per_elink=True, print_records=False):
         """Self-triggered charge-injection (QInj) readout test.
 
         Assumes configure_thresholds() and configure_self_trigger() have already
@@ -998,7 +1189,7 @@ def main(args):
         fifo = FIFO(rb)
         fifo.reset()
         rb.reset_data_error_count()
-        rb.enable_etroc_readout()
+        configure_readout_links(rb, mapping, list(chips))
         rb.rerun_bitslip()
         fifo.use_etroc_data()
         time.sleep(0.1)
@@ -1015,12 +1206,22 @@ def main(args):
         ea_clean = 0
         ea_issue = 0
 
+        # Per-E-link bookkeeping (added; does not change the totals above).
+        # The E-link number in an event word is 28 * bank + lpGBT elink
+        # (DAQ lpGBT 0..27, TRIG lpGBT 28..55), e.g. TRIG E4 -> 32, E10 -> 38.
+        elink_names = {}
+        for identity in chips:
+            for bank, elinks in build_elinks(mapping, identity).items():
+                for e in elinks:
+                    elink_names[28 * bank + e] = identity
+        per_elink = {n: {"header": 0, "data": 0, "trailer": 0} for n in elink_names}
+        records = {n: [] for n in elink_names}
+
         start_time = datetime.now(timezone.utc)
         last_report_time = time.time()
 
-        fifo.send_Qinj_only(count=qinj_count)  # per pixel
-
         rb.kcu.write_node(f"READOUT_BOARD_{rb.rb}.EVENT_CNT_RESET", 0x1)
+        fifo.send_Qinj_only(count=qinj_count)  # one burst, shared by enabled pixels
         time.sleep(1)
         event_cnt = rb.kcu.read_node(f"READOUT_BOARD_{rb.rb}.EVENT_CNT").value()
         show_status(f"Event count in 1 second: {event_cnt}", "info")
@@ -1031,7 +1232,7 @@ def main(args):
         expected_elinks = set()
         for identity in chips:
             for bank, elinks in build_elinks(mapping, identity).items():
-                expected_elinks.update(elinks)
+                expected_elinks.update(28 * bank + e for e in elinks)
 
         for iteration in range(max_iterations):
             try:
@@ -1042,13 +1243,21 @@ def main(args):
                 if len(data) > 0:
                     flashing_headers = {}
                     for event in data:
+                        if (event and len(event) >= 2 and event[0] in ("header", "data", "trailer")
+                                and isinstance(event[1], dict) and "elink" in event[1]):
+                            n = event[1]["elink"]
+                            per_elink.setdefault(n, {"header": 0, "data": 0, "trailer": 0})[event[0]] += 1
+                            records.setdefault(n, []).append(event)
                         if event and len(event) >= 2:
                             if event[0] == "header":
+                                if print_records:
+                                    pass  # Complete records are printed by E-link below.
                                 trigger_cnt += 1
-                                if event[1]["bcid"] == "1":
+                                if int(event[1]["bcid"]) == 1:
                                     flashing_headers[event[1]["elink"]] = event
                             elif event[0] == "data":
-                                print(event)
+                                if print_records:
+                                    pass  # Complete records are printed by E-link below.
                                 if event[1]["ea"] == 0:
                                     ea_clean += 1
                                 else:
@@ -1077,8 +1286,7 @@ def main(args):
 
             except Exception as exc:
                 show_status(f"Data acquisition error: {exc}", "error")
-                time.sleep(1)
-                continue
+                raise  # UDP/read errors invalidate this acquisition; do not report a partial success.
 
         current_mask = rb.kcu.read_node(f"READOUT_BOARD_{rb.rb}.TRIG_ENABLE_MASK").value()
         show_status(f"Readback TRIG_ENABLE_MASK: 0x{current_mask:X}", "info")
@@ -1087,16 +1295,57 @@ def main(args):
             show_status(f"ea clean: {ea_clean}, ea issue: {ea_issue}",
                         "success" if ea_issue == 0 else "warning")
 
+        if show_per_elink:
+            print("\nPer E-link (header / data / trailer):")
+            print(f"  {'E-link':>6}  {'ETROC':<8} {'header':>7} {'data':>7} {'trailer':>8}")
+            for n in sorted(per_elink):
+                c = per_elink[n]
+                print(f"  {n:>6}  {elink_names.get(n, '?'):<8} {c['header']:>7} {c['data']:>7} {c['trailer']:>8}")
+            silent = [n for n in elink_names if not any(per_elink[n].values())]
+            if silent:
+                show_status("No packets at all from E-link(s): "
+                            + ", ".join(f"{n} ({elink_names[n]})" for n in sorted(silent)), "warning")
+        if print_records:
+            for n in sorted(records):
+                print(f"\n===== E-link {n} ({elink_names.get(n, '?')}): {len(records[n])} records =====")
+                if not records[n]:
+                    print("No records")
+                for item in records[n]:
+                    print(item)
+
         return {
             "trigger_cnt": trigger_cnt,
             "hit_counter": hit_counter,
             "trailer_cnt": trailer_cnt,
             "ea_clean": ea_clean,
             "ea_issue": ea_issue,
+            "per_elink": per_elink,
+            "records": records,
+            "elink_names": elink_names,
         }
 
 
-    qinj_results = run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT)
+    if args.stage == "trigger-scan":
+        from pathfinder_control import scan_trigger_delay
+        announce("10. Trigger delay scan", "Scan FPGA TRIG_DLY_SEL with fixed pixel L1Adelay.",
+                 "Compare each E-link's headers/hits/trailers; a total-hit peak alone is insufficient.")
+        report = scan_trigger_delay(rb, chips, mapping, scan_pixels=blnw_results["pixels"],
+                                    delays=range(args.delay_start, args.delay_stop),
+                                    l1a_delay=args.l1a_delay, qinj_count=args.qinj_count)
+        save_diagnostic(args.scan_output, "trigger_delay", report)
+        for delay, item in report["results"].items():
+            print(f"delay={delay}: {item['per_elink']}")
+    elif args.stage == "fc-scan":
+        announce("10. FC input delay scan", "Scan three distinct clk/data delay-bit combinations: 00, 01, 10 (11 is equivalent to 00).",
+                 "Original FC bits are restored, even on acquisition failure; other chips remain unchanged.")
+        run_fc_scan(chips, args.fc_target,
+                    lambda: run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
+                                                      max_iterations=args.fifo_reads, print_records=args.print_records),
+                    args.scan_output)
+    else:
+        qinj_results = run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
+                                                max_iterations=args.fifo_reads, print_records=args.print_records)
+        save_diagnostic(args.scan_output, "qinj", qinj_results)
 
     # Uncomment once you're done running charge injection on this selection,
     # so these pixels stop responding to injection pulses in later runs:
@@ -1110,7 +1359,8 @@ def main(args):
 
     print("QInj workflow finished; declared data links are masked. Review readout results above.", flush=True)
     if args.interactive:
-        interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml")
+        interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
+                               mapping=mapping, chips=chips, ids=ids)
 
 
 if __name__ == "__main__":
