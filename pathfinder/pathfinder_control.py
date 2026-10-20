@@ -605,7 +605,6 @@ def initialize_pathfinder_eprx(rb):
                 "INVERT": f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}INVERT",
                 "ENABLE": f"LPGBT.RWF.EPORTRX.EPRX{group}{channel}ENABLE",
                 "TERM":   f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}TERM",
-                "Eq":   f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}Eq",
             }
             report[name][elink] = {}
             for field, node in fields.items():
@@ -785,10 +784,6 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
     )
 
     return {"before": before, "after": after, "samples": samples, "eprx": eprx}
-
-
-# Compatibility for notebooks using the previous entry-point name.
-initialize_pathfinder_optical_links = initialize_pathfinder_links
 
 
 def main():
