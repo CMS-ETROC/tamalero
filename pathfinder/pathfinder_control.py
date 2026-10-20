@@ -231,6 +231,68 @@ class InitializationError(RuntimeError):
         self.initialized_chips = dict(initialized_chips)
 
 
+def configure_fc_termination(rb, mapping, chips, ids, *, etroc_factory=None):
+    """Apply explicit mapping FC end-termination policy to affected daughters.
+
+    Requires stopped acquisition and all four physical ETROCs accessible.
+    Unselected devices use no_init=True; no reset/default configuration is run.
+    Only FC_EnTer is written. Returned chips/readout selection is not expanded.
+    Reapply after any subsequent reset that restores termination defaults.
+    """
+    policy = mapping.get("fc_termination")
+    if policy is None:
+        return {}
+    base = _index_base(mapping)
+    endpoints = policy.get("terminated_hybrids")
+    if not isinstance(endpoints, list) or any(
+        type(h) is not int or h not in range(base, base + 4) for h in endpoints
+    ) or len(set(endpoints)) != len(endpoints):
+        raise ValueError("fc_termination.terminated_hybrids must be a list of unique valid hybrid indices")
+    daughters = sorted({mapping["etrocs"][i]["daughter"] for i in ids})
+    targets = []
+    for daughter in daughters:
+        for hybrid in range(base, base + 4):
+            identity = f"D{daughter}H{hybrid}"
+            if identity not in mapping["etrocs"]:
+                raise ValueError(f"FC termination requires mapping for {identity}")
+            targets.append(identity)
+    if etroc_factory is None:
+        from tamalero.ETROC import ETROC
+        etroc_factory = ETROC
+    devices, report = {}, {}
+    # Complete device-access preflight before changing any termination.
+    for identity in targets:
+        bus = mapping["etrocs"][identity]["i2c"]
+        if identity in chips:
+            chip = chips[identity]
+        else:
+            lp = getattr(rb, "DAQ_LPGBT" if bus["lpgbt"] == "daq" else "TRIG_LPGBT", None)
+            if lp is None:
+                raise RuntimeError(f"{identity}: required lpGBT unavailable")
+            chip = etroc_factory(rb, master="lpgbt", i2c_master=lp,
+                                 i2c_channel=bus["channel"], i2c_adr=bus["address"],
+                                 elinks=build_elinks(mapping, identity), no_init=True,
+                                 no_hard_reset_on_init=True, strict=False, verbose=False)
+        if not chip.is_connected():
+            raise RuntimeError(f"{identity}: FC endpoint configuration requires all four chips accessible")
+        before = _link_int(chip.get_Ter("FC"))
+        devices[identity] = chip
+        report[identity] = {"before": before}
+    # Enable each physical endpoint before removing intermediate terminations.
+    for daughter in daughters:
+        order = endpoints + [h for h in range(base, base + 4) if h not in endpoints]
+        for hybrid in order:
+            identity = f"D{daughter}H{hybrid}"
+            expected = int(hybrid in endpoints)
+            devices[identity].set_Ter("FC", bool(expected))
+            actual = _link_int(devices[identity].get_Ter("FC"))
+            if actual != expected:
+                raise RuntimeError(f"{identity}: FC_EnTer expected={expected}, readback={actual}; partial configuration")
+            report[identity]["after"] = actual
+            print(f"{identity}: FC_EnTer={actual}")
+    return report
+
+
 def initialize_etrocs(rb, mapping, ids, *, etroc_factory=None,
                       strict=False, verbose=False):
     """Initialize selected ETROCs and return objects indexed by position ID.
@@ -295,6 +357,14 @@ def initialize_etrocs(rb, mapping, ids, *, etroc_factory=None,
                 identity, chips,
             ) from exc
         chips[identity] = chip
+    if mapping.get("fc_termination") is not None:
+        try:
+            configure_fc_termination(rb, mapping, chips, ids, etroc_factory=etroc_factory)
+        except Exception as exc:
+            raise InitializationError(
+                "ETROC objects were created, but FC termination configuration failed; do not start acquisition",
+                "FC termination", chips,
+            ) from exc
     return chips
 
 
@@ -1198,8 +1268,8 @@ def configure_receivers(rb, mapping, ids, *, phase=5, invert=None, verify=True):
     the TRIG lpGBT never runs it (it only loads configs/config_slave_v1.txt),
     so TRIG elinks can be disabled. For every data link of every selected
     ETROC, on the matching lpGBT, this writes: group TRACKMODE=2, the
-    channel ENABLE=1, PHASESELECT=phase, ACBIAS=1, TERM=1, EQ1=0, and the
-    global lock/relock thresholds=5. Data rate and polarity are NOT touched
+    channel ENABLE=1, PHASESELECT=phase, ACBIAS=1, TERM=1, and the
+    global lock/relock thresholds=5. Equalization is left unchanged. Data rate and polarity are NOT touched
     unless invert={(bank, elink): 0 or 1} is given (bank 0 = DAQ, 1 = TRIG),
     e.g. invert={(0, 14): 1}. Rewriting the same values on DAQ is harmless.
     Writes are verified by readback; a mismatch raises. Run before
@@ -1245,7 +1315,7 @@ def configure_receivers(rb, mapping, ids, *, phase=5, invert=None, verify=True):
         applied = {}
         put(lp, f"{prefix}EPRX{group}TRACKMODE", 2, label)
         put(lp, f"{prefix}EPRX{group}{channel}ENABLE", 1, label)
-        for field, value in (("PHASESELECT", phase), ("ACBIAS", 1), ("TERM", 1), ("EQ1", 0)):
+        for field, value in (("PHASESELECT", phase), ("ACBIAS", 1), ("TERM", 1)):
             put(lp, f"{prefix}EPRX_CHN_CONTROL.EPRX{elink}{field}", value, label)
         if (bank, elink) in invert:
             put(lp, f"{prefix}EPRX_CHN_CONTROL.EPRX{elink}INVERT", invert[(bank, elink)], label)
@@ -1309,13 +1379,269 @@ def ensure_locked(rb, mapping, ids, retries=3, wait=0.5, verbose=True):
     return result
 
 
-def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.0, verbose=True):
+def _phase_target(rb, mapping, chips, identity):
+    """Resolve one initialized ETROC's single data link without writes."""
+    if identity not in chips:
+        raise ValueError(f"{identity}: ETROC has not been initialized")
+    links = [(b, e) for b, es in build_elinks(mapping, identity).items() for e in es]
+    if len(links) != 1:
+        raise ValueError(f"{identity}: phase operations require exactly one mapped data link")
+    bank, elink = links[0]
+    lp = getattr(rb, "DAQ_LPGBT" if bank == 0 else "TRIG_LPGBT", None)
+    if lp is None:
+        raise ValueError(f"{identity}: required lpGBT is unavailable")
+    return bank, elink, lp
+
+
+def scan_etroc_phases(rb, mapping, chips, selection, *,
+                      phases=None, output_dir="phase_scan_results", html=False):
+    """Sequential fixed-phase scans selected by a D/H selection dictionary.
+
+    Requires stopped acquisition. Each scan restores its phase and shared
+    auto-bitslip setting. Non-fixed-mode/disabled links are recorded as skipped;
+    missing ETROC objects are rejected before writes. Hardware errors stop the
+    batch and save completed results. No best phase is automatically applied.
+    Five lock samples per tap are a screening test, not a BER measurement.
+    """
+    import csv
+    import json
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    validate_mapping(mapping)
+    ids = expand_selection(mapping, selection)
+    phases = list(range(15)) if phases is None else list(phases)
+    if not phases or any(type(p) is not int or not 0 <= p <= 14 for p in phases):
+        raise ValueError("phases must contain integers from 0 to 14")
+    if len(set(phases)) != len(phases):
+        raise ValueError("Duplicate phases are not allowed")
+    targets = {i: _phase_target(rb, mapping, chips, i) for i in ids}
+    folder = Path(output_dir).expanduser().resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ") + "_" + uuid4().hex[:8]
+    json_path, csv_path = folder / f"phase_scan_{stamp}.json", folder / f"phase_scan_{stamp}.csv"
+    report = {"schema_version": 1, "started_utc": datetime.now(timezone.utc).isoformat(),
+              "selection": selection, "identities": ids, "phases": phases,
+              "sample_count": 5, "alignment_seconds": 0.5, "sample_interval_seconds": 0.1,
+              "status": "running", "results": {},
+              "files": {"json": str(json_path), "csv": str(csv_path)}}
+    def save():
+        # Separate files per run; atomic replacement avoids a half-written JSON.
+        tmp = json_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.replace(json_path)
+        tmp = csv_path.with_suffix(".csv.tmp")
+        with tmp.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(["identity", "bank", "elink", "status", "original_phase",
+                             "fpga_width", "eprx_rate", "phase", "locked_samples", "total_samples", "error"])
+            for identity, item in report["results"].items():
+                for row in item.get("rows") or [{}]:
+                    cfg = item.get("configuration", {})
+                    writer.writerow([identity, item["bank"], item["elink"], item["status"],
+                                     item.get("original_phase", ""), cfg.get("ELINK_WIDTH", ""),
+                                     cfg.get("EPRX_DATARATE", ""), row.get("phase", ""),
+                                     row.get("locked_samples", ""), len(row.get("samples", [])),
+                                     item.get("error", "")])
+        tmp.replace(csv_path)
+    save()  # Check output is writable before making hardware changes.
+    print("Phase scans require stopped acquisition; shared auto-bitslip can realign other channels.")
+    print(f"Results: {json_path}")
+    try:
+        for identity in ids:
+            bank, elink, lp = targets[identity]
+            item = {"bank": bank, "elink": elink, "status": "reading", "rows": [],
+                    "i2c": dict(mapping["etrocs"][identity]["i2c"])}
+            report["results"][identity] = item
+            prefix = f"READOUT_BOARD_{rb.rb}"
+            item["original_phase"] = _link_int(lp.rd_reg(
+                f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}PHASESELECT"))
+            cfg = {}
+            item["configuration"] = cfg
+            for name in ("ELINK_WIDTH", "TRIG_DATA_SIZE", "BITSLIP_AUTO_EN"):
+                cfg[name] = _link_int(rb.kcu.read_node(f"{prefix}.{name}"))
+            for suffix in ("DATARATE", "TRACKMODE"):
+                cfg["EPRX_" + suffix] = _link_int(lp.rd_reg(f"LPGBT.RWF.EPORTRX.EPRX{elink // 4}{suffix}"))
+            for suffix in ("INVERT", "TERM", "ACBIAS", "EQ1"):
+                cfg["EPRX_" + suffix] = _link_int(lp.rd_reg(
+                    f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}{suffix}"))
+            for name in ("serRateLeft", "serRateRight", "singlePort", "mergeTriggerData"):
+                cfg[name] = _link_int(chips[identity].rd_reg(name))
+            cfg["trigger_bits"] = _link_int(chips[identity].get_triggerGranularity())
+            mask_name = "ETROC_DISABLE" if bank == 0 else "ETROC_DISABLE_SLAVE"
+            disabled = (_link_int(rb.kcu.read_node(f"{prefix}.{mask_name}")) >> elink) & 1
+            if cfg["EPRX_TRACKMODE"] != 0 or disabled:
+                item.update(status="skipped", error="Requires TRACKMODE=0 and an enabled FPGA receiver")
+                print(f"{identity}: SKIPPED ({item['error']})")
+            else:
+                item["status"] = "scanning"
+                save()
+                item.update(_scan_etroc_phase(rb, mapping, identity, phases=phases))
+                item["status"] = "complete"
+            save()
+        report["status"] = "complete"
+    except BaseException as exc:
+        report["status"] = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+        if "identity" in locals():
+            report["results"][identity].update(status=report["status"], error=f"{type(exc).__name__}: {exc}")
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        report["finished_utc"] = datetime.now(timezone.utc).isoformat()
+        save()
+        print(f"Saved JSON: {json_path}\nSaved CSV: {csv_path}")
+
+    table = []
+    for phase in phases:
+        cells = []
+        for identity in ids:
+            item = report["results"][identity]
+            row = next((r for r in item["rows"] if r["phase"] == phase), None)
+            cells.append(f"{row['locked_samples']}/{len(row['samples'])}" if row else item["status"])
+        table.append(("Phase scan (lock samples, not BER)", f"phase {phase}", cells, len(set(cells)) > 1))
+    if html:
+        _cmp_show_html(ids, table, {i: {} for i in ids})
+    else:
+        _cmp_show_text(ids, table, {i: {} for i in ids})
+    return report
+
+
+def apply_etroc_phases(rb, mapping, chips, phase_settings):
+    """Apply explicit {ETROC_ID: phase} choices, verify and align once.
+
+    Requires stopped acquisition and fixed-phase mode. Uses phases 0..14.
+    Settings stay applied on success, even when a link fails to lock. On an
+    error, attempts to restore changed phases. No mapping file is modified.
+    """
+    import time
+    if not isinstance(phase_settings, dict) or not phase_settings:
+        raise ValueError("phase_settings must be a nonempty {ETROC_ID: phase} mapping")
+    validate_mapping(mapping)
+    targets = {}
+    for identity, phase in phase_settings.items():
+        if type(phase) is not int or not 0 <= phase <= 14:
+            raise ValueError(f"{identity}: phase must be an integer from 0 to 14")
+        bank, elink, lp = _phase_target(rb, mapping, chips, identity)
+        if _link_int(lp.rd_reg(f"LPGBT.RWF.EPORTRX.EPRX{elink // 4}TRACKMODE")) != 0:
+            raise RuntimeError(f"{identity}: requires TRACKMODE=0")
+        mask = "ETROC_DISABLE" if bank == 0 else "ETROC_DISABLE_SLAVE"
+        if _link_int(rb.kcu.read_node(f"READOUT_BOARD_{rb.rb}.{mask}")) & (1 << elink):
+            raise RuntimeError(f"{identity}: FPGA receiver is disabled")
+        node = f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}PHASESELECT"
+        targets[identity] = (bank, elink, lp, node, _link_int(lp.rd_reg(node)))
+    auto = f"READOUT_BOARD_{rb.rb}.BITSLIP_AUTO_EN"
+    old_auto = _link_int(rb.kcu.read_node(auto))
+    changed, report = [], {}
+    try:
+        for identity, phase in phase_settings.items():
+            bank, elink, lp, node, original = targets[identity]
+            changed.append(identity)
+            lp.wr_reg(node, phase)
+            if _link_int(lp.rd_reg(node)) != phase:
+                raise RuntimeError(f"{identity}: phase readback mismatch")
+            report[identity] = {"bank": bank, "elink": elink, "before": original, "phase": phase}
+        rb.kcu.write_node(auto, 1)
+        time.sleep(0.5)
+        rb.kcu.write_node(auto, 0)
+        for identity in phase_settings:
+            bank, elink, _, _, _ = targets[identity]
+            samples = []
+            for _ in range(5):
+                time.sleep(0.1)
+                samples.append(bool(rb.etroc_locked(elink, slave=(bank == 1))))
+            report[identity]["lock_samples"] = samples
+            print(f"{identity}: phase={phase_settings[identity]}, locked {sum(samples)}/5")
+    except BaseException:
+        for identity in reversed(changed):
+            _, _, lp, node, original = targets[identity]
+            try:
+                lp.wr_reg(node, original)
+                if _link_int(lp.rd_reg(node)) != original:
+                    raise RuntimeError("readback mismatch")
+            except Exception as exc:
+                print(f"RESTORE FAILED for {identity}: {exc}")
+        raise
+    finally:
+        rb.kcu.write_node(auto, old_auto)
+        if _link_int(rb.kcu.read_node(auto)) != old_auto:
+            raise RuntimeError("Failed to restore auto-bitslip setting")
+    return report
+
+
+def _scan_etroc_phase(rb, mapping, identity, *, phases=None):
+    """Explicit hardware diagnostic: scan one mapped link, then restore settings.
+
+    Requires fixed-phase mode and stopped acquisition. Shared FPGA bitslip
+    may realign other channels. Lock samples are not a bit-error-rate test.
+    """
+    import time
+    phases = list(range(15)) if phases is None else list(phases)
+    if not phases or any(type(p) is not int or not 0 <= p <= 14 for p in phases):
+        raise ValueError("phases must contain integers from 0 to 14")
+    if len(set(phases)) != len(phases):
+        raise ValueError("Duplicate phases are not allowed")
+    links = [(b, e) for b, es in build_elinks(mapping, identity).items() for e in es]
+    if len(links) != 1:
+        raise ValueError("Phase scan requires exactly one mapped E-link per ETROC")
+    bank, elink = links[0]
+    lp = getattr(rb, "DAQ_LPGBT" if bank == 0 else "TRIG_LPGBT", None)
+    if lp is None:
+        raise RuntimeError("Required lpGBT is not initialized")
+    prefix = f"READOUT_BOARD_{rb.rb}"
+    mask_node = prefix + (".ETROC_DISABLE" if bank == 0 else ".ETROC_DISABLE_SLAVE")
+    if _link_int(rb.kcu.read_node(mask_node)) & (1 << elink):
+        raise RuntimeError("Selected FPGA E-link is disabled; enable it before scanning")
+    mode_node = f"LPGBT.RWF.EPORTRX.EPRX{elink // 4}TRACKMODE"
+    if _link_int(lp.rd_reg(mode_node)) != 0:
+        raise RuntimeError("Phase scan requires TRACKMODE=0; group mode was not changed")
+    phase_node = f"LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX{elink}PHASESELECT"
+    auto_node = prefix + ".BITSLIP_AUTO_EN"
+    old_phase = _link_int(lp.rd_reg(phase_node))
+    old_auto = _link_int(rb.kcu.read_node(auto_node))
+    rows = []
+    print(f"Phase scan: {identity}, {'DAQ' if bank == 0 else 'TRIG'} E{elink}; shared bitslip will run")
+    try:
+        for phase in phases:
+            lp.wr_reg(phase_node, phase)
+            if _link_int(lp.rd_reg(phase_node)) != phase:
+                raise RuntimeError(f"Phase {phase}: readback mismatch")
+            rb.kcu.write_node(auto_node, 1)
+            time.sleep(0.5)
+            rb.kcu.write_node(auto_node, 0)
+            samples = []
+            for _ in range(5):
+                time.sleep(0.1)
+                samples.append(bool(rb.etroc_locked(elink, slave=(bank == 1))))
+            rows.append({"phase": phase, "locked_samples": sum(samples), "samples": samples})
+            print(f"E{elink} phase={phase:2d}: locked {sum(samples)}/5")
+    finally:
+        try:
+            lp.wr_reg(phase_node, old_phase)
+            if _link_int(lp.rd_reg(phase_node)) != old_phase:
+                raise RuntimeError("Original phase restoration failed")
+        finally:
+            rb.kcu.write_node(auto_node, old_auto)
+            if _link_int(rb.kcu.read_node(auto_node)) != old_auto:
+                raise RuntimeError("Original auto-bitslip restoration failed")
+    candidates = [r["phase"] for r in rows if r["locked_samples"] == 5]
+    print("Original phase and auto-bitslip setting restored.")
+    print("Candidate phases:", candidates)
+    return {"identity": identity, "bank": bank, "elink": elink,
+            "original_phase": old_phase, "original_auto": old_auto,
+            "rows": rows, "candidates": candidates}
+
+
+def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.0, verbose=True, scan_phase=False, phases=None):
     """Read ETROC, lpGBT receiver, and FPGA link status without writes.
 
     verbose=False reads everything and returns the results dict without
     printing (used by compare_etroc_links).
     """
     import time
+    if type(scan_phase) is not bool:
+        raise ValueError("scan_phase must be a bool")
+    if phases is not None and not scan_phase:
+        raise ValueError("phases requires scan_phase=True")
     _p = print if verbose else (lambda *args, **kwargs: None)
 
     def as_int(value):
@@ -1550,6 +1876,8 @@ def debug_etroc_link(rb, mapping, chips, identity, pll_samples=3, *, interval=1.
                 note(f"{key}: {'stable' if len(set(values)) == 1 else 'CHANGING'} {values}")
     results["samples"] = samples
     results["notes"] = notes
+    if scan_phase:
+        results["phase_scan"] = _scan_etroc_phase(rb, mapping, identity, phases=phases)
     return results
 
 
@@ -1598,7 +1926,7 @@ def _cmp_normalize(results, routes):
 
     out = {}
     for key, value in results.items():
-        if key in ("samples", "notes", "error") or key.startswith("sample["):
+        if key in ("samples", "notes", "error", "phase_scan") or key.startswith("sample["):
             continue                      # per-sample readings are summarised separately
         m = _CMP_LINK_KEY.match(key)
         if m:
@@ -1641,12 +1969,18 @@ def _cmp_stability(samples, routes, name):
         return None
     if any(v is None for v in values):
         return "?"
+    if "Count" in name or name.endswith("ERR_CNT"):
+        if all(type(v) is int for v in values):
+            if len(values) < 2:
+                return f"{values[0]} (one sample)"
+            if any(b < a for a, b in zip(values, values[1:])):
+                return f"{values[0]}->{values[-1]} (reset/wrap?)"
+            delta = values[-1] - values[0]
+            return f"{values[0]}->{values[-1]} (delta={'+' if delta else ''}{delta})"
     if len(set(values)) == 1:
         return f"{values[0]} (const)"
-    if "Count" in name or name.endswith("ERR_CNT"):
-        return f"{values[0]}->{values[-1]}" + (f" (+{values[-1] - values[0]})"
-                                              if isinstance(values[0], int) else "")
     return "changing " + ",".join(map(str, values))
+
 
 
 def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
@@ -1659,7 +1993,9 @@ def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
     another, each for about (pll_samples - 1) * interval seconds.
 
     identities: IDs to compare (default: every initialized ETROC, in mapping
-    order). only_differences=True hides rows that are identical everywhere.
+    order). only_differences=True hides identical detail rows, but retains key checks
+    and flagged read failures/statuses. ! marks a status needing attention;
+    ? marks unknown results. * only means values differ, not a fault.
     overview=True adds an Overview section at the top with one verdict per
     ETROC (locked, mask, uplink, rate chain, FC, PLL) and a "problems" line;
     "none" means none of the checks it knows about fired. Off by default: the
@@ -1755,6 +2091,18 @@ def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
     for label in extra:
         add("Other", label, [_cmp_cell(label, v) for v in values(label)])
 
+    # Summary rows reuse existing reads; no extra hardware access.
+    critical = [
+        ("Key checks", "rate match", chain, len(set(chain)) > 1),
+        ("Key checks", "trigger width match", width, len(set(width)) > 1),
+    ]
+    for label in ("lpGBT.READY", "lpGBT.FEC_ERR_CNT", "link.EPRX_ENABLE",
+                  "link.EPRX_INVERT", "link.EPRX_TERM", "link.FPGA_DISABLED",
+                  "link.FPGA_FRAME_LOCKED"):
+        cells = [_cmp_cell(label, v) for v in values(label)]
+        critical.append(("Key checks", label, cells, len(set(cells)) > 1))
+    rows[3:3] = critical
+
     # optional overview: one verdict per ETROC, shown above the detail rows
     ov = {k: [] for k in ("locked", "readout mask", "lpGBT uplink", "rate chain",
                           "FC invalid count", "PLL", "problems")}
@@ -1767,7 +2115,7 @@ def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
             continue
         st = {label: _cmp_stability(raw[identity].get("samples"), routes[identity], label)
               for label in _CMP_STABILITY}
-        rising = lambda text: isinstance(text, str) and "->" in text
+        rising = lambda text: isinstance(text, str) and "delta=+" in text
         locked, disabled = n.get("link.FPGA_FRAME_LOCKED"), n.get("link.FPGA_DISABLED")
         ready, fec = n.get("lpGBT.READY"), n.get("lpGBT.FEC_ERR_CNT")
         problems = []
@@ -1800,7 +2148,7 @@ def compare_etroc_links(rb, mapping, chips, identities=None, pll_samples=3, *,
         rows[3:3] = [("Overview", label, cells, len(set(cells)) > 1) for label, cells in ov.items()]
 
     if only_differences:
-        rows = [r for r in rows if r[3] or r[0] in ("Mapping", "Overview")]
+        rows = [r for r in rows if r[3] or r[0] in ("Mapping", "Overview", "Key checks") or any(_cmp_severity(r[1], c) for c in r[2])]
 
     if verbose:
         if html:
@@ -1826,10 +2174,32 @@ class _CompareResult(dict):
     __str__ = __repr__
 
 
+def _cmp_severity(label, cell):
+    """Classify explicit status evidence, not arbitrary configuration differences."""
+    if cell in ("ERR", "?", "-", "UNKNOWN", "n/a"):
+        return "unknown"
+    if cell.startswith("MISMATCH"):
+        return "attention"
+    name = label.split(".")[-1]
+    if name in ("READY", "EPRX_ENABLE", "DLL_LOCKED", "FPGA_FRAME_LOCKED", "LOCKED") and cell == "0":
+        return "attention"
+    if name == "FPGA_DISABLED" and cell == "1":
+        return "attention"
+    if name == "FEC_ERR_CNT" and cell.isdigit() and int(cell) > 0:
+        return "attention"
+    if ("Count" in name or name.endswith("ERR_CNT")) and "delta=+" in cell:
+        return "attention"
+    if name in ("READY", "LOCKED") and (cell.startswith("0 (const)") or cell.startswith("changing")):
+        return "attention"
+    return ""
+
+
 def _cmp_show_text(identities, rows, raw):
+    rows = [(sec, label, [("! " if _cmp_severity(label, c) == "attention" else "? " if _cmp_severity(label, c) == "unknown" else "") + c for c in cells], diff)
+            for sec, label, cells, diff in rows]
     name_w = max(len(r[1]) for r in rows) + 2
     col_w = [max(len(i), *(len(r[2][k]) for r in rows)) + 2 for k, i in enumerate(identities)]
-    print("Rows marked * differ between ETROCs.")
+    print("* = values differ (not necessarily a fault); ! = attention; ? = unavailable/unknown.")
     section = None
     for sec, label, cells, differs in rows:
         if sec != section:
@@ -1844,7 +2214,7 @@ def _cmp_show_text(identities, rows, raw):
 
 
 def _cmp_show_html(identities, rows, raw):
-    parts = ['<table style="border-collapse:collapse;font-family:monospace;font-size:12px">']
+    parts = ['<p>* / amber = differing values; red ! = attention; ? = unknown. Differences alone are not faults.</p>', '<table style="border-collapse:collapse;font-family:monospace;font-size:12px">']
     section = None
     for sec, label, cells, differs in rows:
         if sec != section:
@@ -1855,7 +2225,11 @@ def _cmp_show_html(identities, rows, raw):
                                                     f'{escape(i)}</td>' for i in identities) + '</tr>')
         bg = ' style="background:rgba(255,193,7,0.28)"' if differs else ""
         parts.append(f"<tr{bg}><td style=\"padding:1px 10px\">{escape(label.split('.', 1)[-1])}</td>"
-                     + "".join(f'<td style="padding:1px 10px">{escape(c)}</td>' for c in cells) + "</tr>")
+                     + "".join(
+                         '<td style="padding:1px 10px;' +
+                         ('color:#c62828;font-weight:bold' if _cmp_severity(label, c) == 'attention' else '') +
+                         '">' + escape(('! ' if _cmp_severity(label, c) == 'attention' else '? ' if _cmp_severity(label, c) == 'unknown' else '') + c) + '</td>'
+                         for c in cells) + "</tr>")
     parts.append("</table>")
     display(HTML("".join(parts)))
     for identity in identities:

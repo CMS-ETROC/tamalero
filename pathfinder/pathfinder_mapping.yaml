@@ -8,6 +8,11 @@
 # Software D/H numbering: D0..D6, H0..H3. Hardware routing is unchanged.
 index_base: 0
 schema_version: 1
+# Shared FC bus: listed hybrids enable internal FC termination; all others disable it.
+# H3 is the current physical endpoint; [] disables all internal FC terminations.
+# Applies to all four H on each initialized daughter, even if not all are selected.
+fc_termination:
+  terminated_hybrids: [3]
 lpgbts:
   daq:
     hardware_id: 1
