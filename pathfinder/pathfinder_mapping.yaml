@@ -13,6 +13,8 @@ schema_version: 1
 # Applies to all four H on each initialized daughter, even if not all are selected.
 fc_termination:
   terminated_hybrids: [3]
+fc_delay:
+  data_delay_enabled: ["D2H0"]
 lpgbts:
   daq:
     hardware_id: 1
