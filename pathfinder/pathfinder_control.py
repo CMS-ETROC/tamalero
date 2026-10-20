@@ -293,6 +293,56 @@ def configure_fc_termination(rb, mapping, chips, ids, *, etroc_factory=None):
     return report
 
 
+def configure_fc_delay(rb, mapping, chips, ids=None):
+    """Enable the ETROC FC data delay on the ETROCs listed in the mapping.
+
+    Mapping entry (optional; absent means do nothing)::
+
+        fc_delay:
+          data_delay_enabled: ["D2H0"]     # only ETROCs verified to need it
+
+    Only listed ETROCs that are present in `chips` (and in `ids`, if given)
+    are touched; every other ETROC keeps its current value. For each target
+    this writes fcDataDelayEn=1 and fcClkDelayEn=0 and verifies both by
+    readback. These delays act only in manual FC alignment mode
+    (fcSelfAlignEn=0); a target in self-alignment mode raises RuntimeError
+    before anything is written. Requires stopped acquisition. A reset or
+    default configuration of an ETROC may restore the defaults, so call this
+    again afterwards. Return {id: {"fcDataDelayEn": 1, "fcClkDelayEn": 0}}.
+    """
+    policy = mapping.get("fc_delay")
+    if policy is None:
+        return {}
+    listed = policy.get("data_delay_enabled") if isinstance(policy, dict) else None
+    if (not isinstance(listed, list) or any(not isinstance(i, str) for i in listed)
+            or len(set(listed)) != len(listed)):
+        raise ValueError("fc_delay.data_delay_enabled must be a list of unique ETROC IDs")
+    unknown = [i for i in listed if i not in mapping["etrocs"]]
+    if unknown:
+        raise ValueError(f"fc_delay.data_delay_enabled has unknown ETROC IDs: {unknown}")
+    selected = set(ids) if ids is not None else set(chips)
+    targets = [i for i in listed if i in selected and i in chips]
+    # Check every target before writing anything.
+    for identity in targets:
+        mode = chips[identity].get_fcAlign()
+        if mode != "manual":
+            raise RuntimeError(
+                f"{identity}: FC alignment mode is '{mode}'; fcClkDelayEn/fcDataDelayEn "
+                "only act in 'manual' mode. Nothing was changed.")
+    report = {}
+    for identity in targets:
+        chip = chips[identity]
+        for reg, value in (("fcClkDelayEn", 0), ("fcDataDelayEn", 1)):
+            chip.wr_reg(reg, value)
+            actual = _link_int(chip.rd_reg(reg))
+            if actual != value:
+                raise RuntimeError(f"{identity}: {reg} expected={value}, readback={actual}; "
+                                   "partial configuration")
+        report[identity] = {"fcDataDelayEn": 1, "fcClkDelayEn": 0}
+        print(f"{identity}: fcDataDelayEn=1, fcClkDelayEn=0")
+    return report
+
+
 def initialize_etrocs(rb, mapping, ids, *, etroc_factory=None,
                       strict=False, verbose=False):
     """Initialize selected ETROCs and return objects indexed by position ID.
@@ -364,6 +414,14 @@ def initialize_etrocs(rb, mapping, ids, *, etroc_factory=None,
             raise InitializationError(
                 "ETROC objects were created, but FC termination configuration failed; do not start acquisition",
                 "FC termination", chips,
+            ) from exc
+    if mapping.get("fc_delay") is not None:
+        try:
+            configure_fc_delay(rb, mapping, chips, ids)
+        except Exception as exc:
+            raise InitializationError(
+                "ETROC objects were created, but FC delay configuration failed; do not start acquisition",
+                "FC delay", chips,
             ) from exc
     return chips
 
