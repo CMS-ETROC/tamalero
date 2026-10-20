@@ -2269,8 +2269,12 @@ def _qscan_set_delay(chips, scan_pixels, delay, verify=False):
 
 
 def _qscan_read_counts(fifo, df, expected):
-    """Read everything currently in the FIFO; count events per elink."""
-    per = {e: {"header": 0, "data": 0, "trailer": 0} for _, e, _ in expected}
+    """Read everything currently in the FIFO; count events per FPGA E-link
+    number (28 * bank + lpGBT elink)."""
+    # Event words carry the FPGA E-link number: DAQ lpGBT 0..27, TRIG lpGBT
+    # 28..55 (TRIG E4 -> 32, E6 -> 34, E8 -> 36, E10 -> 38). per_elink is keyed
+    # by that number.
+    per = {28 * bank + e: {"header": 0, "data": 0, "trailer": 0} for bank, e, _ in expected}
     tot = {"header": 0, "data": 0, "trailer": 0}
     events = fifo.pretty_read(df)
     for ev in events or []:
