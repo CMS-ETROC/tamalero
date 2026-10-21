@@ -24,7 +24,7 @@ def build_parser():
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--mapping", default="pathfinder_mapping.yaml",
                         help="Absolute path or filename relative to repo/pathfinder")
-    parser.add_argument("--stage", choices=["preview", "motherboard", "links", "phase-scan", "blnw", "qinj", "trigger-scan", "fc-scan"], default="preview",
+    parser.add_argument("--stage", choices=["preview", "motherboard", "links", "phase-scan", "blnw", "qinj", "qinj-ready", "trigger-scan", "fc-scan"], default="preview",
                         help="Run all prerequisite sections through this stage")
     parser.add_argument("--selection", type=selection, default={0: "all"},
                         help='JSON, e.g. {"1":"all","3":[1]}')
@@ -116,6 +116,8 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         actions["9"] = ("Apply phase settings", "WRITES HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
         actions["10"] = ("Scan trigger delay", "WRITES HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
         actions["11"] = ("Set trigger delay", "WRITES HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
+        actions["12"] = ("Charge injection acquisition", "WRITES HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
+        actions["13"] = ("Scan FC input delay", "WRITES HARDWARE", "Scan 00/01/10 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     while True:
         print("\n" + "=" * 72)
         print("Interactive diagnostics - reuse the current hardware connection")
@@ -231,6 +233,32 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     kcu.write_node(node, old)
                     raise
                 print(f"TRIG_DLY_SEL: {old} -> {actual}; L1Adelay unchanged")
+            elif choice in ("12", "13"):
+                if qinj_context is None or "acquire" not in qinj_context:
+                    print("[SKIPPED] Use --stage qinj-ready --interactive to prepare thresholds, self-trigger and QInj first.")
+                    continue
+                target = None
+                if choice == "13":
+                    print("Initialized ETROCs:", ", ".join(chips))
+                    target = input("FC scan target, e.g. D5H1: ").strip()
+                    if target not in chips:
+                        raise ValueError("FC target must already be initialized")
+                default_charge = qinj_context["charge_fc"]
+                charge = int(input(f"Charge fC [{default_charge}]: ").strip() or str(default_charge))
+                count = int(input("QInj pulses [1]: ").strip() or "1")
+                reads = int(input("FIFO read passes [3]: ").strip() or "3")
+                records = input("Print complete records by E-link? [y/N]: ").strip().lower() in ("y", "yes")
+                if not 1 <= charge <= 32 or count < 1 or reads < 1:
+                    raise ValueError("Charge must be 1..32 fC; pulse count and read passes must be positive")
+                def acquire():
+                    return qinj_context["acquire"](charge, count, reads, records)
+                with temporary_readout_selection(rb, mapping, list(chips)):
+                    if choice == "12":
+                        report = acquire()
+                        save_diagnostic(output_dir, "interactive_qinj", report)
+                    else:
+                        run_fc_scan(chips, target, acquire, output_dir)
+                qinj_context["charge_fc"] = charge
             if choice != "6":
                 print("[DONE] Operation completed. Review the readings above; this is not an automatic pass verdict.")
         except KeyboardInterrupt:
@@ -361,6 +389,8 @@ def run_fc_scan(chips, identity, acquire, output_dir):
 
 def main(args):
     show_run_plan(args)
+    if args.stage == "qinj-ready":
+        args.interactive = True
     if args.monitor_seconds < 1 or args.qinj_count < 1 or args.fifo_reads < 1:
         raise ValueError("monitor-seconds and qinj-count must be positive")
 
@@ -1288,6 +1318,8 @@ def main(args):
         rb.reset_data_error_count()
         configure_readout_links(rb, mapping, list(chips))
         rb.rerun_bitslip()
+        if not all(item["all_locked"] for item in check_links(rb, mapping, list(chips)).values()):
+            raise RuntimeError("Link lock lost during QInj preparation; no injection sent")
         fifo.use_etroc_data()
         time.sleep(0.1)
 
@@ -1422,7 +1454,19 @@ def main(args):
         }
 
 
-    if args.stage == "trigger-scan":
+    def interactive_acquire(charge, count, reads, records):
+        current = check_links(rb, mapping, ids)
+        if not all(result["all_locked"] for result in current.values()):
+            raise RuntimeError("Selected links are not locked; use compare/phase diagnostics before QInj")
+        enable_qinj_pixels(chips, blnw_results, charge_fc=charge)
+        result = run_charge_injection_test(chips, qinj_count=count,
+                                           max_iterations=reads, print_records=records)
+        result["settings"] = {"charge_fc": charge, "qinj_count": count, "fifo_reads": reads}
+        return result
+
+    if args.stage == "qinj-ready":
+        print("QInj configuration ready. No injection burst sent; use interactive actions 12/13.")
+    elif args.stage == "trigger-scan":
         from pathfinder_control import scan_trigger_delay
         announce("10. Trigger delay scan", "Scan FPGA TRIG_DLY_SEL with fixed pixel L1Adelay.",
                  "Compare each E-link's headers/hits/trailers; a total-hit peak alone is insufficient.")
@@ -1458,7 +1502,8 @@ def main(args):
     if args.interactive:
         interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
                                mapping=mapping, chips=chips, ids=ids,
-                               qinj_context={"pixels": blnw_results["pixels"]}, output_dir=args.scan_output)
+                               qinj_context={"pixels": blnw_results["pixels"], "charge_fc": args.charge_fc,
+                                             "acquire": interactive_acquire}, output_dir=args.scan_output)
 
 
 if __name__ == "__main__":
