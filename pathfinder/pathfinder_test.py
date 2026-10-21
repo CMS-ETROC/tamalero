@@ -94,7 +94,7 @@ def show_run_plan(args):
 
 
 
-def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None):
+def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None, qinj_context=None, output_dir="diagnostic_results"): 
     """Repeat diagnostics without reconstructing KCU or ReadoutBoard."""
     from pathfinder_control import (
         read_optical_link_status, monitor_optical_links,
@@ -112,6 +112,10 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
     }
     if mapping is not None and chips:
         actions["7"] = ("Compare ETROC links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
+        actions["8"] = ("Scan phase select", "WRITES HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
+        actions["9"] = ("Apply phase settings", "WRITES HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
+        actions["10"] = ("Scan trigger delay", "WRITES HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
+        actions["11"] = ("Set trigger delay", "WRITES HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
     while True:
         print("\n" + "=" * 72)
         print("Interactive diagnostics - reuse the current hardware connection")
@@ -164,6 +168,69 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     continue
                 differences = input("Only differences? [y/N]: ").strip().lower() in ("y", "yes")
                 compare_etroc_links(rb, mapping, chips, targets, only_differences=differences)
+            elif choice == "8":
+                from pathfinder_control import expand_selection, scan_etroc_phases
+                selected = selection(input('Scan selection JSON, e.g. {"3":[1]}: ').strip())
+                targets = expand_selection(mapping, selected)
+                if any(i not in chips for i in targets):
+                    raise ValueError("All scan targets must already be initialized")
+                with temporary_readout_selection(rb, mapping, list(chips)):
+                    saved = set_fixed_phase_groups(rb, mapping, targets)
+                    try:
+                        scan_etroc_phases(rb, mapping, chips, selected, output_dir=output_dir)
+                    finally:
+                        restore_phase_groups(saved)
+            elif choice == "9":
+                from pathfinder_control import apply_etroc_phases
+                settings = json.loads(input('Phase settings JSON, e.g. {"D3H1":4,"D2H3":5}: ').strip())
+                if not isinstance(settings, dict) or not settings or any(
+                    i not in chips or type(p) is not int or not 0 <= p <= 14 for i, p in settings.items()
+                ):
+                    raise ValueError("Use initialized IDs with integer phases 0..14")
+                with temporary_readout_selection(rb, mapping, list(chips)):
+                    saved = set_fixed_phase_groups(rb, mapping, list(settings))
+                    try:
+                        result = apply_etroc_phases(rb, mapping, chips, settings)
+                        print(result)
+                    except BaseException:
+                        restore_phase_groups(saved)
+                        raise
+                print("Applied phases and fixed group modes retained; inspect lock results above.")
+            elif choice == "10":
+                if qinj_context is None:
+                    print("[SKIPPED] Run --stage qinj --interactive first: thresholds, injection and self-trigger must be prepared.")
+                    continue
+                from pathfinder_control import scan_trigger_delay
+                start = int(input("Start delay [440]: ").strip() or "440")
+                stop = int(input("Stop delay, exclusive [500]: ").strip() or "500")
+                latency = int(input("Fixed pixel L1Adelay [501]: ").strip() or "501")
+                count = int(input("QInj pulses per delay [1]: ").strip() or "1")
+                if not 0 <= start < stop <= 512 or not 0 <= latency <= 511 or count < 1:
+                    raise ValueError("Invalid delay range, L1Adelay or pulse count")
+                with temporary_readout_selection(rb, mapping, list(chips)):
+                    report = scan_trigger_delay(rb, chips, mapping, scan_pixels=qinj_context["pixels"],
+                                                delays=range(start, stop), l1a_delay=latency, qinj_count=count)
+                save_diagnostic(output_dir, "interactive_trigger_delay", report)
+                for delay, item in report["results"].items():
+                    print(f"delay={delay}: {item['per_elink']}")
+                print("Pixel L1Adelay remains at the requested value; FPGA trigger delay restored. No best delay applied.")
+            elif choice == "11":
+                value = int(input("FPGA trigger delay (0..511): ").strip())
+                if not 0 <= value <= 511:
+                    raise ValueError("Trigger delay must be in 0..511")
+                node = f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL"
+                old = kcu.read_node(node)
+                old = int(old.value() if hasattr(old, "value") else old)
+                try:
+                    kcu.write_node(node, value)
+                    actual = kcu.read_node(node)
+                    actual = int(actual.value() if hasattr(actual, "value") else actual)
+                    if actual != value:
+                        raise RuntimeError(f"Trigger delay readback mismatch: {actual}")
+                except BaseException:
+                    kcu.write_node(node, old)
+                    raise
+                print(f"TRIG_DLY_SEL: {old} -> {actual}; L1Adelay unchanged")
             if choice != "6":
                 print("[DONE] Operation completed. Review the readings above; this is not an automatic pass verdict.")
         except KeyboardInterrupt:
@@ -174,6 +241,36 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             print("[INFO] No automatic rollback performed. Review before retrying.")
             traceback.print_exc()
         print("[MENU] Returning to action selection.")
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def temporary_readout_selection(rb, mapping, targets):
+    """Enable initialized targets for diagnostics, restoring exact original masks."""
+    from pathfinder_control import configure_readout_links
+    nodes = [f"READOUT_BOARD_{rb.rb}.ETROC_DISABLE"]
+    if "trig" in mapping["lpgbts"]:
+        nodes.append(f"READOUT_BOARD_{rb.rb}.ETROC_DISABLE_SLAVE")
+    def integer(v):
+        return int(v.value() if hasattr(v, "value") else v)
+    saved = {node: integer(rb.kcu.read_node(node)) for node in nodes}
+    try:
+        configure_readout_links(rb, mapping, targets)
+        rb.rerun_bitslip()
+        yield
+    finally:
+        errors = []
+        for node, value in saved.items():
+            try:
+                rb.kcu.write_node(node, value)
+                if integer(rb.kcu.read_node(node)) != value:
+                    raise RuntimeError("mask restoration readback mismatch")
+            except Exception as exc:
+                errors.append(f"{node}: {exc}")
+        if errors:
+            raise RuntimeError("; ".join(errors))
 
 
 def restore_phase_groups(saved):
@@ -1360,7 +1457,8 @@ def main(args):
     print("QInj workflow finished; declared data links are masked. Review readout results above.", flush=True)
     if args.interactive:
         interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
-                               mapping=mapping, chips=chips, ids=ids)
+                               mapping=mapping, chips=chips, ids=ids,
+                               qinj_context={"pixels": blnw_results["pixels"]}, output_dir=args.scan_output)
 
 
 if __name__ == "__main__":
