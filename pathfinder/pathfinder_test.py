@@ -39,8 +39,9 @@ def build_parser():
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
     parser.add_argument("--no-plots", action="store_true", help="Skip BL/NW map and histogram display")
     parser.add_argument("--trigger-delay", type=int, default=469)
-    parser.add_argument("--charge-fc", type=int, default=15)
-    parser.add_argument("--qinj-count", type=int, default=1)
+    parser.add_argument("--qinj", "--charge-fc", dest="charge_fc", type=int, default=15, help="Injected charge in fC (1..32; default: 15)")
+    parser.add_argument("--qinj-cnt", "--qinj-count", dest="qinj_count", type=int, default=1, help="Injection pulse count (default: 1)")
+    parser.add_argument("--offset", type=int, default=50, help="Threshold DAC offset above measured baseline (default: 50)")
     parser.add_argument("--interactive", action="store_true",
                         help="Open repeatable diagnostics after a hardware stage")
     parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
@@ -1423,7 +1424,7 @@ def main(args):
             announce('8. Pixel thresholds', 'Apply baseline-derived DAC thresholds and activate scanned pixels.', 'Threshold configuration must complete before acquisition.')
             import time
 
-            THRESHOLD_OFFSET = 50   # DAC code; threshold = baseline + this offset
+            THRESHOLD_OFFSET = args.offset   # DAC code; threshold = baseline + this offset
             L1A_DELAY_DEFAULT = args.l1a_delay
 
             # Full-range TOA/TOT/Cal trigger- and data-path windows: accept every hit
