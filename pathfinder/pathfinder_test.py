@@ -313,11 +313,13 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         lp.read_adcs(check=True, strict_limits=False)
                     print("ADC read complete; review individual values and limits.")
             elif choice == "20":
+                show_fc_settings(chips)
                 names = [i.strip().strip("\"'") for i in input('ETROC IDs, e.g. "D0H0", "D0H1": ').split(",") if i.strip().strip("\"'")]
                 pair = input("FC clk/data: 00, 01 or 10: ").strip()
                 if not names or any(i not in chips for i in names) or pair not in ("00", "01", "10"):
                     raise ValueError("Use initialized IDs and one of 00/01/10")
                 set_fc_settings(chips, names, tuple(map(int, pair)))
+                show_fc_settings(chips)
             elif choice == "10":
                 from pathfinder_control import expand_selection
                 selected = selection(input('I2C selection JSON, e.g. {"5":"all"}: ').strip())
@@ -492,6 +494,19 @@ def probe_i2c(rb, mapping, targets, repeats):
             except Exception as exc:
                 print(f"{attempt+1}/{repeats} {identity} {bus}: {type(exc).__name__}: {exc}")
         time.sleep(0.2)
+
+
+def show_fc_settings(chips):
+    """Print the current FC input delay bits of every initialized ETROC."""
+    def integer(v):
+        return int(v.value() if hasattr(v, "value") else v)
+    print("Current FC input delay:")
+    for identity, chip in chips.items():
+        try:
+            clk, data, align = (integer(chip.rd_reg(r)) for r in ("fcClkDelayEn", "fcDataDelayEn", "fcSelfAlignEn"))
+            print(f"  {identity}: clk={clk} data={data} (selfAlign={align})")
+        except Exception as exc:
+            print(f"  {identity}: read failed: {type(exc).__name__}: {exc}")
 
 
 def set_fc_settings(chips, names, pair):
