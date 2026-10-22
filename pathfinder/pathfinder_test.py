@@ -150,15 +150,21 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             suffix = " (unavailable for this mapping)" if key == "6" and not pathfinder_profile else ""
             print(f"{key}. {title} [{kind}]{suffix}")
         if recovery:
-            print("Enter / c: Retry the failed step" if failed else "Enter / c: Continue to the next step")
+            print("Enter / c: Continue (unavailable until this step passes)" if failed else "Enter / c: Continue to the next step")
+            print("R: Rerun the current step")
         print("0. Exit (does not power down hardware)")
         try:
             choice = input("Select an action: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n[EXIT] Leaving diagnostics; hardware is not restored or powered down.")
             return
+        if recovery and choice.lower() == "r":
+            return "retry"
         if recovery and choice.lower() in ("", "c"):
-            return True
+            if failed:
+                print("Step failed. Debug, then press R to retry; continuing is unavailable.")
+                continue
+            return "continue"
         if choice == "0":
             print("[EXIT] Leaving diagnostics; hardware is not powered down.")
             return
@@ -519,7 +525,7 @@ def workflow_menu(state, args, failed=False):
     if "interactive_acquire" in state:
         context = {"pixels": state["blnw_results"]["pixels"], "charge_fc": args.charge_fc,
                    "acquire": state["interactive_acquire"]}
-    print("Failed step will be retried, not skipped." if failed else "Step complete. Debug now or continue.")
+    print("Use R to retry the failed step; continuing requires a successful check." if failed else "Step complete. Debug now or continue.")
     return interactive_checks(state.get("kcu"), state.get("rb"),
                               pathfinder_profile=Path(args.mapping).name == "pathfinder_mapping.yaml",
                               mapping=state.get("mapping"), chips=state.get("chips"), ids=state.get("ids"),
@@ -786,11 +792,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -832,11 +842,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -862,11 +876,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -885,11 +903,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -913,11 +935,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     if args.stage == 'motherboard':
         print('Motherboard stage complete. With no daughter boards, stop here. Review whether the Pathfinder optical profile ran or was skipped.', flush=True)
@@ -955,11 +981,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -978,11 +1008,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1020,11 +1054,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1061,11 +1099,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1114,11 +1156,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1154,11 +1200,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1173,11 +1223,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1300,11 +1354,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     if not args.no_plots:
         while True:
@@ -1316,11 +1374,15 @@ def main(args):
                 if not args.interactive:
                     raise
                 print(f'[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}')
-                if workflow_menu(locals(), args, failed=True):
+                if workflow_menu(locals(), args, failed=True) == 'retry':
                     continue
                 return
-            if args.step and (not workflow_menu(locals(), args)):
-                return
+            if args.step:
+                action = workflow_menu(locals(), args)
+                if action == 'retry':
+                    continue
+                if action != 'continue':
+                    return
             break
     if args.stage == 'blnw':
         print('BL/NW stage complete. Review scan failures and figures. Use --stage qinj for a new run including initialization and a fresh scan.', flush=True)
@@ -1364,11 +1426,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1461,11 +1527,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1540,11 +1610,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1771,11 +1845,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1813,11 +1891,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
     while True:
         try:
@@ -1836,11 +1918,15 @@ def main(args):
             if not args.interactive:
                 raise
             print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
+            if workflow_menu(locals(), args, failed=True) == "retry":
                 continue
             return
-        if args.step and not workflow_menu(locals(), args):
-            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
         break
 
 
