@@ -24,7 +24,7 @@ def build_parser():
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--mapping", default="pathfinder_mapping.yaml",
                         help="Absolute path or filename relative to repo/pathfinder")
-    parser.add_argument("--stage", choices=["preview", "motherboard", "links", "phase-scan", "blnw", "qinj", "qinj-ready", "fc-scan"], default="preview",
+    parser.add_argument("--stage", choices=["preview", "motherboard", "links", "phase-scan", "blnw", "qinj", "fc-scan"], default="preview",
                         help="Run all prerequisite sections through this stage")
     parser.add_argument("--selection", type=selection, default={0: "all"},
                         help='JSON, e.g. {"1":"all","3":[1]}')
@@ -269,7 +269,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 print(f"TRIG_DLY_SEL: {old} -> {actual}; L1Adelay unchanged")
             elif choice in ("12", "13"):
                 if qinj_context is None or "acquire" not in qinj_context:
-                    print("[SKIPPED] Use --stage qinj-ready --interactive to prepare thresholds, self-trigger and QInj first.")
+                    print("[SKIPPED] Use --stage qinj --step --interactive to prepare thresholds, self-trigger and QInj first.")
                     continue
                 target = None
                 if choice == "13":
@@ -627,7 +627,7 @@ def show_blnw_plots(blnw_results):
 
 def main(args):
     show_run_plan(args)
-    if args.stage == "qinj-ready" or args.step:
+    if args.step:
         args.interactive = True
     if args.monitor_seconds < 1 or args.qinj_count < 1 or args.fifo_reads < 1:
         raise ValueError("monitor-seconds and qinj-count must be positive")
@@ -1803,9 +1803,7 @@ def main(args):
     while True:
         try:
             announce("11. Data Acquisition", "Use current prepared settings.", "Errors return to debugging; retry resends an injection burst and resets FIFO.")
-            if args.stage == "qinj-ready":
-                print("QInj configuration ready. No injection burst sent; use interactive actions 10 (trigger delay scan), 12 or 13.")
-            elif args.stage == "fc-scan":
+            if args.stage == "fc-scan":
                 announce("11.1. FC input delay scan", "Scan all four clk/data delay-bit combinations: 00, 01, 10, 11.",
                          "Original FC bits are restored, even on acquisition failure; other chips remain unchanged.")
                 run_fc_scan(chips, args.fc_target,
