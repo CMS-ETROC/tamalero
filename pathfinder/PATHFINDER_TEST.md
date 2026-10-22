@@ -102,6 +102,7 @@ Each stage runs all earlier ones first.
 | `--fc-target` | none | ETROC for `--stage fc-scan`, e.g. `D3H1`. |
 | `--scan-output` | `diagnostic_results` | Folder for diagnostic JSON files. |
 | `--monitor-seconds` | `3` | Duration of the uplink monitor in the motherboard check. |
+| `--wrap` | off | By default long output lines are not wrapped (cut at the terminal edge, so widen the window to see more); `--wrap` restores normal wrapping. Not applied when output is redirected. |
 | `--interactive` | off | Open the diagnostic menu after a hardware stage (and at the end). |
 | `--step` | off | Pause after every step with the menu, so you can debug and retry in the same session. |
 

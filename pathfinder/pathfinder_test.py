@@ -5,7 +5,10 @@ Default run is an offline preview. Hardware execution has not been validated.
 Place this file in the repository's pathfinder directory.
 """
 import argparse
+import atexit
 import json
+import os
+import sys
 from pathlib import Path
 
 
@@ -57,6 +60,7 @@ def build_parser():
     parser.add_argument("--scan-output", type=Path, default=Path("diagnostic_results"))
     parser.add_argument("--print-records", action="store_true", help="Print full header/data/trailer records grouped by E-link")
     parser.add_argument("--fifo-reads", type=int, default=3, help="Read passes after one QInj burst; does not send extra injections")
+    parser.add_argument("--wrap", action="store_true", help="Let long output lines wrap in the terminal (default: lines are cut at the window edge)")
     parser.add_argument("--step", action="store_true", help="Pause for debugging after each completed hardware step; retry failed steps in the same session")
     return parser
 
@@ -623,7 +627,17 @@ def show_blnw_plots(blnw_results):
     blnw_figures = plot_blnw_maps(blnw_results)
     blnw_histogram_figures = plot_blnw_histograms(blnw_results)
 
+def set_line_wrap(enabled):
+    """Turn terminal auto-wrap on/off (ANSI DECAWM). Long lines are cut at the window edge, not wrapped."""
+    if sys.stdout.isatty() and (os.name != "nt" or os.environ.get("WT_SESSION")):
+        sys.stdout.write("\033[?7h" if enabled else "\033[?7l")
+        sys.stdout.flush()
+
+
 def main(args):
+    if not args.wrap:
+        set_line_wrap(False)
+        atexit.register(set_line_wrap, True)
     show_run_plan(args)
     if args.step:
         args.interactive = True
