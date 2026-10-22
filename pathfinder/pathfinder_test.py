@@ -804,7 +804,7 @@ def main(args):
         break
     while True:
         try:
-            announce('4. Motherboard initialization', 'Create rb, configure declared lpGBTs, mask data links and configure TRIG clocks.', 'Both declared lpGBT objects must be available; ELINK_WIDTH must read back correctly.')
+            announce('4. Motherboard initialization', 'Create rb, configure declared lpGBTs, configure TRIG clocks and enable the selected data links.', 'Both declared lpGBT objects must be available; ELINK_WIDTH must read back correctly.')
             USE_TRIG = "trig" in mapping["lpgbts"]
             if USE_TRIG:
                 upstream = mapping["lpgbts"]["trig"]["control"]
@@ -821,9 +821,8 @@ def main(args):
                 rb=READOUTBOARD_ID, kcu=kcu, config=READOUTBOARD_CONFIG,
                 trigger=USE_TRIG, verbose=True,
             )
-            configure_readout_links(rb, mapping, [])
             if USE_TRIG and (not rb.trigger or getattr(rb, "TRIG_LPGBT", None) is None):
-                raise RuntimeError("TRIG lpGBT was not initialized; readout links remain masked")
+                raise RuntimeError("TRIG lpGBT was not initialized")
 
             # Retain the TRIG clock configuration verified during hardware testing.
             if USE_TRIG:
@@ -835,7 +834,9 @@ def main(args):
             width = rb.kcu.read_node(width_node).value()
             if width != ELINK_WIDTH:
                 raise RuntimeError(f"ELINK_WIDTH mismatch: expected {ELINK_WIDTH}, received {width}")
-            print(f"Initialized controllers: {list(mapping['lpgbts'])}; declared banks are masked")
+            # Enable the selected data links here; every other link stays masked.
+            applied_masks = configure_readout_links(rb, mapping, ids)
+            print(f"Initialized controllers: {list(mapping['lpgbts'])}; selected data links enabled: {ids}")
 
             # Notebook code cell 14
         except Exception as exc:
@@ -912,7 +913,6 @@ def main(args):
             etroc_register_checks_done = False
             etroc_power_checks_done = False
             blnw_scan_passed = False
-            configure_readout_links(rb, mapping, [])
             existing = dict(chips)
             routes = {(mapping["etrocs"][i]["i2c"]["lpgbt"], mapping["etrocs"][i]["i2c"]["channel"],
                        mapping["etrocs"][i]["i2c"]["address"]): chip for i, chip in existing.items()}
@@ -980,7 +980,6 @@ def main(args):
             blnw_scan_passed = False
             if not ids or tuple(ids) != initialized_ids or list(chips) != ids:
                 raise RuntimeError("Selection is empty or initialization is incomplete; rerun initialization")
-            configure_readout_links(rb, mapping, [])
             etroc_register_results = {}
             for identity, etroc in chips.items():
                 values = {}
@@ -1027,7 +1026,6 @@ def main(args):
                 raise RuntimeError("Selection changed or initialization is incomplete")
             if not etroc_register_checks_done:
                 raise RuntimeError("Complete the ETROC register configuration cell first")
-            configure_readout_links(rb, mapping, [])
             etroc_power_results = {}
             for identity, etroc in chips.items():
                 try:
@@ -1135,6 +1133,7 @@ def main(args):
                 print(f"E-link lock: {locked_count}/{link_count}")
                 if not all(item["all_locked"] for item in current_links.values()):
                     raise RuntimeError("E-link check failed before calibration")
+                basic_checks_passed = True
             if args.stage in ("links", "phase-scan"):
                 announce("5.4. Link diagnostics", "Read settings, masks, controllerState and lock status.",
                          "Check optical link, rate/merge, ENABLE/INVERT/TERM and masks before scanning phase.")
@@ -1209,14 +1208,12 @@ def main(args):
                 raise ValueError("BLNW_SCAN_MODE must be 'sample' or 'all'")
 
 
-            basic_checks_passed = False
             blnw_scan_passed = False
             scan_pixels = build_blnw_pixels(BLNW_SCAN_MODE)
             if not ids or tuple(ids) != initialized_ids or list(chips) != ids:
                 raise RuntimeError("Selection is empty or initialization is incomplete")
             if not etroc_register_checks_done or not etroc_power_checks_done:
                 raise RuntimeError("Complete ETROC register and power configuration first")
-            configure_readout_links(rb, mapping, [])
             blnw_save_enabled = BLNW_SAVE_RESULTS
             blnw_output_path = None
             if blnw_save_enabled:
@@ -1306,7 +1303,7 @@ def main(args):
                 show_status(f"{identity}: {len(scan_pixels) - count}/{len(scan_pixels)} pixels passed",
                             "warning" if count else "success")
             if failure_count:
-                raise RuntimeError(f"{failure_count} pixels failed; inspect failed_pixels and blnw_results; readout remains masked")
+                raise RuntimeError(f"{failure_count} pixels failed; inspect failed_pixels and blnw_results")
             blnw_scan_passed = True
 
             # Notebook code cell 32
@@ -1351,53 +1348,6 @@ def main(args):
         return
     while True:
         try:
-            announce('7. Enable selected data links', 'Enable mapped data links and check ETROC link lock.', 'This checks ETROC E-links, separately from the optical uplinks.')
-            basic_checks_passed = False
-            if tuple(ids) != initialized_ids or list(chips) != ids:
-                raise RuntimeError("Selection changed or initialization is incomplete")
-            if not etroc_register_checks_done or not etroc_power_checks_done:
-                raise RuntimeError("Complete ETROC register and power configuration before enabling links")
-            if not blnw_scan_passed:
-                raise RuntimeError("Complete the BL/NW scan successfully before enabling links")
-            try:
-                connection_results = check_connections(chips)
-                if not all(result["connected"] for result in connection_results.values()):
-                    raise RuntimeError(f"I2C checks failed: {connection_results}")
-                applied_masks = configure_readout_links(rb, mapping, ids)
-                rb.rerun_bitslip()
-                link_results = check_links(rb, mapping, ids)
-                for identity, result in link_results.items():
-                    for link in result["links"]:
-                        print(f"{identity}: {link['lpgbt']} E-link {link['elink']}, "
-                              f"locked={link['locked']}, error={link['error']}")
-                if not all(result["all_locked"] for result in link_results.values()):
-                    raise RuntimeError("One or more selected data links are not locked")
-            except Exception:
-                print("Link check failed; preserving selected masks for diagnosis. No acquisition will run.")
-                print("Review ENABLE/INVERT/TERM, rate/merge, masks, controllerState (expected 11), then phase scan.")
-                raise
-
-            basic_checks_passed = True
-            show_status("Selected ETROCs respond and selected data links are locked", "success")
-            print("Only selected readout links are enabled; no acquisition has been started")
-
-            # Notebook code cell 36
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True) == "retry":
-                continue
-            return
-        if args.step:
-            action = workflow_menu(locals(), args)
-            if action == "retry":
-                continue
-            if action != "continue":
-                return
-        break
-    while True:
-        try:
             announce('8. Pixel thresholds', 'Apply baseline-derived DAC thresholds and activate scanned pixels.', 'Threshold configuration must complete before acquisition.')
             import time
 
@@ -1412,7 +1362,7 @@ def main(args):
             CAL_RANGE = (0, 0x3ff)
 
             if not basic_checks_passed:
-                raise RuntimeError("Complete section 7 (link enable) successfully before configuring thresholds")
+                raise RuntimeError("Complete the E-link check (5.5) successfully before configuring thresholds")
             if not blnw_scan_passed:
                 raise RuntimeError("Complete the BL/NW scan before configuring thresholds")
 
@@ -1503,7 +1453,7 @@ def main(args):
             import time
 
             if not basic_checks_passed:
-                raise RuntimeError("Complete section 7 (link enable) successfully before configuring self-trigger")
+                raise RuntimeError("Complete the E-link check (5.5) successfully before configuring self-trigger")
 
             TRIGGER_DELAY_DEFAULT = args.trigger_delay
 
@@ -1589,7 +1539,7 @@ def main(args):
             from tamalero.DataFrame import DataFrame   # adjust the import path if DataFrame lives elsewhere in this driver
 
             if not basic_checks_passed:
-                raise RuntimeError("Complete section 7 (link enable) successfully before running charge injection")
+                raise RuntimeError("Complete the E-link check (5.5) successfully before running charge injection")
 
             QINJ_COUNT_DEFAULT = args.qinj_count
             EMPTY_SLOT_BCID = 500   # must be < 3563
