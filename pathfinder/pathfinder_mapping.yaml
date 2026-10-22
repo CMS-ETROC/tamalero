@@ -14,7 +14,8 @@ schema_version: 1
 fc_termination:
   terminated_hybrids: [3]
 fc_delay:
-  data_delay_enabled: ["D0H0","D2H0"] 
+  clk_delay_enabled: []           # fcClkDelayEn = 1
+  data_delay_enabled: ["D0H0", "D2H0"]  # fcDataDelayEn = 1 
 lpgbts:
   daq:
     hardware_id: 1
