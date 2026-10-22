@@ -160,28 +160,28 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | # | Action | Kind | What it does | Prompts / notes |
 |---|---|---|---|---|
 | 0 | Exit | | Leave the menu; hardware is not powered down. | |
-| 1 | KCU status | READ ONLY | Read KCU status, clocks and available E-link lock flags. |  |
-| 2 | Uplink READY/FEC | READ ONLY | Read current counters without clearing them. |  |
-| 3 | Monitor uplinks for 10 seconds | READ ONLY | Sample READY/FEC once per second; counters are not reset. |  |
-| 4 | Clock register readback | READ ONLY | Read ECLK0-27 frequency and drive strength; this does not measure waveforms. |  |
-| 5 | Reset FEC counters | WRITE HARDWARE | Clear historical FEC counts on both uplinks. |  |
-| 6 | Configure and verify optical links | WRITE HARDWARE | Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds. | Only for `pathfinder_mapping.yaml`. |
-| 7 | Read receiver masks | READ ONLY | Read DAQ/TRIG disable masks without changing them. |  |
-| 8 | Enable selected readout links | WRITE HARDWARE | Apply masks for initialized selected ETROCs; other receivers remain disabled. |  |
-| 9 | Rerun bitslip and check links | WRITE HARDWARE | Rerun shared bitslip; report selected link status. Does not change masks. | Shared bitslip may realign other channels. |
-| 10 | Retry direct I2C reads | READ ONLY | Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration. | Prompts for an I2C selection JSON, e.g. `{"5":"all"}`, and the number of read repetitions (default 3). |
-| 11 | Compare links | READ ONLY | Compare initialized ETROCs side by side; no resets or configuration writes. | Prompts for ETROC IDs (Enter = all) and whether to show only differences. |
-| 12 | Check link rates | READ ONLY | Compare configured FPGA/lpGBT/ETROC rates. |  |
-| 13 | Set link rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
-| 14 | Scan EPRX phase select | WRITE HARDWARE | Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels. | Prompts for a selection JSON, e.g. `{"3":[1]}`. |
-| 15 | Apply EPRX phase select | WRITE HARDWARE | Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards. | Prompts for phases as JSON, e.g. `{"D3H1":4}` (phase 0..14). |
-| 16 | Plot BL/NW results | READ ONLY | Plot current in-memory maps; full scans also show histograms. Close plot windows to return. | Needs BL/NW results in memory. |
-| 17 | Scan trigger delay | WRITE HARDWARE | Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks. |  |
-| 18 | Set trigger delay | WRITE HARDWARE | Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged. | Prompts for the FPGA delay (0..511). |
-| 19 | Scan FC input delay | WRITE HARDWARE | Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure. | Prompts for the target ETROC, e.g. `D5H1`. |
-| 20 | Set FC input delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Shows the current FC delay bits of all initialized ETROCs first, then prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10; shows the table again afterwards. |
-| 21 | Charge injection acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
-| 22 | Read ADC monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
+| 1 | KCU Status | READ ONLY | Read KCU status, clocks and available E-link lock flags. |  |
+| 2 | Uplinks Status | READ ONLY | Read current counters without clearing them. |  |
+| 3 | Monitor Uplinks | READ ONLY | Sample READY/FEC once per second for 10 seconds; counters are not reset. |  |
+| 4 | Check Clock Registers | READ ONLY | Read ECLK0-27 frequency and drive strength; this does not measure waveforms. |  |
+| 5 | Reset FEC Counters | WRITE HARDWARE | Clear historical FEC counts on both uplinks. |  |
+| 6 | Configure Optical Links | WRITE HARDWARE | Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds. | Only for `pathfinder_mapping.yaml`. |
+| 7 | Read Receiver Masks | READ ONLY | Read DAQ/TRIG disable masks without changing them. |  |
+| 8 | Enable Selected Readout Links | WRITE HARDWARE | Apply masks for initialized selected ETROCs; other receivers remain disabled. |  |
+| 9 | Rerun Bitslip and Check Links | WRITE HARDWARE | Rerun shared bitslip; report selected link status. Does not change masks. | Shared bitslip may realign other channels. |
+| 10 | Retry Direct I2C Reads | READ ONLY | Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration. | Prompts for an I2C selection JSON, e.g. `{"5":"all"}`, and the number of read repetitions (default 3). |
+| 11 | Compare Links | READ ONLY | Compare initialized ETROCs side by side; no resets or configuration writes. | Prompts for ETROC IDs (Enter = all) and whether to show only differences. |
+| 12 | Check Link Rate | READ ONLY | Compare configured FPGA/lpGBT/ETROC rates. |  |
+| 13 | Set Link Rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
+| 14 | Scan EPRX Phase Select | WRITE HARDWARE | Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels. | Prompts for a selection JSON, e.g. `{"3":[1]}`. |
+| 15 | Apply EPRX Phase Select | WRITE HARDWARE | Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards. | Prompts for phases as JSON, e.g. `{"D3H1":4}` (phase 0..14). |
+| 16 | Plot BL/NW Results | READ ONLY | Plot current in-memory maps; full scans also show histograms. Close plot windows to return. | Needs BL/NW results in memory. |
+| 17 | Scan Trigger Delay | WRITE HARDWARE | Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks. |  |
+| 18 | Set Trigger Delay | WRITE HARDWARE | Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged. | Prompts for the FPGA delay (0..511). |
+| 19 | Scan FC Input Delay | WRITE HARDWARE | Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure. | Prompts for the target ETROC, e.g. `D5H1`. |
+| 20 | Set FC Input Delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Shows the current FC delay bits of all initialized ETROCs first, then prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10; shows the table again afterwards. |
+| 21 | Charge Injection Acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
+| 22 | Read ADC Monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
 
 Menus 17, 19 and 21 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
 They enable the selected links temporarily, so they also work after Step 12 has masked the links.

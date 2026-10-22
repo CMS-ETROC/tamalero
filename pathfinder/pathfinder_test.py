@@ -111,33 +111,33 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
     )
 
     actions = {
-        "1": ("KCU status", "READ ONLY", "Read KCU status, clocks and available E-link lock flags."),
-        "2": ("Uplink READY/FEC", "READ ONLY", "Read current counters without clearing them."),
-        "3": ("Monitor uplinks for 10 seconds", "READ ONLY", "Sample READY/FEC once per second; counters are not reset."),
-        "4": ("Clock register readback", "READ ONLY", "Read ECLK0-27 frequency and drive strength; this does not measure waveforms."),
-        "5": ("Reset FEC counters", "WRITE HARDWARE", "Clear historical FEC counts on both uplinks."),
-        "6": ("Configure and verify optical links", "WRITE HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
+        "1": ("KCU Status", "READ ONLY", "Read KCU status, clocks and available E-link lock flags."),
+        "2": ("Uplinks Status", "READ ONLY", "Read current counters without clearing them."),
+        "3": ("Monitor Uplinks", "READ ONLY", "Sample READY/FEC once per second for 10 seconds; counters are not reset."),
+        "4": ("Check Clock Registers", "READ ONLY", "Read ECLK0-27 frequency and drive strength; this does not measure waveforms."),
+        "5": ("Reset FEC Counters", "WRITE HARDWARE", "Clear historical FEC counts on both uplinks."),
+        "6": ("Configure Optical Links", "WRITE HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
     }
     if mapping is not None and chips:
-        actions["11"] = ("Compare links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
-        actions["14"] = ("Scan EPRX phase select", "WRITE HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
-        actions["15"] = ("Apply EPRX phase select", "WRITE HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
-        actions["17"] = ("Scan trigger delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
-        actions["18"] = ("Set trigger delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
-        actions["21"] = ("Charge injection acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
-        actions["19"] = ("Scan FC input delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
+        actions["11"] = ("Compare Links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
+        actions["14"] = ("Scan EPRX Phase Select", "WRITE HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
+        actions["15"] = ("Apply EPRX Phase Select", "WRITE HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
+        actions["17"] = ("Scan Trigger Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
+        actions["18"] = ("Set Trigger Delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
+        actions["21"] = ("Charge Injection Acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
+        actions["19"] = ("Scan FC Input Delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
-        actions["22"] = ("Read ADC monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
-        actions["10"] = ("Retry direct I2C reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
-        actions["7"] = ("Read receiver masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
+        actions["22"] = ("Read ADC Monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
+        actions["10"] = ("Retry Direct I2C Reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
+        actions["7"] = ("Read Receiver Masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
-        actions["20"] = ("Set FC input delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
-        actions["9"] = ("Rerun bitslip and check links", "WRITE HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
-        actions["12"] = ("Check link rates", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
-        actions["13"] = ("Set link rate", "WRITE HARDWARE", "Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again.")
-        actions["8"] = ("Enable selected readout links", "WRITE HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
+        actions["20"] = ("Set FC Input Delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
+        actions["9"] = ("Rerun Bitslip and Check Links", "WRITE HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
+        actions["12"] = ("Check Link Rate", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
+        actions["13"] = ("Set Link Rate", "WRITE HARDWARE", "Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again.")
+        actions["8"] = ("Enable Selected Readout Links", "WRITE HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
     if blnw_results is not None:
-        actions["16"] = ("Plot BL/NW results", "READ ONLY", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
+        actions["16"] = ("Plot BL/NW Results", "READ ONLY", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
     if kcu is None:
         actions.pop("1", None)
     if rb is None:
