@@ -1177,6 +1177,32 @@ def main(args):
             BLNW_SAVE_RESULTS = not args.no_save
             BLNW_OUTPUT_DIR = TAMALERO_ROOT / "pathfinder" / "results" / "blnw" 
 
+            BLNW_PIXELS_PER_CHIP = {"sample": 4, "all": 256}
+
+            def show_blnw_mode():
+                n = BLNW_PIXELS_PER_CHIP[BLNW_SCAN_MODE]
+                print(f"Current BL/NW mode: {BLNW_SCAN_MODE} ({n} pixels per ETROC, "
+                      f"{n * len(ids)} in total on {len(ids)} ETROCs)")
+                print("  sample = 4 corner pixels per chip (fast); all = full 16 x 16 matrix (slow)")
+                print("  The scanned pixels are also the ones given thresholds and QInj later.")
+                print(f"Save results: {BLNW_SAVE_RESULTS}; output folder: {BLNW_OUTPUT_DIR}")
+
+            show_blnw_mode()
+            if args.interactive:
+                while True:
+                    try:
+                        choice = input("BL/NW mode: type sample or all to change (Enter = keep): ").strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        print("\nKeeping the current BL/NW mode.")
+                        break
+                    if not choice:
+                        break
+                    if choice in BLNW_PIXELS_PER_CHIP:
+                        BLNW_SCAN_MODE = choice
+                        show_blnw_mode()
+                        break
+                    print("Please type sample, all, or press Enter to keep the current mode.")
+
             # Notebook code cell 30
         except Exception as exc:
             if not args.interactive:
