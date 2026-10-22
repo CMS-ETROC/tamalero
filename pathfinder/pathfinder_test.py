@@ -854,68 +854,7 @@ def main(args):
         break
     while True:
         try:
-            announce('4.1. Initial link diagnostics', 'Read existing link status and reset FEC counters after the existing DAQ check.', 'This is before optical configuration; use section 4.3 for final dual-link verification.')
-            print("Checking DAQ/TRIG LpGBT base configuration:")
-            daq_link_good = rb.DAQ_LPGBT.link_status()
-            show_status(f"DAQ LpGBT Link Good: {daq_link_good}", "success" if daq_link_good else "error")
-            if USE_TRIG:
-                trig_link_good = rb.TRIG_LPGBT.link_status()
-                show_status(f"TRIG LpGBT Link Good: {trig_link_good}", "success" if trig_link_good else "error")
-            fec_errors_before_reset = rb.get_FEC_error_count()
-            # print(f"FEC Errors: DAQ LpGBT = {fec_errors_before_reset.get('DAQ', 'N/A')}")
-
-            if not daq_link_good:
-                basic_checks_passed = False
-                raise RuntimeError("DAQ lpGBT link is not good; stop before ETROC initialization")
-
-            # Preserve the observed counters above before starting a new counting interval.
-            # rb.reset_FEC_error_count()
-
-            # Notebook code cell 16
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True) == "retry":
-                continue
-            return
-        if args.step:
-            action = workflow_menu(locals(), args)
-            if action == "retry":
-                continue
-            if action != "continue":
-                return
-        break
-    while True:
-        try:
-            announce('4.2. Clock register readback', 'Read ECLK frequency and drive registers.', 'Register readback does not measure a physical clock waveform.')
-            clock_readback = read_clock_configuration(rb)
-
-            clock_read_errors = sum(
-                result["error"] is not None
-                for results in clock_readback.values()
-                for result in results
-            )
-            show_status(f"Clock register read errors: {clock_read_errors}", "success" if clock_read_errors == 0 else "error")
-
-            # Notebook code cell 18
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True) == "retry":
-                continue
-            return
-        if args.step:
-            action = workflow_menu(locals(), args)
-            if action == "retry":
-                continue
-            if action != "continue":
-                return
-        break
-    while True:
-        try:
-            announce('4.3. Optical-link configuration', 'Apply the Pathfinder transmitter profile when selected, then verify readback and monitor uplinks.', 'For Pathfinder, both READY flags must stay 1 and FEC counters stay 0 at the sampled times.')
+            announce('4.1. Optical-link configuration and checks', 'Configure optical links, verify readback and monitor uplinks, then check lpGBT status.', 'For Pathfinder, both READY flags must stay 1 and FEC counters stay 0 at the sampled times.')
             optical_checks_passed = False
             optical_init_result = None
 
@@ -930,6 +869,20 @@ def main(args):
                     "Skipping Pathfinder optical initialization for this mapping",
                     "info",
                 )
+
+            print("Checking DAQ/TRIG LpGBT base configuration:")
+            daq_link_good = rb.DAQ_LPGBT.link_status()
+            show_status(f"DAQ LpGBT Link Good: {daq_link_good}", "success" if daq_link_good else "error")
+            if USE_TRIG:
+                trig_link_good = rb.TRIG_LPGBT.link_status()
+                show_status(f"TRIG LpGBT Link Good: {trig_link_good}", "success" if trig_link_good else "error")
+            fec_errors_before_reset = rb.get_FEC_error_count()
+            # print(f"FEC Errors: DAQ LpGBT = {fec_errors_before_reset.get('DAQ', 'N/A')}")
+
+            if not daq_link_good:
+                basic_checks_passed = False
+                raise RuntimeError("DAQ lpGBT link is not good; stop before ETROC initialization")
+
 
         except Exception as exc:
             if not args.interactive:
@@ -1173,6 +1126,13 @@ def main(args):
                 configure_readout_links(rb, mapping, ids)
                 rb.rerun_bitslip()
                 current_links = check_links(rb, mapping, ids)
+                for identity, result in current_links.items():
+                    for link in result["links"]:
+                        print(f"{identity}: {link['lpgbt'].upper()} E-link {link['elink']}, "
+                              f"locked={link['locked']}, error={link['error']}")
+                locked_count = sum(bool(link["locked"]) for result in current_links.values() for link in result["links"])
+                link_count = sum(len(result["links"]) for result in current_links.values())
+                print(f"E-link lock: {locked_count}/{link_count}")
                 if not all(item["all_locked"] for item in current_links.values()):
                     raise RuntimeError("E-link check failed before calibration")
             if args.stage in ("links", "phase-scan"):
