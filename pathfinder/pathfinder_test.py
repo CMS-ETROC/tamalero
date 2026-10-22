@@ -110,29 +110,29 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         "2": ("Uplink READY/FEC", "READ ONLY", "Read current counters without clearing them."),
         "3": ("Monitor uplinks for 10 seconds", "READ ONLY", "Sample READY/FEC once per second; counters are not reset."),
         "4": ("Clock register readback", "READ ONLY", "Read ECLK0-27 frequency and drive strength; this does not measure waveforms."),
-        "5": ("Reset FEC counters", "WRITES HARDWARE", "Clear historical FEC counts on both uplinks."),
-        "6": ("Configure and verify optical links", "WRITES HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
+        "5": ("Reset FEC counters", "WRITE HARDWARE", "Clear historical FEC counts on both uplinks."),
+        "6": ("Configure and verify optical links", "WRITE HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
     }
     if mapping is not None and chips:
         actions["7"] = ("Compare ETROC links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
-        actions["8"] = ("Scan phase select", "WRITES HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
-        actions["9"] = ("Apply phase settings", "WRITES HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
-        actions["10"] = ("Scan trigger delay", "WRITES HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
-        actions["11"] = ("Set trigger delay", "WRITES HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
-        actions["12"] = ("Charge injection acquisition", "WRITES HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
-        actions["13"] = ("Scan FC input delay", "WRITES HARDWARE", "Scan 00/01/10 on one initialized ETROC using QInj; restore original FC bits even on failure.")
+        actions["8"] = ("Scan phase select", "WRITE HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
+        actions["9"] = ("Apply phase settings", "WRITE HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
+        actions["10"] = ("Scan trigger delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
+        actions["11"] = ("Set trigger delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
+        actions["12"] = ("Charge injection acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
+        actions["13"] = ("Scan FC input delay", "WRITE HARDWARE", "Scan 00/01/10 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
-        actions["21"] = ("Read ADC monitoring", "WRITES HARDWARE", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
-        actions["15"] = ("Retry direct I2C reads", "READ REGISTERS", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
+        actions["21"] = ("Read ADC monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
+        actions["15"] = ("Retry direct I2C reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
         actions["17"] = ("Read receiver masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
-        actions["14"] = ("Set FC input delay", "WRITES HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
-        actions["16"] = ("Rerun bitslip and check links", "WRITES HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
+        actions["14"] = ("Set FC input delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
+        actions["16"] = ("Rerun bitslip and check links", "WRITE HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
         actions["18"] = ("Check link rates", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
-        actions["19"] = ("Enable selected readout links", "WRITES HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
-        actions["20"] = ("Reset one global readout", "WRITES HARDWARE", "Stop triggers first. Pulse ETROC global-readout reset and read controllerState; does not hard reset or force a state value.")
+        actions["19"] = ("Enable selected readout links", "WRITE HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
+        actions["20"] = ("Reset one global readout", "WRITE HARDWARE", "Stop triggers first. Pulse ETROC global-readout reset and read controllerState; does not hard reset or force a state value.")
     if blnw_results is not None:
-        actions["22"] = ("Plot BL/NW results", "READ RESULTS", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
+        actions["22"] = ("Plot BL/NW results", "READ ONLY", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
     if kcu is None:
         actions.pop("1", None)
     if rb is None:
@@ -144,7 +144,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
     while True:
         print("\n" + "=" * 72)
         print("Interactive diagnostics - reuse the current hardware connection")
-        for key, (title, kind, _) in actions.items():
+        for key, (title, kind, _) in sorted(actions.items(), key=lambda item: int(item[0])):
             suffix = " (unavailable for this mapping)" if key == "6" and not pathfinder_profile else ""
             print(f"{key}. {title} [{kind}]{suffix}")
         if recovery:
