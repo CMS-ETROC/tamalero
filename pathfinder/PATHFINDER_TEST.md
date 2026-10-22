@@ -85,7 +85,7 @@ Each stage runs all earlier ones first.
 | `--ip`, `--rb-id` | `192.168.0.10`, `0` | KCU IP address and readout-board id. |
 | `--board-config` | `default` | Board configuration name. |
 | `--rate` | `640` | ETROC link rate, 320 or 640 Mbps. Settings (phase select, trigger delay) are rate-specific. |
-| `--trigger-bits` | `1` | Merged trigger bits (0, 1, 2). |
+| `--trigger-bits` | `1` | Merged trigger bits (0, 1, 2). Written to every selected ETROC (merge on, trigger granularity) and to the FPGA `TRIG_DATA_SIZE` in Step 5.2, and read back. |
 | `--trigger-delay` | `469` | FPGA `TRIG_DLY_SEL` (one global delay line). |
 | `--l1a-delay` | `501` | Per-ETROC pixel `L1Adelay` (BX). Different from the FPGA delay and from the FC input delay bits. |
 | `--scan-selection` | = selection | Subset to phase-scan. |
@@ -121,8 +121,7 @@ BL/NW results are saved to `pathfinder/results/blnw/blnw_<timestamp>.pkl`.
 | 4.1 | Optical-link configuration and checks | Configure optical links, verify readback and monitor uplinks, then check lpGBT status. | For Pathfinder, both READY flags must stay 1 and FEC counters stay 0 at the sampled times. |
 | 5 | ETROC initialization | Create the selected ETROC objects. | Selected chips must be connected; motherboard-only runs stop before this step. |
 | 5.1 | ETROC communication and register checks | Check I2C communication with the initialized chips, then read the key registers. | A failed I2C check names the ETROC and the error; register readings are printed per chip. |
-| 5.2 | Power mode configuration | Apply and check the existing ETROC power settings. | Power-mode checks must pass before scanning. |
-| 5.3 | Rate and merge configuration | Synchronize rate and trigger width. | Subsequent link retries preserve these settings. |
+| 5.2 | Power mode, rate and merge configuration | Apply high power mode, link rate and merged trigger data (ETROC and FPGA trigger bits). | Power-mode, merge and TRIG_DATA_SIZE readbacks must pass; subsequent link retries preserve these settings. |
 | 6 | E-link lock check | Check selected E-link locks before pixel calibration. | On failure use compare, masks, phase scan/apply, then retry this check. |
 | 6.1 | Link diagnostics | Read settings, masks, controllerState and lock status. | Check optical link, rate/merge, ENABLE/INVERT/TERM and masks before scanning phase. |
 | 7 | BL/NW scan settings | Apply pixel coverage and BL/NW save options. | sample scans 4 pixels per chip; all scans 256 pixels per chip. |

@@ -1020,7 +1020,7 @@ def main(args):
         break
     while True:
         try:
-            announce('5.2. Power mode configuration', 'Apply and check the existing ETROC power settings.', 'Power-mode checks must pass before scanning.')
+            announce('5.2. Power mode, rate and merge configuration', 'Apply high power mode, link rate and merged trigger data (ETROC and FPGA trigger bits).', 'Power-mode, merge and TRIG_DATA_SIZE readbacks must pass; subsequent link retries preserve these settings.')
             basic_checks_passed = False
             etroc_power_checks_done = False
             blnw_scan_passed = False
@@ -1044,27 +1044,10 @@ def main(args):
                         raise RuntimeError(f"Expected high power mode, received {mode!r}")
                 except Exception as exc:
                     raise RuntimeError(f"Power mode verification failed for {identity}") from exc
-            etroc_power_checks_done = True
             show_status("High power mode configured; sampled pixel readbacks passed", "success")
 
             import time
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True) == "retry":
-                continue
-            return
-        if args.step:
-            action = workflow_menu(locals(), args)
-            if action == "retry":
-                continue
-            if action != "continue":
-                return
-        break
-    while True:
-        try:
-            announce("5.3. Rate and merge configuration", "Synchronize rate and trigger width.", "Subsequent link retries preserve these settings.")
+
             # Configure merged data and keep ETROC/FPGA trigger widths consistent.
             TRIGGER_BITS = args.trigger_bits  # Current test: 0, 1, or 2 bits
 
@@ -1097,14 +1080,28 @@ def main(args):
                 raise RuntimeError(f"FPGA TRIG_DATA_SIZE readback={actual}")
 
             print(f"FPGA: TRIG_DATA_SIZE={actual}")
-            from pathfinder_control import set_link_rate, apply_etroc_phases
+            from pathfinder_control import set_link_rate, apply_etroc_phases, check_link_rate
             set_link_rate(rb, chips, mbps=args.rate)
-            configure_readout_links(rb, mapping, ids)
+            applied_masks = configure_readout_links(rb, mapping, ids)
             if args.phase_settings:
                 set_fixed_phase_groups(rb, mapping, list(args.phase_settings))
                 apply_etroc_phases(rb, mapping, chips, args.phase_settings)
             rb.rerun_bitslip()
             time.sleep(1.0)
+            # Read everything back once more and show the current values.
+            rate_report = check_link_rate(rb, chips, mbps=args.rate, verbose=False)
+            if not rate_report["consistent"]:
+                raise RuntimeError("Link rate check failed: " + "; ".join(rate_report["mismatches"]))
+            def layer_rate(prefix):
+                values = {info["mbps"] for key, info in rate_report["layers"].items()
+                          if key.startswith(prefix) and "mbps" in info and not info.get("unused")}
+                return "/".join(str(v) for v in sorted(values))
+            print(f"Rate read back (Mbps): FPGA={layer_rate('FPGA')}, DAQ lpGBT={layer_rate('DAQ')}, "
+                  f"TRIG lpGBT={layer_rate('TRIG') or 'n/a'}, ETROC={'/'.join(sorted({layer_rate(i) for i in chips}))}")
+            print("Readout masks read back: " + ", ".join(
+                f"{'DAQ' if bank == 0 else 'TRIG'}=0x{mask:07X}" for bank, mask in sorted(applied_masks.items())))
+            show_status(f"Link rate {args.rate} Mbps; merge on; trigger bits {TRIGGER_BITS} (ETROC and FPGA)", "success")
+            etroc_power_checks_done = True
         except Exception as exc:
             if not args.interactive:
                 raise
