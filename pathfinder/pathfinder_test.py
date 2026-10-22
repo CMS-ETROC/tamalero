@@ -37,6 +37,7 @@ def build_parser():
     parser.add_argument("--monitor-seconds", type=int, default=3)
     parser.add_argument("--blnw", "--pixels", dest="pixels", choices=["sample", "all"], default="sample", help="BL/NW coverage: sample=4 pixels/chip; all=256 pixels/chip (default: sample)")
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
+    parser.add_argument("--blnw-load", metavar="PKL|latest", default=None, help="Skip the BL/NW scan and load saved results (a .pkl path, or latest = newest valid file in the results folder)")
     plot_options = parser.add_mutually_exclusive_group()
     plot_options.add_argument("--plot", "--plots", dest="no_plots", action="store_false", help="Include BL/NW plotting in the workflow")
     plot_options.add_argument("--no-plots", "--no-plot", dest="no_plots", action="store_true", help="Skip workflow plots (default); interactive menu 22 remains available")
@@ -1157,6 +1158,8 @@ def main(args):
                 print(f"Current BL/NW mode: {BLNW_SCAN_MODE}")
                 print("  sample: 4 pixel/etroc; all: full matrix")
                 print(f"Save results: {BLNW_SAVE_RESULTS}; output folder: {BLNW_OUTPUT_DIR}")
+                if args.blnw_load:
+                    print(f"Load saved results: {args.blnw_load} (scan skipped; saved mode must cover --blnw {BLNW_SCAN_MODE})")
 
             show_blnw_mode()
 
@@ -1197,97 +1200,140 @@ def main(args):
                 raise RuntimeError("Selection is empty or initialization is incomplete")
             if not etroc_register_checks_done or not etroc_power_checks_done:
                 raise RuntimeError("Complete ETROC register and power configuration first")
-            blnw_save_enabled = BLNW_SAVE_RESULTS
-            blnw_output_path = None
-            if blnw_save_enabled:
-                BLNW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-                blnw_output_path = BLNW_OUTPUT_DIR / (
-                    "blnw_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".pkl"
-                )
-            baseline_dict = {identity: {} for identity in ids}
-            nw_dict = {identity: {} for identity in ids}
-            failed_pixels = {identity: [] for identity in ids}
-            blnw_results = {
-                "baseline": baseline_dict,
-                "NW": nw_dict,
-                "chip_name": list(ids),
-                "failed_pixels": failed_pixels,
-                "records": [],
-                "scan_mode": BLNW_SCAN_MODE,
-                "pixels": scan_pixels,
-                "mapping_path": str(MAPPING_PATH),
-                "started_at": datetime.now().isoformat(),
-                "completed": False,
-            }
+            if args.blnw_load:
+                def blnw_load_error(data):
+                    if not isinstance(data, dict) or "baseline" not in data or "pixels" not in data:
+                        return "not a BL/NW result file"
+                    if not data.get("completed"):
+                        return "scan was not completed"
+                    if any(p not in data["pixels"] for p in scan_pixels):
+                        return f"saved mode '{data.get('scan_mode')}' does not cover requested '{BLNW_SCAN_MODE}'"
+                    missing = [i for i in ids if i not in data.get("chip_name", [])]
+                    if missing:
+                        return f"no data for {missing}"
+                    for i in ids:
+                        if any((p not in data["baseline"].get(i, {})) for p in scan_pixels):
+                            return f"{i}: baseline missing for some pixels"
+                    return None
 
-
-            def save_blnw_results():
-                if not blnw_save_enabled:
-                    return
-                temporary_path = blnw_output_path.with_suffix(".tmp")
-                with temporary_path.open("wb") as handle:
-                    pickle.dump(blnw_results, handle)
-                temporary_path.replace(blnw_output_path)
-
-
-            save_blnw_results()
-            print(f"Scanning {len(scan_pixels)} pixels per ETROC on {len(chips)} ETROCs")
-            if blnw_save_enabled:
-                print(f"Results: {blnw_output_path.resolve()}")
-            else:
-                print("Local saving is disabled; results remain in blnw_results")
-
-            scan_failure_count = 0
-            try:
-                for identity, etroc in chips.items():
-                    progress = tqdm(total=len(scan_pixels), desc=f"BL/NW scan: {identity}",
-                                    unit="pixel", leave=True)
+                if args.blnw_load == "latest":
+                    candidates = sorted(BLNW_OUTPUT_DIR.glob("blnw_*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
+                else:
+                    candidates = [Path(args.blnw_load)]
+                blnw_results = None
+                for candidate in candidates:
                     try:
-                        for row, col in scan_pixels:
-                            record = {"chip": identity, "row": row, "col": col,
-                                      "baseline": None, "noise_width": None, "error": None}
-                            driver_output = io.StringIO()
-                            progress.set_postfix(row=row, col=col,
-                                                 failed=len(failed_pixels[identity]), refresh=False)
-                            try:
-                                # Retain unsolicited driver output in the result, not in the cell output.
-                                with redirect_stdout(driver_output):
-                                    baseline, noise_width = etroc.auto_threshold_scan(
-                                        row=row, col=col, broadcast=False,
-                                        offset=1023, use=False, verbose=False,
-                                    )
-                                if baseline is None or noise_width is None:
-                                    raise RuntimeError("Scan returned an incomplete result")
-                                record.update(baseline=baseline, noise_width=noise_width)
-                            except Exception as exc:
-                                record["error"] = str(exc)
-                                failed_pixels[identity].append((row, col))
-                                scan_failure_count += 1
-                            record["driver_output"] = driver_output.getvalue()
-                            record["timestamp"] = datetime.now().isoformat()
-                            baseline_dict[identity][(row, col)] = record["baseline"]
-                            nw_dict[identity][(row, col)] = record["noise_width"]
-                            blnw_results["records"].append(record)
-                            save_blnw_results()
-                            progress.set_postfix(failed=len(failed_pixels[identity]), refresh=False)
-                            progress.update(1)
-                    finally:
-                        progress.close()
-                blnw_results["completed"] = True
-            finally:
-                blnw_results["last_saved_at"] = datetime.now().isoformat()
-                save_blnw_results()
+                        with open(candidate, "rb") as handle:
+                            data = pickle.load(handle)
+                        error = blnw_load_error(data)
+                    except Exception as exc:
+                        error = f"{type(exc).__name__}: {exc}"
+                    if error is None:
+                        blnw_results, loaded_path = data, candidate
+                        break
+                    print(f"Skip {candidate.name}: {error}")
+                if blnw_results is None:
+                    raise RuntimeError(f"No usable saved BL/NW result for {list(ids)} ({args.blnw_load})")
+                # A larger saved scan (all) can serve a smaller request (sample); use only the requested pixels.
+                blnw_results["pixels"] = list(scan_pixels)
+                blnw_results["scan_mode"] = BLNW_SCAN_MODE
+                failure_count = sum(1 for i in ids for p in scan_pixels if blnw_results["baseline"][i].get(p) is None)
+                show_status(f"Loaded BL/NW results: {loaded_path.resolve()}", "success")
+                show_status(f"mode={BLNW_SCAN_MODE}, {len(scan_pixels)} pixels/chip, "
+                            f"{failure_count} failed (skipped at thresholds)", "warning" if failure_count else "success")
+                blnw_scan_passed = True
+            else:
+                blnw_save_enabled = BLNW_SAVE_RESULTS
+                blnw_output_path = None
+                if blnw_save_enabled:
+                    BLNW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                    blnw_output_path = BLNW_OUTPUT_DIR / (
+                        "blnw_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".pkl"
+                    )
+                baseline_dict = {identity: {} for identity in ids}
+                nw_dict = {identity: {} for identity in ids}
+                failed_pixels = {identity: [] for identity in ids}
+                blnw_results = {
+                    "baseline": baseline_dict,
+                    "NW": nw_dict,
+                    "chip_name": list(ids),
+                    "failed_pixels": failed_pixels,
+                    "records": [],
+                    "scan_mode": BLNW_SCAN_MODE,
+                    "pixels": scan_pixels,
+                    "mapping_path": str(MAPPING_PATH),
+                    "started_at": datetime.now().isoformat(),
+                    "completed": False,
+                }
 
-            failure_count = sum(len(pixels) for pixels in failed_pixels.values())
-            show_status(f"BL/NW scan finished: {len(blnw_results['records'])} pixels, "
-                        f"{failure_count} failed", "error" if failure_count else "success")
-            for identity in ids:
-                count = len(failed_pixels[identity])
-                show_status(f"{identity}: {len(scan_pixels) - count}/{len(scan_pixels)} pixels passed",
-                            "warning" if count else "success")
-            if failure_count:
-                raise RuntimeError(f"{failure_count} pixels failed; inspect failed_pixels and blnw_results")
-            blnw_scan_passed = True
+
+                def save_blnw_results():
+                    if not blnw_save_enabled:
+                        return
+                    temporary_path = blnw_output_path.with_suffix(".tmp")
+                    with temporary_path.open("wb") as handle:
+                        pickle.dump(blnw_results, handle)
+                    temporary_path.replace(blnw_output_path)
+
+
+                save_blnw_results()
+                print(f"Scanning {len(scan_pixels)} pixels per ETROC on {len(chips)} ETROCs")
+                if blnw_save_enabled:
+                    print(f"Results: {blnw_output_path.resolve()}")
+                else:
+                    print("Local saving is disabled; results remain in blnw_results")
+
+                scan_failure_count = 0
+                try:
+                    for identity, etroc in chips.items():
+                        progress = tqdm(total=len(scan_pixels), desc=f"BL/NW scan: {identity}",
+                                        unit="pixel", leave=True)
+                        try:
+                            for row, col in scan_pixels:
+                                record = {"chip": identity, "row": row, "col": col,
+                                          "baseline": None, "noise_width": None, "error": None}
+                                driver_output = io.StringIO()
+                                progress.set_postfix(row=row, col=col,
+                                                     failed=len(failed_pixels[identity]), refresh=False)
+                                try:
+                                    # Retain unsolicited driver output in the result, not in the cell output.
+                                    with redirect_stdout(driver_output):
+                                        baseline, noise_width = etroc.auto_threshold_scan(
+                                            row=row, col=col, broadcast=False,
+                                            offset=1023, use=False, verbose=False,
+                                        )
+                                    if baseline is None or noise_width is None:
+                                        raise RuntimeError("Scan returned an incomplete result")
+                                    record.update(baseline=baseline, noise_width=noise_width)
+                                except Exception as exc:
+                                    record["error"] = str(exc)
+                                    failed_pixels[identity].append((row, col))
+                                    scan_failure_count += 1
+                                record["driver_output"] = driver_output.getvalue()
+                                record["timestamp"] = datetime.now().isoformat()
+                                baseline_dict[identity][(row, col)] = record["baseline"]
+                                nw_dict[identity][(row, col)] = record["noise_width"]
+                                blnw_results["records"].append(record)
+                                save_blnw_results()
+                                progress.set_postfix(failed=len(failed_pixels[identity]), refresh=False)
+                                progress.update(1)
+                        finally:
+                            progress.close()
+                    blnw_results["completed"] = True
+                finally:
+                    blnw_results["last_saved_at"] = datetime.now().isoformat()
+                    save_blnw_results()
+
+                failure_count = sum(len(pixels) for pixels in failed_pixels.values())
+                show_status(f"BL/NW scan finished: {len(blnw_results['records'])} pixels, "
+                            f"{failure_count} failed", "error" if failure_count else "success")
+                for identity in ids:
+                    count = len(failed_pixels[identity])
+                    show_status(f"{identity}: {len(scan_pixels) - count}/{len(scan_pixels)} pixels passed",
+                                "warning" if count else "success")
+                if failure_count:
+                    raise RuntimeError(f"{failure_count} pixels failed; inspect failed_pixels and blnw_results")
+                blnw_scan_passed = True
 
             # Notebook code cell 32
         except Exception as exc:
