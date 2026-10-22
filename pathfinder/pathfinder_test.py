@@ -121,7 +121,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         actions["10"] = ("Scan trigger delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
         actions["11"] = ("Set trigger delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
         actions["12"] = ("Charge injection acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
-        actions["13"] = ("Scan FC input delay", "WRITE HARDWARE", "Scan 00/01/10 on one initialized ETROC using QInj; restore original FC bits even on failure.")
+        actions["13"] = ("Scan FC input delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
         actions["21"] = ("Read ADC monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
         actions["15"] = ("Retry direct I2C reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
@@ -438,7 +438,7 @@ def save_diagnostic(folder, name, report):
 
 
 def run_fc_scan(chips, identity, acquire, output_dir):
-    """Scan FC 00/01/10; omit equivalent 11/00. Restore exact original bits.
+    """Scan FC clk/data delay bits 00/01/10/11. Restore exact original bits.
 
     Does not change pixel L1Adelay or FPGA trigger delay.
     """
@@ -449,7 +449,7 @@ def run_fc_scan(chips, identity, acquire, output_dir):
     original = {reg: integer(chip.rd_reg(reg)) for reg in regs}
     report = {"identity": identity, "original": original, "results": {}, "status": "running"}
     try:
-        for clk, data in ((0, 0), (0, 1), (1, 0)):
+        for clk, data in ((0, 0), (0, 1), (1, 0), (1, 1)):
             for reg, value in zip(regs, (clk, data)):
                 chip.wr_reg(reg, value)
                 if integer(chip.rd_reg(reg)) != value:
@@ -1807,7 +1807,7 @@ def main(args):
             if args.stage == "qinj-ready":
                 print("QInj configuration ready. No injection burst sent; use interactive actions 10 (trigger delay scan), 12 or 13.")
             elif args.stage == "fc-scan":
-                announce("11.1. FC input delay scan", "Scan three distinct clk/data delay-bit combinations: 00, 01, 10 (11 is equivalent to 00).",
+                announce("11.1. FC input delay scan", "Scan all four clk/data delay-bit combinations: 00, 01, 10, 11.",
                          "Original FC bits are restored, even on acquisition failure; other chips remain unchanged.")
                 run_fc_scan(chips, args.fc_target,
                             lambda: run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
