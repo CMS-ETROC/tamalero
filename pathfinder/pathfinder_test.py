@@ -308,7 +308,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         lp.read_adcs(check=True, strict_limits=False)
                     print("ADC read complete; review individual values and limits.")
             elif choice == "14":
-                names = [i.strip() for i in input("ETROC IDs, comma separated: ").split(",") if i.strip()]
+                names = [i.strip().strip("\"'") for i in input('ETROC IDs, e.g. "D0H0", "D0H1": ').split(",") if i.strip().strip("\"'")]
                 pair = input("FC clk/data: 00, 01 or 10: ").strip()
                 if not names or any(i not in chips for i in names) or pair not in ("00", "01", "10"):
                     raise ValueError("Use initialized IDs and one of 00/01/10")
@@ -1498,7 +1498,9 @@ def main(args):
                     time.sleep(0.5)
                     second = etroc.get_invalidFCCount()
                     fc_status = second == first
-                    print(f"{identity}: FC status={fc_status}"
+                    clk_delay = etroc.rd_reg("fcClkDelayEn")
+                    data_delay = etroc.rd_reg("fcDataDelayEn")
+                    print(f"{identity}: FC status={fc_status}, FC delay: clk={clk_delay}, data={data_delay}"
                           + ("" if fc_status else f" (invalid FC count {first} -> {second})"))
 
 
