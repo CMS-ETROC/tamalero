@@ -1173,6 +1173,8 @@ def main(args):
         try:
             announce('6. BL/NW scan settings', 'Apply pixel coverage and BL/NW save options.', 'sample scans 4 pixels per chip; all scans 256 pixels per chip.')
             # Choose "sample" for 4 pixels or "all" for the full 16 x 16 matrix.
+            # Change it on the command line with --blnw sample|all (default: sample).
+            # The scanned pixels are also the ones given thresholds and QInj later.
             BLNW_SCAN_MODE = args.pixels
             BLNW_SAVE_RESULTS = not args.no_save
             BLNW_OUTPUT_DIR = TAMALERO_ROOT / "pathfinder" / "results" / "blnw" 
@@ -1183,25 +1185,10 @@ def main(args):
                 n = BLNW_PIXELS_PER_CHIP[BLNW_SCAN_MODE]
                 print(f"Current BL/NW mode: {BLNW_SCAN_MODE} ({n} pixels per ETROC, "
                       f"{n * len(ids)} in total on {len(ids)} ETROCs)")
-                print("  sample = 4 corner pixels per chip (fast); all = full 16 x 16 matrix (slow)")
-                print("  The scanned pixels are also the ones given thresholds and QInj later.")
+                print("  sample: 4 pixel/etroc; all: full matrix")
                 print(f"Save results: {BLNW_SAVE_RESULTS}; output folder: {BLNW_OUTPUT_DIR}")
 
             show_blnw_mode()
-            if args.interactive:
-                while True:
-                    try:
-                        choice = input("BL/NW mode: type sample or all to change (Enter = keep): ").strip().lower()
-                    except (EOFError, KeyboardInterrupt):
-                        print("\nKeeping the current BL/NW mode.")
-                        break
-                    if not choice:
-                        break
-                    if choice in BLNW_PIXELS_PER_CHIP:
-                        BLNW_SCAN_MODE = choice
-                        show_blnw_mode()
-                        break
-                    print("Please type sample, all, or press Enter to keep the current mode.")
 
             # Notebook code cell 30
         except Exception as exc:
@@ -1534,10 +1521,15 @@ def main(args):
                                     raise RuntimeError(f"{identity} elink {elink} FAILED to lock after self-trigger setup")
 
                 show_status("Self-trigger configured", "success")
+                # FC status: read invalidFCCount twice; unchanged means no new invalid
+                # fast commands. A constant nonzero count is not an error.
                 for identity, etroc in chips.items():
-                    fc_status = etroc.FC_status()
-                    invalid_count = etroc.get_invalidFCCount()
-                    print(f"{identity}: FC status={fc_status}, invalid FC count={invalid_count}")
+                    first = etroc.get_invalidFCCount()
+                    time.sleep(0.5)
+                    second = etroc.get_invalidFCCount()
+                    fc_status = second == first
+                    print(f"{identity}: FC status={fc_status}"
+                          + ("" if fc_status else f" (invalid FC count {first} -> {second})"))
 
 
             configure_self_trigger(rb, mapping, ids, chips, trigger_delay=TRIGGER_DELAY_DEFAULT, trigger_board_ids=trigger_ids, trigger_combination_logic=TRIGGER_COMBINATION_LOGIC, trigger_data_size=args.trigger_bits)
@@ -1598,7 +1590,7 @@ def main(args):
                         etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
                         count += 1
                     enabled[identity] = count
-                    show_status(f"{identity}: QInj enabled on {count} pixels (QSel={qsel}, charge={charge_fc}fC)", "info")
+                    show_status(f"{identity}: QInj enabled on {count} pixels (offset={THRESHOLD_OFFSET}, charge={charge_fc}fC)", "info")
                 return enabled
 
 
