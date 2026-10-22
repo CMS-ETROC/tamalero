@@ -35,9 +35,12 @@ def build_parser():
     parser.add_argument("--rb-id", type=int, default=0)
     parser.add_argument("--board-config", default="default")
     parser.add_argument("--monitor-seconds", type=int, default=10)
-    parser.add_argument("--pixels", choices=["sample", "all"], default="sample")
+    parser.add_argument("--blnw", "--pixels", dest="pixels", choices=["sample", "all"], default="sample", help="BL/NW coverage: sample=4 pixels/chip; all=256 pixels/chip (default: sample)")
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
-    parser.add_argument("--no-plots", action="store_true", help="Skip BL/NW map and histogram display")
+    plot_options = parser.add_mutually_exclusive_group()
+    plot_options.add_argument("--plot", "--plots", dest="no_plots", action="store_false", help="Include BL/NW plotting in the workflow")
+    plot_options.add_argument("--no-plots", "--no-plot", dest="no_plots", action="store_true", help="Skip workflow plots (default); interactive menu 22 remains available")
+    parser.set_defaults(no_plots=True)
     parser.add_argument("--trigger-delay", type=int, default=469)
     parser.add_argument("--qinj", "--charge-fc", dest="charge_fc", type=int, default=15, help="Injected charge in fC (1..32; default: 15)")
     parser.add_argument("--qinj-cnt", "--qinj-count", dest="qinj_count", type=int, default=1, help="Injection pulse count (default: 1)")
@@ -96,7 +99,7 @@ def show_run_plan(args):
 
 
 
-def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None, qinj_context=None, output_dir="diagnostic_results", recovery=False, failed=False): 
+def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None, qinj_context=None, output_dir="diagnostic_results", recovery=False, failed=False, blnw_results=None): 
     """Repeat diagnostics without reconstructing KCU or ReadoutBoard."""
     from pathfinder_control import (
         read_optical_link_status, monitor_optical_links,
@@ -121,6 +124,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         actions["12"] = ("Charge injection acquisition", "WRITES HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
         actions["13"] = ("Scan FC input delay", "WRITES HARDWARE", "Scan 00/01/10 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
+        actions["21"] = ("Read ADC monitoring", "WRITES HARDWARE", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
         actions["15"] = ("Retry direct I2C reads", "READ REGISTERS", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
         actions["17"] = ("Read receiver masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
@@ -129,6 +133,8 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         actions["18"] = ("Check link rates", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
         actions["19"] = ("Enable selected readout links", "WRITES HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
         actions["20"] = ("Reset one global readout", "WRITES HARDWARE", "Stop triggers first. Pulse ETROC global-readout reset and read controllerState; does not hard reset or force a state value.")
+    if blnw_results is not None:
+        actions["22"] = ("Plot BL/NW results", "READ RESULTS", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
     if kcu is None:
         actions.pop("1", None)
     if rb is None:
@@ -144,14 +150,14 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             suffix = " (unavailable for this mapping)" if key == "6" and not pathfinder_profile else ""
             print(f"{key}. {title} [{kind}]{suffix}")
         if recovery:
-            print("c. Retry the failed step" if failed else "c. Continue to the next step")
+            print("Enter / c: Retry the failed step" if failed else "Enter / c: Continue to the next step")
         print("0. Exit (does not power down hardware)")
         try:
             choice = input("Select an action: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n[EXIT] Leaving diagnostics; hardware is not restored or powered down.")
             return
-        if recovery and choice.lower() == "c":
+        if recovery and choice.lower() in ("", "c"):
             return True
         if choice == "0":
             print("[EXIT] Leaving diagnostics; hardware is not powered down.")
@@ -282,6 +288,21 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     else:
                         run_fc_scan(chips, target, acquire, output_dir)
                 qinj_context["charge_fc"] = charge
+            elif choice == "22":
+                show_blnw_plots(blnw_results)
+            elif choice == "21":
+                if "adc_monitoring" not in mapping:
+                    print("No adc_monitoring section in this mapping.")
+                else:
+                    from pathfinder_control import configure_adc_mapping
+                    for bank, entries in configure_adc_mapping(rb, mapping).items():
+                        if not entries:
+                            continue
+                        lp = rb.DAQ_LPGBT if bank == "daq" else rb.TRIG_LPGBT
+                        print(f"{bank.upper()} ADC monitoring:")
+                        lp.calibrate_adc()
+                        lp.read_adcs(check=True, strict_limits=False)
+                    print("ADC read complete; review individual values and limits.")
             elif choice == "14":
                 names = [i.strip() for i in input("ETROC IDs, comma separated: ").split(",") if i.strip()]
                 pair = input("FC clk/data: 00, 01 or 10: ").strip()
@@ -502,8 +523,102 @@ def workflow_menu(state, args, failed=False):
     return interactive_checks(state.get("kcu"), state.get("rb"),
                               pathfinder_profile=Path(args.mapping).name == "pathfinder_mapping.yaml",
                               mapping=state.get("mapping"), chips=state.get("chips"), ids=state.get("ids"),
-                              qinj_context=context, output_dir=args.scan_output, recovery=True, failed=failed)
+                              qinj_context=context, output_dir=args.scan_output, recovery=True, failed=failed, blnw_results=state.get("blnw_results"))
 
+
+def show_blnw_plots(blnw_results):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator, FormatStrFormatter
+    from datetime import datetime
+    def format_scan_time(results):
+        """Use the saved scan start time; never substitute the plotting time."""
+        timestamp = results.get('started_at')
+        if not timestamp:
+            return 'Scan time unavailable'
+        try:
+            return 'Scan: ' + datetime.fromisoformat(str(timestamp)).isoformat(sep=' ', timespec='seconds')
+        except (TypeError, ValueError):
+            return 'Scan: ' + str(timestamp)
+    def build_blnw_matrix(values):
+        matrix = np.full((16, 16), np.nan)
+        for (row, col), value in values.items():
+            if value is not None:
+                matrix[row, col] = float(value)
+        return matrix
+    def plot_blnw_maps(results):
+        figures = []
+        for identity in results['chip_name']:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
+            for ax, key, title in zip(axes, ('baseline', 'NW'), ('Baseline', 'Noise width')):
+                matrix = build_blnw_matrix(results[key][identity])
+                cmap = plt.get_cmap('viridis').copy()
+                cmap.set_bad('white')
+                view = ax.imshow(np.ma.masked_invalid(matrix), origin='lower', cmap=cmap, interpolation='nearest')
+                ax.text(0.01, 1.0, 'CMS', transform=ax.transAxes, fontsize=13, fontweight='bold', va='bottom')
+                ax.text(0.11, 1.0, 'ETL ETROC', transform=ax.transAxes, fontsize=10, style='italic', va='bottom')
+                ax.text(1.0, 1.025, f'{identity}-{title} 2D', transform=ax.transAxes, fontsize=9, ha='right', va='bottom')
+                ax.text(1.0, 1.0, format_scan_time(results), transform=ax.transAxes, fontsize=9, ha='right', va='bottom')
+                ax.set_xlabel('Column')
+                ax.set_ylabel('Row')
+                ax.set_xticks(range(16))
+                ax.set_yticks(range(16))
+                ax.set_xticks(np.arange(-0.5, 16, 1), minor=True)
+                ax.set_yticks(np.arange(-0.5, 16, 1), minor=True)
+                ax.grid(which='minor', color='lightgray', linewidth=0.4)
+                ax.tick_params(which='minor', bottom=False, left=False)
+                for row, col in np.argwhere(np.isfinite(matrix)):
+                    value = matrix[row, col]
+                    rgba = view.cmap(view.norm(value))
+                    brightness = sum((weight * component for weight, component in zip((0.299, 0.587, 0.114), rgba[:3])))
+                    label = f'{value:.0f}' if key == 'NW' else f'{value:g}'
+                    ax.text(col, row, label, ha='center', va='center', fontsize=6, color='black' if brightness > 0.5 else 'white')
+                if np.isfinite(matrix).any():
+                    colorbar = fig.colorbar(view, ax=ax, label='DAC code')
+                    if key == 'NW':
+                        colorbar.locator = MaxNLocator(integer=True)
+                        colorbar.formatter = FormatStrFormatter('%.0f')
+                        colorbar.update_ticks()
+                else:
+                    ax.set_title(f'{identity} - {title} (no valid results)')
+            figures.append(fig)
+            plt.show()
+        return figures
+    def plot_blnw_histograms(results):
+        figures = []
+        if results.get('scan_mode') != 'all':
+            return figures
+        for identity in results['chip_name']:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
+            for ax, key, title in zip(axes, ('baseline', 'NW'), ('Baseline', 'Noise width')):
+                matrix = build_blnw_matrix(results[key][identity])
+                values = matrix[np.isfinite(matrix) & (matrix != 0)]
+                ax.text(0.01, 1.0, 'CMS', transform=ax.transAxes, fontsize=13, fontweight='bold', va='bottom')
+                ax.text(0.11, 1.0, 'ETL ETROC', transform=ax.transAxes, fontsize=10, style='italic', va='bottom')
+                ax.text(1.0, 1.025, f'{identity}-{title} Histo', transform=ax.transAxes, fontsize=9, ha='right', va='bottom')
+                ax.text(1.0, 1.0, format_scan_time(results), transform=ax.transAxes, fontsize=9, ha='right', va='bottom')
+                ax.set_xlabel(f'{title} (DAC code)')
+                ax.set_ylabel('Pixel count')
+                if key == 'baseline':
+                    bins = np.linspace(0, 1023, 65)
+                    ax.set_xlim(0, 1023)
+                    ax.set_xticks([0, 128, 256, 384, 512, 640, 768, 896, 1023])
+                else:
+                    bins = np.arange(-0.5, 18, 1)
+                    ax.set_xlim(0, 17)
+                    ax.set_xticks(range(18))
+                ax.xaxis.set_major_formatter(FormatStrFormatter('%.0f'))
+                ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+                if values.size:
+                    ax.hist(values, bins=bins, histtype='step', color='#7ec8e3', linewidth=1.3)
+                    ax.text(0.97, 0.95, f'Mean: {values.mean():.2f}, Std: {values.std():.2f}', transform=ax.transAxes, ha='right', va='top')
+                else:
+                    ax.text(0.5, 0.5, 'No valid results', transform=ax.transAxes, ha='center', va='center')
+            figures.append(fig)
+            plt.show()
+        return figures
+    blnw_figures = plot_blnw_maps(blnw_results)
+    blnw_histogram_figures = plot_blnw_histograms(blnw_results)
 
 def main(args):
     show_run_plan(args)
@@ -794,7 +909,6 @@ def main(args):
                     "info",
                 )
 
-            # ADC monitoring uses the selected YAML, not the driver's legacy default map.
         except Exception as exc:
             if not args.interactive:
                 raise
@@ -805,43 +919,11 @@ def main(args):
         if args.step and not workflow_menu(locals(), args):
             return
         break
-    while True:
-        try:
-            announce('4.4. lpGBT ADC monitoring',
-                     'Load mapped ADC channels, calibrate and read DAQ/TRIG monitoring values.',
-                     'Limits and conversion factors are provisional; missing or unpowered daughter cards may show ERR.')
-            if "adc_monitoring" not in mapping:
-                show_status("Skipping ADC monitoring: selected YAML has no adc_monitoring section", "info")
-            else:
-                from pathfinder_control import configure_adc_mapping
-                adc_groups = configure_adc_mapping(rb, mapping)
-                for adc_bank, adc_entries in adc_groups.items():
-                    if not adc_entries:
-                        continue
-                    adc_lpgbt = rb.DAQ_LPGBT if adc_bank == "daq" else rb.TRIG_LPGBT
-                    print(f"\n{adc_bank.upper()} ADC monitoring ({len(adc_entries)} entries):")
-                    adc_lpgbt.calibrate_adc()
-                    adc_lpgbt.read_adcs(check=True, strict_limits=False)
-                show_status("ADC reads completed. Review the table; completion does not mean all values passed.", "info")
-
-            if args.stage == "motherboard":
-                print('Motherboard stage complete. With no daughter boards, stop here. Review whether the Pathfinder optical profile ran or was skipped.', flush=True)
-                if args.interactive:
-                    interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
-                                       mapping=mapping, chips=chips, ids=ids)
-                return
-
-            # Notebook code cell 20
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
-                continue
-            return
-        if args.step and not workflow_menu(locals(), args):
-            return
-        break
+    if args.stage == 'motherboard':
+        print('Motherboard stage complete. With no daughter boards, stop here. Review whether the Pathfinder optical profile ran or was skipped.', flush=True)
+        if args.interactive:
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == 'pathfinder_mapping.yaml', mapping=mapping, chips=chips, ids=ids, blnw_results=locals().get("blnw_results"))
+        return
     while True:
         try:
             announce('5. ETROC initialization', 'Create the selected ETROC objects.', 'Selected chips must be connected; motherboard-only runs stop before this step.')
@@ -1020,7 +1102,7 @@ def main(args):
                 raise RuntimeError(f"FPGA TRIG_DATA_SIZE readback={actual}")
 
             print(f"FPGA: TRIG_DATA_SIZE={actual}")
-            from pathfinder_control import set_link_rate, compare_etroc_links, apply_etroc_phases
+            from pathfinder_control import set_link_rate, apply_etroc_phases
             set_link_rate(rb, chips, mbps=args.rate)
             configure_readout_links(rb, mapping, ids)
             if args.phase_settings:
@@ -1040,18 +1122,16 @@ def main(args):
         break
     while True:
         try:
-            announce("5.5. Initial E-link check", "Compare settings before pixel calibration.", "On failure use compare, masks, phase scan/apply, then retry this check.")
+            announce("5.5. Initial E-link check", "Check selected E-link locks before pixel calibration.", "On failure use compare, masks, phase scan/apply, then retry this check.")
             if args.stage != "phase-scan":
                 configure_readout_links(rb, mapping, ids)
                 rb.rerun_bitslip()
                 current_links = check_links(rb, mapping, ids)
-                compare_etroc_links(rb, mapping, chips, ids)
                 if not all(item["all_locked"] for item in current_links.values()):
                     raise RuntimeError("E-link check failed before calibration")
             if args.stage in ("links", "phase-scan"):
                 announce("5.4. Link diagnostics", "Read settings, masks, controllerState and lock status.",
                          "Check optical link, rate/merge, ENABLE/INVERT/TERM and masks before scanning phase.")
-                compare_etroc_links(rb, mapping, chips, ids)
                 if args.stage == "phase-scan":
                     from pathfinder_control import scan_etroc_phases
                     scan_ids = expand_selection(mapping, args.scan_selection or args.selection)
@@ -1065,7 +1145,7 @@ def main(args):
                 print("Diagnostic stage ended; selected receivers remain enabled for inspection.")
                 if args.interactive:
                     interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
-                                       mapping=mapping, chips=chips, ids=ids)
+                                       mapping=mapping, chips=chips, ids=ids, blnw_results=locals().get("blnw_results"))
                 return
 
 
@@ -1226,155 +1306,27 @@ def main(args):
         if args.step and not workflow_menu(locals(), args):
             return
         break
-    while True:
-        try:
-            announce('6.2. BL/NW figures', 'Display maps and applicable histograms unless --no-plots is set.', 'A plot window may block execution; close it to continue.')
-            if not args.no_plots:
-                import numpy as np
-                import matplotlib.pyplot as plt
-                from matplotlib.ticker import MaxNLocator, FormatStrFormatter
-                from datetime import datetime
-
-
-                def format_scan_time(results):
-                    """Use the saved scan start time; never substitute the plotting time."""
-                    timestamp = results.get("started_at")
-                    if not timestamp:
-                        return "Scan time unavailable"
-                    try:
-                        return "Scan: " + datetime.fromisoformat(str(timestamp)).isoformat(sep=" ", timespec="seconds")
-                    except (TypeError, ValueError):
-                        return "Scan: " + str(timestamp)
-
-
-                def build_blnw_matrix(values):
-                    matrix = np.full((16, 16), np.nan)
-                    for (row, col), value in values.items():
-                        if value is not None:
-                        # if value is not None and value != 0:
-                            matrix[row, col] = float(value)
-                    return matrix
-
-
-                def plot_blnw_maps(results):
-                    figures = []
-                    for identity in results["chip_name"]:
-                        fig, axes = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
-                        for ax, key, title in zip(axes, ("baseline", "NW"), ("Baseline", "Noise width")):
-                            matrix = build_blnw_matrix(results[key][identity])
-                            cmap = plt.get_cmap("viridis").copy()
-                            cmap.set_bad("white")
-                            view = ax.imshow(np.ma.masked_invalid(matrix), origin="lower",
-                                             cmap=cmap, interpolation="nearest")
-                            # ax.set_title(f"{identity} - {title}")
-                            ax.text(0.01, 1.00, "CMS", transform=ax.transAxes,
-                                    fontsize=13, fontweight="bold", va="bottom")
-                            ax.text(0.11, 1.00, "ETL ETROC", transform=ax.transAxes,
-                                    fontsize=10, style="italic", va="bottom")
-                            ax.text(1.0, 1.025, f"{identity}-{title} 2D", transform=ax.transAxes,
-                                    fontsize=9, ha="right", va="bottom")
-                            ax.text(1.0, 1.00, format_scan_time(results), transform=ax.transAxes,
-                                    fontsize=9, ha="right", va="bottom")
-                            ax.set_xlabel("Column")
-                            ax.set_ylabel("Row")
-                            ax.set_xticks(range(16))
-                            ax.set_yticks(range(16))
-                            ax.set_xticks(np.arange(-0.5, 16, 1), minor=True)
-                            ax.set_yticks(np.arange(-0.5, 16, 1), minor=True)
-                            ax.grid(which="minor", color="lightgray", linewidth=0.4)
-                            ax.tick_params(which="minor", bottom=False, left=False)
-                            for row, col in np.argwhere(np.isfinite(matrix)):
-                                value = matrix[row, col]
-                                rgba = view.cmap(view.norm(value))
-                                brightness = sum(weight * component for weight, component in
-                                                 zip((0.299, 0.587, 0.114), rgba[:3]))
-                                label = f"{value:.0f}" if key == "NW" else f"{value:g}"
-                                ax.text(col, row, label, ha="center", va="center",
-                                        fontsize=6, color="black" if brightness > 0.5 else "white")
-                            if np.isfinite(matrix).any():
-                                colorbar = fig.colorbar(view, ax=ax, label="DAC code")
-                                if key == "NW":
-                                    colorbar.locator = MaxNLocator(integer=True)
-                                    colorbar.formatter = FormatStrFormatter("%.0f")
-                                    colorbar.update_ticks()
-                            else:
-                                ax.set_title(f"{identity} - {title} (no valid results)")
-                        # fig.suptitle("Unscanned or failed pixels are blank")
-                        figures.append(fig)
-                        plt.show()
-                    return figures
-
-
-                def plot_blnw_histograms(results):
-                    figures = []
-                    if results.get("scan_mode") != "all":
-                        return figures
-                    for identity in results["chip_name"]:
-                        fig, axes = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
-                        for ax, key, title in zip(axes, ("baseline", "NW"), ("Baseline", "Noise width")):
-                            matrix = build_blnw_matrix(results[key][identity])
-                            values = matrix[np.isfinite(matrix) & (matrix!=0)]
-                            # ax.set_title(f"{identity} - {title} (valid pixels: {values.size}/256)")
-                            ax.text(0.01, 1.00, "CMS", transform=ax.transAxes,
-                                    fontsize=13, fontweight="bold", va="bottom")
-                            ax.text(0.11, 1.00, "ETL ETROC", transform=ax.transAxes,
-                                    fontsize=10, style="italic", va="bottom")
-                            ax.text(1.0, 1.025, f"{identity}-{title} Histo", transform=ax.transAxes,
-                                    fontsize=9, ha="right", va="bottom")
-                            ax.text(1.0, 1.00, format_scan_time(results), transform=ax.transAxes,
-                                    fontsize=9, ha="right", va="bottom")
-                            ax.set_xlabel(f"{title} (DAC code)")
-                            ax.set_ylabel("Pixel count")
-                            if key == "baseline":
-                                bins = np.linspace(0, 1023, 65)
-                                ax.set_xlim(0, 1023)
-                                ax.set_xticks([0, 128, 256, 384, 512, 640, 768, 896, 1023])
-                            else:
-                                bins = np.arange(-0.5, 18, 1)
-                                ax.set_xlim(0, 17)
-                                ax.set_xticks(range(18))
-                            ax.xaxis.set_major_formatter(FormatStrFormatter("%.0f"))
-                            ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-                            if values.size:
-                                # ax.hist(values, bins=bins, edgecolor="black", alpha=0.8)
-                                ax.hist(values, bins=bins, histtype="step", color="#7ec8e3", linewidth=1.3)
-                                ax.text(0.97, 0.95,
-                                        # f"Mean: {values.mean():.2f}\nStd: {values.std():.2f}",
-                                        # transform=ax.transAxes, ha="right", va="top")
-                                        f"Mean: {values.mean():.2f}, Std: {values.std():.2f}",
-                                        transform=ax.transAxes, ha="right", va="top")
-                            else:
-                                ax.text(0.5, 0.5, "No valid results", transform=ax.transAxes,
-                                        ha="center", va="center")
-                            # ax.grid(axis="y", alpha=0.25)
-                        figures.append(fig)
-                        plt.show()
-                    return figures
-
-
-                # This cell uses in-memory results and does not save image files.
-                blnw_figures = plot_blnw_maps(blnw_results)
-
-                blnw_histogram_figures = plot_blnw_histograms(blnw_results)
-
-            if args.stage == "blnw":
-                print('BL/NW stage complete. Review scan failures and figures. Use --stage qinj for a new run including initialization and a fresh scan.', flush=True)
-                if args.interactive:
-                    interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
-                                       mapping=mapping, chips=chips, ids=ids)
+    if not args.no_plots:
+        while True:
+            try:
+                announce('6.2. BL/NW figures', 'Display maps and applicable histograms unless --no-plots is set.', 'A plot window may block execution; close it to continue.')
+                if not args.no_plots:
+                    show_blnw_plots(blnw_results)
+            except Exception as exc:
+                if not args.interactive:
+                    raise
+                print(f'[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}')
+                if workflow_menu(locals(), args, failed=True):
+                    continue
                 return
-
-            # Notebook code cell 34
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True):
-                continue
-            return
-        if args.step and not workflow_menu(locals(), args):
-            return
-        break
+            if args.step and (not workflow_menu(locals(), args)):
+                return
+            break
+    if args.stage == 'blnw':
+        print('BL/NW stage complete. Review scan failures and figures. Use --stage qinj for a new run including initialization and a fresh scan.', flush=True)
+        if args.interactive:
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == 'pathfinder_mapping.yaml', mapping=mapping, chips=chips, ids=ids, blnw_results=locals().get("blnw_results"))
+        return
     while True:
         try:
             announce('7. Enable selected data links', 'Enable mapped data links and check ETROC link lock.', 'This checks ETROC E-links, separately from the optical uplinks.')
@@ -1400,7 +1352,6 @@ def main(args):
                     raise RuntimeError("One or more selected data links are not locked")
             except Exception:
                 print("Link check failed; preserving selected masks for diagnosis. No acquisition will run.")
-                compare_etroc_links(rb, mapping, chips, ids)
                 print("Review ENABLE/INVERT/TERM, rate/merge, masks, controllerState (expected 11), then phase scan.")
                 raise
 
@@ -1880,7 +1831,7 @@ def main(args):
                 interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
                                        mapping=mapping, chips=chips, ids=ids,
                                        qinj_context={"pixels": blnw_results["pixels"], "charge_fc": args.charge_fc,
-                                                     "acquire": interactive_acquire}, output_dir=args.scan_output)
+                                                     "acquire": interactive_acquire}, output_dir=args.scan_output, blnw_results=locals().get("blnw_results"))
         except Exception as exc:
             if not args.interactive:
                 raise
