@@ -1667,6 +1667,7 @@ def main(args):
                             elink_names[28 * bank + e] = identity
                 per_elink = {n: {"header": 0, "data": 0, "trailer": 0} for n in elink_names}
                 records = {n: [] for n in elink_names}
+                unexpected_elinks = {}
 
                 start_time = datetime.now(timezone.utc)
                 last_report_time = time.time()
@@ -1697,8 +1698,12 @@ def main(args):
                                 if (event and len(event) >= 2 and event[0] in ("header", "data", "trailer")
                                         and isinstance(event[1], dict) and "elink" in event[1]):
                                     n = event[1]["elink"]
-                                    per_elink.setdefault(n, {"header": 0, "data": 0, "trailer": 0})[event[0]] += 1
-                                    records.setdefault(n, []).append(event)
+                                    if n not in elink_names:
+                                        # Not an E-link of the selected ETROCs: do not count or print it here.
+                                        unexpected_elinks[n] = unexpected_elinks.get(n, 0) + 1
+                                        continue
+                                    per_elink[n][event[0]] += 1
+                                    records[n].append(event)
                                 if event and len(event) >= 2:
                                     if event[0] == "header":
                                         if print_records:
@@ -1756,6 +1761,9 @@ def main(args):
                     if silent:
                         show_status("No packets at all from E-link(s): "
                                     + ", ".join(f"{n} ({elink_names[n]})" for n in sorted(silent)), "warning")
+                if unexpected_elinks:
+                    show_status("Ignored packets from E-links outside the selection: "
+                                + ", ".join(f"{n} (x{c})" for n, c in sorted(unexpected_elinks.items())), "warning")
                 if print_records:
                     for n in sorted(records):
                         print(f"\n===== E-link {n} ({elink_names.get(n, '?')}): {len(records[n])} records =====")
