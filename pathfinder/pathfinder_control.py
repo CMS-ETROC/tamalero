@@ -294,27 +294,37 @@ def configure_fc_termination(rb, mapping, chips, ids, *, etroc_factory=None):
 
 
 def configure_fc_delay(mapping, chips):
-    """Enable the FC data input delay on the ETROCs listed in the mapping.
+    """Set the FC input delay bits from the mapping, per ETROC ID.
 
-    Mapping (per ETROC ID, no rate keys):
         fc_delay:
-          data_delay_enabled: ["D0H0", "D2H0"]
-    Listed ETROCs get fcClkDelayEn=0 and fcDataDelayEn=1; all other ETROCs are
-    left untouched. These bits only act in manual FC alignment mode
-    (fcSelfAlignEn=0), so a listed ETROC in self-align mode is an error.
-    Every write is read back. Returns {ID: {"clk": 0, "data": 1}}.
+          clk_delay_enabled: ["D1H0"]            # fcClkDelayEn = 1
+          data_delay_enabled: ["D0H0", "D2H0"]   # fcDataDelayEn = 1
+
+    An ETROC listed in either list gets both bits written: each is 1 if the
+    ETROC is in the matching list, else 0. ETROCs in neither list are left
+    untouched. Both keys are optional. The bits only act in manual FC alignment
+    mode (fcSelfAlignEn=0), so a listed ETROC in self-align mode is an error.
+    Every write is read back. Returns {ID: {"clk": 0/1, "data": 0/1}}.
     """
     policy = mapping.get("fc_delay")
     if policy is None:
         return {}
-    listed = policy.get("data_delay_enabled", [])
-    if not isinstance(listed, list) or any(not isinstance(i, str) for i in listed) or len(set(listed)) != len(listed):
-        raise ValueError("fc_delay.data_delay_enabled must be a list of unique ETROC IDs")
-    unknown = [i for i in listed if i not in mapping["etrocs"]]
-    if unknown:
-        raise ValueError(f"fc_delay lists unknown ETROC IDs: {unknown}")
+    keys = {"clk_delay_enabled", "data_delay_enabled"}
+    extra = set(policy) - keys
+    if extra:
+        raise ValueError(f"fc_delay: unknown keys {sorted(extra)}; use {sorted(keys)}")
+    lists = {}
+    for key in sorted(keys):
+        value = policy.get(key, [])
+        if not isinstance(value, list) or any(not isinstance(i, str) for i in value) or len(set(value)) != len(value):
+            raise ValueError(f"fc_delay.{key} must be a list of unique ETROC IDs")
+        unknown = [i for i in value if i not in mapping["etrocs"]]
+        if unknown:
+            raise ValueError(f"fc_delay.{key} lists unknown ETROC IDs: {unknown}")
+        lists[key] = value
     def as_int(value):
         return int(value.value() if hasattr(value, "value") else value)
+    listed = sorted(set(lists["clk_delay_enabled"]) | set(lists["data_delay_enabled"]))
     report = {}
     for identity in listed:
         if identity not in chips:
@@ -322,13 +332,15 @@ def configure_fc_delay(mapping, chips):
         chip = chips[identity]
         if as_int(chip.rd_reg("fcSelfAlignEn")) != 0:
             raise RuntimeError(f"{identity}: fcSelfAlignEn=1; fcClkDelayEn/fcDataDelayEn only act in manual alignment mode")
-        for reg, value in (("fcClkDelayEn", 0), ("fcDataDelayEn", 1)):
+        want = {"fcClkDelayEn": int(identity in lists["clk_delay_enabled"]),
+                "fcDataDelayEn": int(identity in lists["data_delay_enabled"])}
+        for reg, value in want.items():
             chip.wr_reg(reg, value)
             actual = as_int(chip.rd_reg(reg))
             if actual != value:
                 raise RuntimeError(f"{identity}: {reg} expected={value}, readback={actual}")
-        report[identity] = {"clk": 0, "data": 1}
-        print(f"{identity}: fcClkDelayEn=0, fcDataDelayEn=1")
+        report[identity] = {"clk": want["fcClkDelayEn"], "data": want["fcDataDelayEn"]}
+        print(f"{identity}: fcClkDelayEn={want['fcClkDelayEn']}, fcDataDelayEn={want['fcDataDelayEn']}")
     return report
 
 

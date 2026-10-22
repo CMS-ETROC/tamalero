@@ -179,7 +179,7 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 17 | Scan trigger delay | WRITE HARDWARE | Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks. |  |
 | 18 | Set trigger delay | WRITE HARDWARE | Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged. | Prompts for the FPGA delay (0..511). |
 | 19 | Scan FC input delay | WRITE HARDWARE | Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure. | Prompts for the target ETROC, e.g. `D5H1`. |
-| 20 | Set FC input delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10. |
+| 20 | Set FC input delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Shows the current FC delay bits of all initialized ETROCs first, then prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10; shows the table again afterwards. |
 | 21 | Charge injection acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
 | 22 | Read ADC monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
 
@@ -193,18 +193,13 @@ Settings are rate- and slot-specific. At 640 Mbps expect to need a per-slot `TRI
 
 ```yaml
 fc_delay:
-  data_delay_enabled: ["D2H0"]
+  clk_delay_enabled: ["D1H0"]           # fcClkDelayEn = 1
+  data_delay_enabled: ["D0H0", "D2H0"]  # fcDataDelayEn = 1
 ```
 
-FC termination on the shared FC bus is also set in the mapping. Listed hybrids enable the internal termination and all others disable it
-(`[3]` = H3 is the physical end of the bus; `[]` disables all). It applies to all four hybrids of each initialized daughter card, even if not all are selected:
-
-```yaml
-fc_termination:
-  terminated_hybrids: [3]
-```
-
-Listed ETROCs get `fcClkDelayEn=0`, `fcDataDelayEn=1` during initialization (requires manual FC alignment, `fcSelfAlignEn=0`).
+Both keys are optional. An ETROC listed in either list gets both bits written during initialization:
+each bit is 1 if the ETROC is in the matching list, 0 otherwise (so `D0H0` above gets clk=0, data=1; `D2H0` listed in both gets clk=1, data=1).
+ETROCs in neither list are not touched. The bits only act in manual FC alignment mode (`fcSelfAlignEn=0`).
 This needs the `configure_fc_delay` function in `pathfinder_control.py`.
 
 ## 8. If something goes wrong
