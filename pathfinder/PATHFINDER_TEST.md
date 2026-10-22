@@ -15,31 +15,45 @@ Place `pathfinder_test.py` in the repository's `pathfinder/` directory and run i
 python3 pathfinder/pathfinder_test.py --stage <stage> [options]
 ```
 
-Typical runs (D0 H1-H3, 320 Mbps, step-by-step, full records printed):
+Typical runs (D0 H1-H3, 320 Mbps, step-by-step, full records printed).
+
+First run: scan all 256 pixels per chip and save the BL/NW result:
 
 ```bash
-# 1) First run: scan all 256 pixels per chip and save the BL/NW result
 python pathfinder/pathfinder_test.py --stage qinj --selection '{"0": [1, 2, 3]}' --rate 320 --trigger-delay 471 --step --print-records --blnw all
+```
 
-# 2) Later runs: load the newest saved full-matrix BL/NW result and skip the scan (nothing new is saved)
+Later runs: load the newest saved full-matrix BL/NW result and skip the scan (nothing new is saved):
+
+```bash
 python pathfinder/pathfinder_test.py --stage qinj --selection '{"0": [1, 2, 3]}' --rate 320 --trigger-delay 471 --step --print-records --blnw all --blnw-load latest
 ```
 
 Defaults used above: `--offset 50`, `--qinj 15` (fC), `--qinj-cnt 1`. `--step` already opens the interactive menu after every step.
 
-Other runs:
+Other runs.
+
+Offline preview, no hardware access (default):
 
 ```bash
-# Offline preview, no hardware access (default)
 python3 pathfinder/pathfinder_test.py
+```
 
-# Full 640 Mbps run on daughter card D2: fresh BL/NW scan, one QInj burst, menu afterwards
+Full 640 Mbps run on daughter card D2: fresh BL/NW scan, one QInj burst, menu afterwards:
+
+```bash
 python3 pathfinder/pathfinder_test.py --stage qinj --selection '{"2":"all"}' --rate 640 --interactive
+```
 
-# Same, but reuse the newest saved full-matrix BL/NW result (skip the scan)
+Same, but reuse the newest saved full-matrix BL/NW result (skip the scan):
+
+```bash
 python3 pathfinder/pathfinder_test.py --stage qinj --selection '{"2":"all"}' --blnw all --blnw-load latest --interactive
+```
 
-# Pause after every step (menu), so you can tune before the burst is sent in Step 11
+Pause after every step (menu), so you can tune before the burst is sent in Step 11:
+
+```bash
 python3 pathfinder/pathfinder_test.py --stage qinj --selection '{"2":"all"}' --step --interactive
 ```
 
