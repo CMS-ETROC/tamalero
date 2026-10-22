@@ -1153,12 +1153,8 @@ def main(args):
             BLNW_SAVE_RESULTS = not args.no_save
             BLNW_OUTPUT_DIR = TAMALERO_ROOT / "pathfinder" / "results" / "blnw" 
 
-            BLNW_PIXELS_PER_CHIP = {"sample": 4, "all": 256}
-
             def show_blnw_mode():
-                n = BLNW_PIXELS_PER_CHIP[BLNW_SCAN_MODE]
-                print(f"Current BL/NW mode: {BLNW_SCAN_MODE} ({n} pixels per ETROC, "
-                      f"{n * len(ids)} in total on {len(ids)} ETROCs)")
+                print(f"Current BL/NW mode: {BLNW_SCAN_MODE}")
                 print("  sample: 4 pixel/etroc; all: full matrix")
                 print(f"Save results: {BLNW_SAVE_RESULTS}; output folder: {BLNW_OUTPUT_DIR}")
 
