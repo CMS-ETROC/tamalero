@@ -169,7 +169,7 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 8 | Enable selected readout links | WRITE HARDWARE | Apply masks for initialized selected ETROCs; other receivers remain disabled. |  |
 | 9 | Rerun bitslip and check links | WRITE HARDWARE | Rerun shared bitslip; report selected link status. Does not change masks. | Shared bitslip may realign other channels. |
 | 10 | Retry direct I2C reads | READ ONLY | Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration. | Prompts for an I2C selection JSON, e.g. `{"5":"all"}`, and the number of read repetitions (default 3). |
-| 11 | Compare ETROC links | READ ONLY | Compare initialized ETROCs side by side; no resets or configuration writes. | Prompts for ETROC IDs (Enter = all) and whether to show only differences. |
+| 11 | Compare links | READ ONLY | Compare initialized ETROCs side by side; no resets or configuration writes. | Prompts for ETROC IDs (Enter = all) and whether to show only differences. |
 | 12 | Check link rates | READ ONLY | Compare configured FPGA/lpGBT/ETROC rates. |  |
 | 13 | Set link rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
 | 14 | Scan EPRX phase select | WRITE HARDWARE | Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels. | Prompts for a selection JSON, e.g. `{"3":[1]}`. |
@@ -177,13 +177,12 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 16 | Plot BL/NW results | READ ONLY | Plot current in-memory maps; full scans also show histograms. Close plot windows to return. | Needs BL/NW results in memory. |
 | 17 | Scan trigger delay | WRITE HARDWARE | Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks. |  |
 | 18 | Set trigger delay | WRITE HARDWARE | Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged. | Prompts for the FPGA delay (0..511). |
-| 19 | Reset one global readout | WRITE HARDWARE | Stop triggers first. Pulse ETROC global-readout reset and read controllerState; does not hard reset or force a state value. | Prompts for the ETROC ID to reset. |
-| 20 | Scan FC input delay | WRITE HARDWARE | Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure. | Prompts for the target ETROC, e.g. `D5H1`. |
-| 21 | Set FC input delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10. |
-| 22 | Charge injection acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
-| 23 | Read ADC monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
+| 19 | Scan FC input delay | WRITE HARDWARE | Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure. | Prompts for the target ETROC, e.g. `D5H1`. |
+| 20 | Set FC input delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10. |
+| 21 | Charge injection acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
+| 22 | Read ADC monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
 
-Menus 17, 20 and 22 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
+Menus 17, 19 and 21 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
 They enable the selected links temporarily, so they also work after Step 12 has masked the links.
 
 ## 7. Per-slot settings in `pathfinder_mapping.yaml`
@@ -218,9 +217,9 @@ Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 | `InitializationError` during **FC termination** | The FC termination step needs all four ETROCs of a daughter card to answer on I2C. Check the others (menu 10). |
 | I2C read of a hybrid fails (menu 10; register 0 should read `0x2C` = 44) | The four hybrids of a daughter share one I2C bus (addresses 0x60-0x63), so one bad chip can break the others. Check the ETROC power supply, reseat the daughter card, power cycle. A supply change fixed D5 once. |
 | One hybrid does not lock at 640 Mbps (Step 6 / menu 11) | Rate-specific. Scan EPRX phase select (menu 14) and apply the result (menu 15 or `--phase-settings`); the lpGBT EQ setting (`EPRX{e}EQ`) can also help. EPRX termination is enabled in the lpGBT init. |
-| Links lock but one chip is missing or has too few events | Read the per-E-link table. Event E-link number = 28 x bank + lpGBT E-link (TRIG E4/E6/E8/E10 = 32/34/36/38). No headers: link or trigger path. Headers present but the L1 counter is far below the pulse count: L1A/FC not received, try menu 20/21 (`fcDataDelayEn`). Wrong or empty BCID window: scan the trigger delay (menu 17/18) or change `--l1a-delay`. |
-| `invalidFCCount` constant but L1As are lost | It only counts malformed FC commands. Judge by the received L1A count and try the FC delay bits (menu 20/21). |
-| `controllerState` is not 11 (`ETROC.is_good()` fails) | Try menu 19 (reset one global readout) and check the supply. Seen once as 7 on one hybrid; cause not understood. |
+| Links lock but one chip is missing or has too few events | Read the per-E-link table. Event E-link number = 28 x bank + lpGBT E-link (TRIG E4/E6/E8/E10 = 32/34/36/38). No headers: link or trigger path. Headers present but the L1 counter is far below the pulse count: L1A/FC not received, try menu 19/20 (`fcDataDelayEn`). Wrong or empty BCID window: scan the trigger delay (menu 17/18) or change `--l1a-delay`. |
+| `invalidFCCount` constant but L1As are lost | It only counts malformed FC commands. Judge by the received L1A count and try the FC delay bits (menu 19/20). |
+| `controllerState` is not 11 (`ETROC.is_good()` fails) | Check the ETROC supply. Seen once as 7 on one hybrid; cause not understood. |
 | Trigger does not reach all chips | Trigger mask bit = 14 x bank + E-link/2; TRIG E4..E10 are bits 16-19 (`0xF0000`). Check `--trigger-selection`. |
 | "Link lock lost during QInj preparation" | The script refuses to send the burst. Rerun bitslip (menu 9), check links (menu 11), then retry (R). |
 | `--blnw-load`: "No usable saved BL/NW result" | The file is incomplete, was a `sample` scan while `all` is requested, or lacks one of the selected ETROCs. Rescan once without `--blnw-load`. |
@@ -229,6 +228,6 @@ Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 
 ## 9. Notes
 
-- Menu 22 and `--print-records` print the full header/data/trailer records per E-link (the notebook-style output).
+- Menu 21 and `--print-records` print the full header/data/trailer records per E-link (the notebook-style output).
 - Nothing touches hardware unless `--stage` is `motherboard` or later.
 - Output files: BL/NW pickles in `pathfinder/results/blnw/`, diagnostics as JSON in `--scan-output`.

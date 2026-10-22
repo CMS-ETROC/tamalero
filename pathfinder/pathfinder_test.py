@@ -115,24 +115,23 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         "6": ("Configure and verify optical links", "WRITE HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
     }
     if mapping is not None and chips:
-        actions["11"] = ("Compare ETROC links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
+        actions["11"] = ("Compare links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
         actions["14"] = ("Scan EPRX phase select", "WRITE HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
         actions["15"] = ("Apply EPRX phase select", "WRITE HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
         actions["17"] = ("Scan trigger delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
         actions["18"] = ("Set trigger delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
-        actions["22"] = ("Charge injection acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
-        actions["20"] = ("Scan FC input delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
+        actions["21"] = ("Charge injection acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
+        actions["19"] = ("Scan FC input delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
-        actions["23"] = ("Read ADC monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
+        actions["22"] = ("Read ADC monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
         actions["10"] = ("Retry direct I2C reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
         actions["7"] = ("Read receiver masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
-        actions["21"] = ("Set FC input delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
+        actions["20"] = ("Set FC input delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
         actions["9"] = ("Rerun bitslip and check links", "WRITE HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
         actions["12"] = ("Check link rates", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
         actions["13"] = ("Set link rate", "WRITE HARDWARE", "Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again.")
         actions["8"] = ("Enable selected readout links", "WRITE HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
-        actions["19"] = ("Reset one global readout", "WRITE HARDWARE", "Stop triggers first. Pulse ETROC global-readout reset and read controllerState; does not hard reset or force a state value.")
     if blnw_results is not None:
         actions["16"] = ("Plot BL/NW results", "READ ONLY", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
     if kcu is None:
@@ -141,14 +140,14 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         for key in ("2", "3", "4", "5", "6"):
             actions.pop(key, None)
     if qinj_context is None:
-        for key in ("17", "20", "22"):
+        for key in ("17", "19", "21"):
             actions.pop(key, None)
     while True:
         print("\n" + "=" * 72)
         print("Interactive diagnostics - reuse the current hardware connection")
         for key, (title, kind, _) in sorted(actions.items(), key=lambda item: int(item[0])):
             suffix = " (unavailable for this mapping)" if key == "6" and not pathfinder_profile else ""
-            print(f"{key}. {title} [{kind}]{suffix}")
+            print(f"{key}. {title}{suffix}")
         if recovery:
             print("Enter / c: Continue (unavailable until this step passes)" if failed else "Enter / c: Continue to the next step")
             print("R: Rerun the current step")
@@ -175,7 +174,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             print("[SKIPPED] This configuration profile is restricted to pathfinder_mapping.yaml.")
             continue
         title, kind, explanation = actions[choice]
-        print(f"\n[START] {title} [{kind}]")
+        print(f"\n[START] {title}")
         print(f"[INFO] {explanation}")
         try:
             if choice == "1":
@@ -268,12 +267,12 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     kcu.write_node(node, old)
                     raise
                 print(f"TRIG_DLY_SEL: {old} -> {actual}; L1Adelay unchanged")
-            elif choice in ("20", "22"):
+            elif choice in ("19", "21"):
                 if qinj_context is None or "acquire" not in qinj_context:
                     print("[SKIPPED] Use --stage qinj --step --interactive to prepare thresholds, self-trigger and QInj first.")
                     continue
                 target = None
-                if choice == "20":
+                if choice == "19":
                     print("Initialized ETROCs:", ", ".join(chips))
                     target = input("FC scan target, e.g. D5H1: ").strip()
                     if target not in chips:
@@ -288,7 +287,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 def acquire():
                     return qinj_context["acquire"](charge, count, reads, records)
                 with temporary_readout_selection(rb, mapping, list(chips)):
-                    if choice == "22":
+                    if choice == "21":
                         report = acquire()
                         save_diagnostic(output_dir, "interactive_qinj", report)
                     else:
@@ -296,7 +295,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 qinj_context["charge_fc"] = charge
             elif choice == "16":
                 show_blnw_plots(blnw_results)
-            elif choice == "23":
+            elif choice == "22":
                 if "adc_monitoring" not in mapping:
                     print("No adc_monitoring section in this mapping.")
                 else:
@@ -309,7 +308,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         lp.calibrate_adc()
                         lp.read_adcs(check=True, strict_limits=False)
                     print("ADC read complete; review individual values and limits.")
-            elif choice == "21":
+            elif choice == "20":
                 names = [i.strip().strip("\"'") for i in input('ETROC IDs, e.g. "D0H0", "D0H1": ').split(",") if i.strip().strip("\"'")]
                 pair = input("FC clk/data: 00, 01 or 10: ").strip()
                 if not names or any(i not in chips for i in names) or pair not in ("00", "01", "10"):
@@ -349,19 +348,6 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             elif choice == "8":
                 from pathfinder_control import configure_readout_links
                 print(configure_readout_links(rb, mapping, list(chips)))
-            elif choice == "19":
-                import time
-                identity = input("ETROC ID to reset: ").strip()
-                if identity not in chips:
-                    raise ValueError("ETROC must be initialized")
-                chip = chips[identity]
-                try:
-                    chip.wr_reg("asyResetGlobalReadout", 0)
-                    time.sleep(0.1)
-                finally:
-                    chip.wr_reg("asyResetGlobalReadout", 1)
-                time.sleep(0.2)
-                print(identity, "controllerState:", chip.rd_reg("controllerState"))
             if choice != "6":
                 print("[DONE] Operation completed. Review the readings above; this is not an automatic pass verdict.")
         except KeyboardInterrupt:
