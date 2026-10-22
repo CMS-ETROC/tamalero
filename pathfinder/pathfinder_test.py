@@ -237,10 +237,10 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     print("[SKIPPED] Run --stage qinj --interactive first: thresholds, injection and self-trigger must be prepared.")
                     continue
                 from pathfinder_control import scan_trigger_delay
-                start = int(input("Start delay [440]: ").strip() or "440")
-                stop = int(input("Stop delay, exclusive [500]: ").strip() or "500")
-                latency = int(input("Fixed pixel L1Adelay [501]: ").strip() or "501")
-                count = int(input("QInj pulses per delay [1]: ").strip() or "1")
+                start = int(input("Start delay [455]: ").strip() or "455")
+                stop = int(input("Stop delay, inclusive [495]: ").strip() or "495") + 1
+                latency = qinj_context.get("l1a_delay", 501)   # from --l1a-delay (default 501)
+                count = qinj_context["qinj_count"]   # from --qinj-cnt (default 1)
                 if not 0 <= start < stop <= 512 or not 0 <= latency <= 511 or count < 1:
                     raise ValueError("Invalid delay range, L1Adelay or pulse count")
                 with temporary_readout_selection(rb, mapping, list(chips)):
@@ -520,7 +520,7 @@ def workflow_menu(state, args, failed=False):
     # A snapshot of references to live objects; no reconstruction of KCU/chips.
     context = None
     if "interactive_acquire" in state:
-        context = {"pixels": state["blnw_results"]["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count,
+        context = {"pixels": state["blnw_results"]["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
                    "acquire": state["interactive_acquire"]}
     print("Use R to retry the failed step; continuing requires a successful check." if failed else "Step complete. Debug now or continue.")
     return interactive_checks(state.get("kcu"), state.get("rb"),
@@ -1852,7 +1852,7 @@ def main(args):
             if args.interactive:
                 interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
                                        mapping=mapping, chips=chips, ids=ids,
-                                       qinj_context={"pixels": blnw_results["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count,
+                                       qinj_context={"pixels": blnw_results["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
                                                      "acquire": interactive_acquire}, output_dir=args.scan_output, blnw_results=locals().get("blnw_results"))
         except Exception as exc:
             if not args.interactive:
