@@ -15,7 +15,19 @@ Place `pathfinder_test.py` in the repository's `pathfinder/` directory and run i
 python3 pathfinder/pathfinder_test.py --stage <stage> [options]
 ```
 
-Typical runs:
+Typical runs (D0 H1-H3, 320 Mbps, step-by-step, full records printed):
+
+```bash
+# 1) First run: scan all 256 pixels per chip and save the BL/NW result
+python pathfinder/pathfinder_test.py --stage qinj --selection '{"0": [1, 2, 3]}' --rate 320 --trigger-delay 471 --step --print-records --blnw all
+
+# 2) Later runs: load the newest saved full-matrix BL/NW result and skip the scan (nothing new is saved)
+python pathfinder/pathfinder_test.py --stage qinj --selection '{"0": [1, 2, 3]}' --rate 320 --trigger-delay 471 --step --print-records --blnw all --blnw-load latest
+```
+
+Defaults used above: `--offset 50`, `--qinj 15` (fC), `--qinj-cnt 1`. `--step` already opens the interactive menu after every step.
+
+Other runs:
 
 ```bash
 # Offline preview, no hardware access (default)

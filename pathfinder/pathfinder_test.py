@@ -1156,9 +1156,10 @@ def main(args):
 
             def show_blnw_mode():
                 print(f"Current BL/NW mode: {BLNW_SCAN_MODE}")
-                print(f"Save results: {BLNW_SAVE_RESULTS}; output folder: {BLNW_OUTPUT_DIR}")
                 if args.blnw_load:
                     print(f"Load saved results: {args.blnw_load} (scan skipped; saved mode must cover --blnw {BLNW_SCAN_MODE})")
+                else:
+                    print(f"Save results: {BLNW_SAVE_RESULTS}; output folder: {BLNW_OUTPUT_DIR}")
 
             show_blnw_mode()
 
