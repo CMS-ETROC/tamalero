@@ -293,6 +293,45 @@ def configure_fc_termination(rb, mapping, chips, ids, *, etroc_factory=None):
     return report
 
 
+def configure_fc_delay(mapping, chips):
+    """Enable the FC data input delay on the ETROCs listed in the mapping.
+
+    Mapping (per ETROC ID, no rate keys):
+        fc_delay:
+          data_delay_enabled: ["D0H0", "D2H0"]
+    Listed ETROCs get fcClkDelayEn=0 and fcDataDelayEn=1; all other ETROCs are
+    left untouched. These bits only act in manual FC alignment mode
+    (fcSelfAlignEn=0), so a listed ETROC in self-align mode is an error.
+    Every write is read back. Returns {ID: {"clk": 0, "data": 1}}.
+    """
+    policy = mapping.get("fc_delay")
+    if policy is None:
+        return {}
+    listed = policy.get("data_delay_enabled", [])
+    if not isinstance(listed, list) or any(not isinstance(i, str) for i in listed) or len(set(listed)) != len(listed):
+        raise ValueError("fc_delay.data_delay_enabled must be a list of unique ETROC IDs")
+    unknown = [i for i in listed if i not in mapping["etrocs"]]
+    if unknown:
+        raise ValueError(f"fc_delay lists unknown ETROC IDs: {unknown}")
+    def as_int(value):
+        return int(value.value() if hasattr(value, "value") else value)
+    report = {}
+    for identity in listed:
+        if identity not in chips:
+            continue  # not initialized in this run
+        chip = chips[identity]
+        if as_int(chip.rd_reg("fcSelfAlignEn")) != 0:
+            raise RuntimeError(f"{identity}: fcSelfAlignEn=1; fcClkDelayEn/fcDataDelayEn only act in manual alignment mode")
+        for reg, value in (("fcClkDelayEn", 0), ("fcDataDelayEn", 1)):
+            chip.wr_reg(reg, value)
+            actual = as_int(chip.rd_reg(reg))
+            if actual != value:
+                raise RuntimeError(f"{identity}: {reg} expected={value}, readback={actual}")
+        report[identity] = {"clk": 0, "data": 1}
+        print(f"{identity}: fcClkDelayEn=0, fcDataDelayEn=1")
+    return report
+
+
 def initialize_etrocs(rb, mapping, ids, *, etroc_factory=None,
                       strict=False, verbose=False):
     """Initialize selected ETROCs and return objects indexed by position ID.
@@ -364,6 +403,14 @@ def initialize_etrocs(rb, mapping, ids, *, etroc_factory=None,
             raise InitializationError(
                 "ETROC objects were created, but FC termination configuration failed; do not start acquisition",
                 "FC termination", chips,
+            ) from exc
+    if mapping.get("fc_delay") is not None:
+        try:
+            configure_fc_delay(mapping, chips)
+        except Exception as exc:
+            raise InitializationError(
+                "ETROC objects were created, but FC delay configuration failed; do not start acquisition",
+                "FC delay", chips,
             ) from exc
     return chips
 
@@ -2266,7 +2313,8 @@ def _qscan_set_delay(chips, scan_pixels, delay, verify=False):
 
 def _qscan_read_counts(fifo, df, expected):
     """Read everything currently in the FIFO; count events per elink."""
-    per = {e: {"header": 0, "data": 0, "trailer": 0} for _, e, _ in expected}
+    # Event-word E-link number = 28 * bank + lpGBT E-link (DAQ 0..27, TRIG 28..55).
+    per = {28 * b + e: {"header": 0, "data": 0, "trailer": 0} for b, e, _ in expected}
     tot = {"header": 0, "data": 0, "trailer": 0}
     events = fifo.pretty_read(df)
     for ev in events or []:
