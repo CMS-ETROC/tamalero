@@ -57,7 +57,7 @@ def build_parser():
     parser.add_argument("--scan-selection", type=selection, help="Subset of initialized D/H to phase-scan; defaults to --selection")
     parser.add_argument("--phase-settings", type=json.loads, default={}, help='Explicit fixed phases, e.g. {"D3H1":4}; applied after initialization')
     parser.add_argument("--fc-target", help="One initialized ETROC to scan FC input delay bits, e.g. D3H1")
-    parser.add_argument("--scan-output", type=Path, default=Path("diagnostic_results"))
+    parser.add_argument("--scan-output", type=Path, default=None)
     parser.add_argument("--print-records", action="store_true", help="Print full header/data/trailer records grouped by E-link")
     parser.add_argument("--fifo-reads", type=int, default=3, help="Read passes after one QInj burst; does not send extra injections")
     parser.add_argument("--wrap", action="store_true", help="Let long output lines wrap in the terminal (default: lines are cut at the window edge)")
@@ -139,7 +139,7 @@ def render_menu(actions, notes, footer, title):
     return out
 
 
-def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None, qinj_context=None, output_dir="diagnostic_results", recovery=False, failed=False, blnw_results=None): 
+def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None, qinj_context=None, output_dir=None, recovery=False, failed=False, blnw_results=None): 
     """Repeat diagnostics without reconstructing KCU or ReadoutBoard."""
     from pathfinder_control import (
         read_optical_link_status, monitor_optical_links,
@@ -253,7 +253,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 with temporary_readout_selection(rb, mapping, list(chips)):
                     saved = set_fixed_phase_groups(rb, mapping, targets)
                     try:
-                        scan_etroc_phases(rb, mapping, chips, selected, output_dir=output_dir)
+                        scan_etroc_phases(rb, mapping, chips, selected, output_dir=results_path("phase_scan", output_dir))
                     finally:
                         restore_phase_groups(saved)
             elif choice == "15":
@@ -286,9 +286,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 with temporary_readout_selection(rb, mapping, list(chips)):
                     report = scan_trigger_delay(rb, chips, mapping, scan_pixels=qinj_context["pixels"],
                                                 delays=range(start, stop), l1a_delay=latency, qinj_count=count)
-                save_diagnostic(output_dir, "interactive_trigger_delay", report)
-                for delay, item in report["results"].items():
-                    print(f"delay={delay}: {item['per_elink']}")
+                save_diagnostic(results_path("trigger_delay", output_dir), "interactive_trigger_delay", report)
                 print("Pixel L1Adelay remains at the requested value; FPGA trigger delay restored. No best delay applied.")
             elif choice == "18":
                 value = int(input("FPGA trigger delay (0..511): ").strip())
@@ -329,7 +327,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 with temporary_readout_selection(rb, mapping, list(chips)):
                     if choice == "21":
                         report = acquire()
-                        save_diagnostic(output_dir, "interactive_qinj", report)
+                        save_diagnostic(results_path("qinj", output_dir), "interactive_qinj", report)
                     else:
                         run_fc_scan(chips, target, acquire, output_dir)
                 qinj_context["charge_fc"] = charge
@@ -467,6 +465,16 @@ def set_fixed_phase_groups(rb, mapping, ids):
     return saved
 
 
+RESULTS_ROOT = None   # set in main: <repo>/pathfinder/results
+
+
+def results_path(kind, override=None):
+    """Folder for saved results: --scan-output if given, else <repo>/pathfinder/results/<kind> (like BL/NW)."""
+    if override:
+        return Path(override)
+    return (RESULTS_ROOT if RESULTS_ROOT is not None else Path("diagnostic_results")) / kind
+
+
 def save_diagnostic(folder, name, report):
     from datetime import datetime, timezone
     folder = Path(folder)
@@ -512,7 +520,7 @@ def run_fc_scan(chips, identity, acquire, output_dir):
             except Exception as exc:
                 errors.append(f"{reg}: {exc}")
         report["restore_errors"] = errors
-        save_diagnostic(output_dir, "fc_delay", report)
+        save_diagnostic(results_path("fc_delay", output_dir), "fc_delay", report)
         if errors:
             raise RuntimeError("FC settings restoration failed: " + "; ".join(errors))
     return report
@@ -732,6 +740,8 @@ def main(args):
     # Replace this with the repository root on the computer running this kernel.
     # The root contains configs/, address_table/, tamalero/, and pathfinder/.
     TAMALERO_ROOT = args.repo_root.expanduser().resolve()
+    global RESULTS_ROOT
+    RESULTS_ROOT = TAMALERO_ROOT / "pathfinder" / "results"
 
     if not (TAMALERO_ROOT / "tamalero" / "ETROC.py").is_file():
         raise FileNotFoundError(f"Incorrect repository root: {TAMALERO_ROOT}")
@@ -1903,7 +1913,7 @@ def main(args):
             else:
                 qinj_results = run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
                                                         max_iterations=args.fifo_reads, print_records=args.print_records)
-                save_diagnostic(args.scan_output, "qinj", qinj_results)
+                save_diagnostic(results_path("qinj", args.scan_output), "qinj", qinj_results)
 
             # Uncomment once you're done running charge injection on this selection,
             # so these pixels stop responding to injection pulses in later runs:

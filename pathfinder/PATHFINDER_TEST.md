@@ -100,7 +100,7 @@ Each stage runs all earlier ones first.
 | `--fifo-reads` | `3` | FIFO read passes after one burst (no extra injections). |
 | `--print-records` | off | Also print full header/data/trailer records grouped by E-link. |
 | `--fc-target` | none | ETROC for `--stage fc-scan`, e.g. `D3H1`. |
-| `--scan-output` | `diagnostic_results` | Folder for diagnostic JSON files. |
+| `--scan-output` | (none) | Override folder for diagnostic JSON files. Default: `pathfinder/results/<kind>/`. |
 | `--monitor-seconds` | `3` | Duration of the uplink monitor in the motherboard check. |
 | `--wrap` | off | By default long output lines are not wrapped (cut at the terminal edge, so widen the window to see more); `--wrap` restores normal wrapping. Not applied when output is redirected. |
 | `--interactive` | off | Open the diagnostic menu after a hardware stage (and at the end). |
@@ -236,4 +236,4 @@ Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 
 - Menu 21 and `--print-records` print the full header/data/trailer records per E-link (the notebook-style output).
 - Nothing touches hardware unless `--stage` is `motherboard` or later.
-- Output files: BL/NW pickles in `pathfinder/results/blnw/`, diagnostics as JSON in `--scan-output`.
+- Output files: BL/NW pickles in `pathfinder/results/blnw/`, diagnostic JSON files in `pathfinder/results/trigger_delay/`, `qinj/`, `fc_delay/`, `phase_scan/` (or `--scan-output` if given).
