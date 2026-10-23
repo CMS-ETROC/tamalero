@@ -5,7 +5,10 @@ Default run is an offline preview. Hardware execution has not been validated.
 Place this file in the repository's pathfinder directory.
 """
 import argparse
+import atexit
 import json
+import os
+import sys
 from pathlib import Path
 
 
@@ -24,7 +27,7 @@ def build_parser():
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--mapping", default="pathfinder_mapping.yaml",
                         help="Absolute path or filename relative to repo/pathfinder")
-    parser.add_argument("--stage", choices=["preview", "motherboard", "links", "phase-scan", "blnw", "qinj", "qinj-ready", "trigger-scan", "fc-scan"], default="preview",
+    parser.add_argument("--stage", choices=["preview", "motherboard", "links", "phase-scan", "blnw", "qinj", "fc-scan"], default="preview",
                         help="Run all prerequisite sections through this stage")
     parser.add_argument("--selection", type=selection, default={0: "all"},
                         help='JSON, e.g. {"1":"all","3":[1]}')
@@ -34,12 +37,13 @@ def build_parser():
     parser.add_argument("--ip", default="192.168.0.10")
     parser.add_argument("--rb-id", type=int, default=0)
     parser.add_argument("--board-config", default="default")
-    parser.add_argument("--monitor-seconds", type=int, default=10)
+    parser.add_argument("--monitor-seconds", type=int, default=3)
     parser.add_argument("--blnw", "--pixels", dest="pixels", choices=["sample", "all"], default="sample", help="BL/NW coverage: sample=4 pixels/chip; all=256 pixels/chip (default: sample)")
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
+    parser.add_argument("--blnw-load", metavar="PKL|latest", default=None, help="Skip the BL/NW scan and load saved results (a .pkl path, or latest = newest valid file in the results folder)")
     plot_options = parser.add_mutually_exclusive_group()
     plot_options.add_argument("--plot", "--plots", dest="no_plots", action="store_false", help="Include BL/NW plotting in the workflow")
-    plot_options.add_argument("--no-plots", "--no-plot", dest="no_plots", action="store_true", help="Skip workflow plots (default); interactive menu 22 remains available")
+    plot_options.add_argument("--no-plots", "--no-plot", dest="no_plots", action="store_true", help="Skip workflow plots (default); interactive menu 16 remains available")
     parser.set_defaults(no_plots=True)
     parser.add_argument("--trigger-delay", type=int, default=469)
     parser.add_argument("--qinj", "--charge-fc", dest="charge_fc", type=int, default=15, help="Injected charge in fC (1..32; default: 15)")
@@ -52,12 +56,11 @@ def build_parser():
     parser.add_argument("--l1a-delay", type=int, default=501, help="ETROC pixel L1Adelay; distinct from FPGA trigger delay and FC input delay bits")
     parser.add_argument("--scan-selection", type=selection, help="Subset of initialized D/H to phase-scan; defaults to --selection")
     parser.add_argument("--phase-settings", type=json.loads, default={}, help='Explicit fixed phases, e.g. {"D3H1":4}; applied after initialization')
-    parser.add_argument("--delay-start", type=int, default=440)
-    parser.add_argument("--delay-stop", type=int, default=500, help="Exclusive trigger-delay scan upper bound")
     parser.add_argument("--fc-target", help="One initialized ETROC to scan FC input delay bits, e.g. D3H1")
     parser.add_argument("--scan-output", type=Path, default=Path("diagnostic_results"))
     parser.add_argument("--print-records", action="store_true", help="Print full header/data/trailer records grouped by E-link")
     parser.add_argument("--fifo-reads", type=int, default=3, help="Read passes after one QInj burst; does not send extra injections")
+    parser.add_argument("--wrap", action="store_true", help="Let long output lines wrap in the terminal (default: lines are cut at the window edge)")
     parser.add_argument("--step", action="store_true", help="Pause for debugging after each completed hardware step; retry failed steps in the same session")
     return parser
 
@@ -108,47 +111,47 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
     )
 
     actions = {
-        "1": ("KCU status", "READ ONLY", "Read KCU status, clocks and available E-link lock flags."),
-        "2": ("Uplink READY/FEC", "READ ONLY", "Read current counters without clearing them."),
-        "3": ("Monitor uplinks for 10 seconds", "READ ONLY", "Sample READY/FEC once per second; counters are not reset."),
-        "4": ("Clock register readback", "READ ONLY", "Read ECLK0-27 frequency and drive strength; this does not measure waveforms."),
-        "5": ("Reset FEC counters", "WRITES HARDWARE", "Clear historical FEC counts on both uplinks."),
-        "6": ("Configure and verify optical links", "WRITES HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
+        "1": ("KCU Status", "READ ONLY", "Read KCU status, clocks and available E-link lock flags."),
+        "2": ("Uplinks Status", "READ ONLY", "Read current counters without clearing them."),
+        "3": ("Monitor Uplinks", "READ ONLY", "Sample READY/FEC once per second for 10 seconds; counters are not reset."),
+        "4": ("Check Clock Registers", "READ ONLY", "Read ECLK0-27 frequency and drive strength; this does not measure waveforms."),
+        "5": ("Reset FEC Counters", "WRITE HARDWARE", "Clear historical FEC counts on both uplinks."),
+        "6": ("Configure Optical Links", "WRITE HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
     }
     if mapping is not None and chips:
-        actions["7"] = ("Compare ETROC links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
-        actions["8"] = ("Scan phase select", "WRITES HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
-        actions["9"] = ("Apply phase settings", "WRITES HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
-        actions["10"] = ("Scan trigger delay", "WRITES HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
-        actions["11"] = ("Set trigger delay", "WRITES HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
-        actions["12"] = ("Charge injection acquisition", "WRITES HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
-        actions["13"] = ("Scan FC input delay", "WRITES HARDWARE", "Scan 00/01/10 on one initialized ETROC using QInj; restore original FC bits even on failure.")
+        actions["11"] = ("Compare Links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
+        actions["14"] = ("Scan EPRX Phase Select", "WRITE HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
+        actions["15"] = ("Apply EPRX Phase Select", "WRITE HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
+        actions["17"] = ("Scan Trigger Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
+        actions["18"] = ("Set Trigger Delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
+        actions["21"] = ("Charge Injection Acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
+        actions["19"] = ("Scan FC Input Delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
-        actions["21"] = ("Read ADC monitoring", "WRITES HARDWARE", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
-        actions["15"] = ("Retry direct I2C reads", "READ REGISTERS", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
-        actions["17"] = ("Read receiver masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
+        actions["22"] = ("Read ADC Monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
+        actions["10"] = ("Retry Direct I2C Reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
+        actions["7"] = ("Read Receiver Masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
-        actions["14"] = ("Set FC input delay", "WRITES HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
-        actions["16"] = ("Rerun bitslip and check links", "WRITES HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
-        actions["18"] = ("Check link rates", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
-        actions["19"] = ("Enable selected readout links", "WRITES HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
-        actions["20"] = ("Reset one global readout", "WRITES HARDWARE", "Stop triggers first. Pulse ETROC global-readout reset and read controllerState; does not hard reset or force a state value.")
+        actions["20"] = ("Set FC Input Delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
+        actions["9"] = ("Rerun Bitslip and Check Links", "WRITE HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
+        actions["12"] = ("Check Link Rate", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
+        actions["13"] = ("Set Link Rate", "WRITE HARDWARE", "Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again.")
+        actions["8"] = ("Enable Selected Readout Links", "WRITE HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
     if blnw_results is not None:
-        actions["22"] = ("Plot BL/NW results", "READ RESULTS", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
+        actions["16"] = ("Plot BL/NW Results", "READ ONLY", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
     if kcu is None:
         actions.pop("1", None)
     if rb is None:
         for key in ("2", "3", "4", "5", "6"):
             actions.pop(key, None)
     if qinj_context is None:
-        for key in ("10", "12", "13"):
+        for key in ("17", "19", "21"):
             actions.pop(key, None)
     while True:
         print("\n" + "=" * 72)
         print("Interactive diagnostics - reuse the current hardware connection")
-        for key, (title, kind, _) in actions.items():
+        for key, (title, kind, _) in sorted(actions.items(), key=lambda item: int(item[0])):
             suffix = " (unavailable for this mapping)" if key == "6" and not pathfinder_profile else ""
-            print(f"{key}. {title} [{kind}]{suffix}")
+            print(f"{key}. {title}{suffix}")
         if recovery:
             print("Enter / c: Continue (unavailable until this step passes)" if failed else "Enter / c: Continue to the next step")
             print("R: Rerun the current step")
@@ -175,7 +178,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             print("[SKIPPED] This configuration profile is restricted to pathfinder_mapping.yaml.")
             continue
         title, kind, explanation = actions[choice]
-        print(f"\n[START] {title} [{kind}]")
+        print(f"\n[START] {title}")
         print(f"[INFO] {explanation}")
         try:
             if choice == "1":
@@ -194,7 +197,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             elif choice == "6":
                 initialize_pathfinder_links(rb, monitor_seconds=10)
                 print("[PASS] Optical configuration and verification completed.")
-            elif choice == "7":
+            elif choice == "11":
                 from pathfinder_control import compare_etroc_links
                 available = [i for i in (ids if ids is not None else chips) if i in chips]
                 print("Initialized ETROCs:", ", ".join(available))
@@ -205,7 +208,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     continue
                 differences = input("Only differences? [y/N]: ").strip().lower() in ("y", "yes")
                 compare_etroc_links(rb, mapping, chips, targets, only_differences=differences)
-            elif choice == "8":
+            elif choice == "14":
                 from pathfinder_control import expand_selection, scan_etroc_phases
                 selected = selection(input('Scan selection JSON, e.g. {"3":[1]}: ').strip())
                 targets = expand_selection(mapping, selected)
@@ -217,7 +220,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         scan_etroc_phases(rb, mapping, chips, selected, output_dir=output_dir)
                     finally:
                         restore_phase_groups(saved)
-            elif choice == "9":
+            elif choice == "15":
                 from pathfinder_control import apply_etroc_phases
                 settings = json.loads(input('Phase settings JSON, e.g. {"D3H1":4,"D2H3":5}: ').strip())
                 if not isinstance(settings, dict) or not settings or any(
@@ -233,15 +236,15 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         restore_phase_groups(saved)
                         raise
                 print("Applied phases and fixed group modes retained; inspect lock results above.")
-            elif choice == "10":
+            elif choice == "17":
                 if qinj_context is None:
                     print("[SKIPPED] Run --stage qinj --interactive first: thresholds, injection and self-trigger must be prepared.")
                     continue
                 from pathfinder_control import scan_trigger_delay
-                start = int(input("Start delay [440]: ").strip() or "440")
-                stop = int(input("Stop delay, exclusive [500]: ").strip() or "500")
-                latency = int(input("Fixed pixel L1Adelay [501]: ").strip() or "501")
-                count = int(input("QInj pulses per delay [1]: ").strip() or "1")
+                start = int(input("Start delay [455]: ").strip() or "455")
+                stop = int(input("Stop delay, inclusive [495]: ").strip() or "495") + 1
+                latency = qinj_context.get("l1a_delay", 501)   # from --l1a-delay (default 501)
+                count = qinj_context["qinj_count"]   # from --qinj-cnt (default 1)
                 if not 0 <= start < stop <= 512 or not 0 <= latency <= 511 or count < 1:
                     raise ValueError("Invalid delay range, L1Adelay or pulse count")
                 with temporary_readout_selection(rb, mapping, list(chips)):
@@ -251,7 +254,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 for delay, item in report["results"].items():
                     print(f"delay={delay}: {item['per_elink']}")
                 print("Pixel L1Adelay remains at the requested value; FPGA trigger delay restored. No best delay applied.")
-            elif choice == "11":
+            elif choice == "18":
                 value = int(input("FPGA trigger delay (0..511): ").strip())
                 if not 0 <= value <= 511:
                     raise ValueError("Trigger delay must be in 0..511")
@@ -268,19 +271,19 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     kcu.write_node(node, old)
                     raise
                 print(f"TRIG_DLY_SEL: {old} -> {actual}; L1Adelay unchanged")
-            elif choice in ("12", "13"):
+            elif choice in ("19", "21"):
                 if qinj_context is None or "acquire" not in qinj_context:
-                    print("[SKIPPED] Use --stage qinj-ready --interactive to prepare thresholds, self-trigger and QInj first.")
+                    print("[SKIPPED] Use --stage qinj --step --interactive to prepare thresholds, self-trigger and QInj first.")
                     continue
                 target = None
-                if choice == "13":
+                if choice == "19":
                     print("Initialized ETROCs:", ", ".join(chips))
                     target = input("FC scan target, e.g. D5H1: ").strip()
                     if target not in chips:
                         raise ValueError("FC target must already be initialized")
-                default_charge = qinj_context["charge_fc"]
-                charge = int(input(f"Charge fC [{default_charge}]: ").strip() or str(default_charge))
-                count = int(input("QInj pulses [1]: ").strip() or "1")
+                charge = qinj_context["charge_fc"]        # set with --qinj on the command line
+                count = qinj_context["qinj_count"]       # set with --qinj-cnt on the command line
+                print(f"QInj charge={charge} fC, pulses={count} (from the command line)")
                 reads = int(input("FIFO read passes [3]: ").strip() or "3")
                 records = input("Print complete records by E-link? [y/N]: ").strip().lower() in ("y", "yes")
                 if not 1 <= charge <= 32 or count < 1 or reads < 1:
@@ -288,15 +291,15 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 def acquire():
                     return qinj_context["acquire"](charge, count, reads, records)
                 with temporary_readout_selection(rb, mapping, list(chips)):
-                    if choice == "12":
+                    if choice == "21":
                         report = acquire()
                         save_diagnostic(output_dir, "interactive_qinj", report)
                     else:
                         run_fc_scan(chips, target, acquire, output_dir)
                 qinj_context["charge_fc"] = charge
-            elif choice == "22":
+            elif choice == "16":
                 show_blnw_plots(blnw_results)
-            elif choice == "21":
+            elif choice == "22":
                 if "adc_monitoring" not in mapping:
                     print("No adc_monitoring section in this mapping.")
                 else:
@@ -309,13 +312,15 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         lp.calibrate_adc()
                         lp.read_adcs(check=True, strict_limits=False)
                     print("ADC read complete; review individual values and limits.")
-            elif choice == "14":
-                names = [i.strip() for i in input("ETROC IDs, comma separated: ").split(",") if i.strip()]
+            elif choice == "20":
+                show_fc_settings(chips)
+                names = [i.strip().strip("\"'") for i in input('ETROC IDs, e.g. "D0H0", "D0H1": ').split(",") if i.strip().strip("\"'")]
                 pair = input("FC clk/data: 00, 01 or 10: ").strip()
                 if not names or any(i not in chips for i in names) or pair not in ("00", "01", "10"):
                     raise ValueError("Use initialized IDs and one of 00/01/10")
                 set_fc_settings(chips, names, tuple(map(int, pair)))
-            elif choice == "15":
+                show_fc_settings(chips)
+            elif choice == "10":
                 from pathfinder_control import expand_selection
                 selected = selection(input('I2C selection JSON, e.g. {"5":"all"}: ').strip())
                 targets = expand_selection(mapping, selected)
@@ -323,34 +328,32 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 if not 1 <= repeats <= 100:
                     raise ValueError("Repetitions must be 1..100")
                 probe_i2c(rb, mapping, targets, repeats)
-            elif choice == "16":
+            elif choice == "9":
                 from pathfinder_control import check_links
                 rb.rerun_bitslip()
                 print(check_links(rb, mapping, list(chips)))
-            elif choice == "17":
+            elif choice == "7":
                 for bank, suffix in (("daq", ""), ("trig", "_SLAVE")):
                     if bank in mapping["lpgbts"]:
                         node = f"READOUT_BOARD_{rb.rb}.ETROC_DISABLE{suffix}"
                         print(node, rb.kcu.read_node(node))
-            elif choice == "18":
+            elif choice == "12":
                 from pathfinder_control import check_link_rate
                 check_link_rate(rb, chips, mapping=mapping)
-            elif choice == "19":
+            elif choice == "13":
+                from pathfinder_control import set_link_rate, configure_readout_links, check_links
+                import time
+                rate = input("Link rate [320/640]: ").strip()
+                if rate not in ("320", "640"):
+                    raise ValueError("Use 320 or 640")
+                set_link_rate(rb, chips, mbps=int(rate))
+                configure_readout_links(rb, mapping, list(chips))
+                rb.rerun_bitslip()
+                time.sleep(1.0)
+                print(check_links(rb, mapping, list(chips)))
+            elif choice == "8":
                 from pathfinder_control import configure_readout_links
                 print(configure_readout_links(rb, mapping, list(chips)))
-            elif choice == "20":
-                import time
-                identity = input("ETROC ID to reset: ").strip()
-                if identity not in chips:
-                    raise ValueError("ETROC must be initialized")
-                chip = chips[identity]
-                try:
-                    chip.wr_reg("asyResetGlobalReadout", 0)
-                    time.sleep(0.1)
-                finally:
-                    chip.wr_reg("asyResetGlobalReadout", 1)
-                time.sleep(0.2)
-                print(identity, "controllerState:", chip.rd_reg("controllerState"))
             if choice != "6":
                 print("[DONE] Operation completed. Review the readings above; this is not an automatic pass verdict.")
         except KeyboardInterrupt:
@@ -439,7 +442,7 @@ def save_diagnostic(folder, name, report):
 
 
 def run_fc_scan(chips, identity, acquire, output_dir):
-    """Scan FC 00/01/10; omit equivalent 11/00. Restore exact original bits.
+    """Scan FC clk/data delay bits 00/01/10/11. Restore exact original bits.
 
     Does not change pixel L1Adelay or FPGA trigger delay.
     """
@@ -450,7 +453,7 @@ def run_fc_scan(chips, identity, acquire, output_dir):
     original = {reg: integer(chip.rd_reg(reg)) for reg in regs}
     report = {"identity": identity, "original": original, "results": {}, "status": "running"}
     try:
-        for clk, data in ((0, 0), (0, 1), (1, 0)):
+        for clk, data in ((0, 0), (0, 1), (1, 0), (1, 1)):
             for reg, value in zip(regs, (clk, data)):
                 chip.wr_reg(reg, value)
                 if integer(chip.rd_reg(reg)) != value:
@@ -493,6 +496,19 @@ def probe_i2c(rb, mapping, targets, repeats):
         time.sleep(0.2)
 
 
+def show_fc_settings(chips):
+    """Print the current FC input delay bits of every initialized ETROC."""
+    def integer(v):
+        return int(v.value() if hasattr(v, "value") else v)
+    print("Current FC input delay:")
+    for identity, chip in chips.items():
+        try:
+            clk, data, align = (integer(chip.rd_reg(r)) for r in ("fcClkDelayEn", "fcDataDelayEn", "fcSelfAlignEn"))
+            print(f"  {identity}: clk={clk} data={data} (selfAlign={align})")
+        except Exception as exc:
+            print(f"  {identity}: read failed: {type(exc).__name__}: {exc}")
+
+
 def set_fc_settings(chips, names, pair):
     regs = ("fcClkDelayEn", "fcDataDelayEn")
     def integer(v):
@@ -523,7 +539,7 @@ def workflow_menu(state, args, failed=False):
     # A snapshot of references to live objects; no reconstruction of KCU/chips.
     context = None
     if "interactive_acquire" in state:
-        context = {"pixels": state["blnw_results"]["pixels"], "charge_fc": args.charge_fc,
+        context = {"pixels": state["blnw_results"]["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
                    "acquire": state["interactive_acquire"]}
     print("Use R to retry the failed step; continuing requires a successful check." if failed else "Step complete. Debug now or continue.")
     return interactive_checks(state.get("kcu"), state.get("rb"),
@@ -626,17 +642,25 @@ def show_blnw_plots(blnw_results):
     blnw_figures = plot_blnw_maps(blnw_results)
     blnw_histogram_figures = plot_blnw_histograms(blnw_results)
 
+def set_line_wrap(enabled):
+    """Turn terminal auto-wrap on/off (ANSI DECAWM). Long lines are cut at the window edge, not wrapped."""
+    if sys.stdout.isatty() and (os.name != "nt" or os.environ.get("WT_SESSION")):
+        sys.stdout.write("\033[?7h" if enabled else "\033[?7l")
+        sys.stdout.flush()
+
+
 def main(args):
+    if not args.wrap:
+        set_line_wrap(False)
+        atexit.register(set_line_wrap, True)
     show_run_plan(args)
-    if args.stage == "qinj-ready" or args.step:
+    if args.step:
         args.interactive = True
     if args.monitor_seconds < 1 or args.qinj_count < 1 or args.fifo_reads < 1:
         raise ValueError("monitor-seconds and qinj-count must be positive")
 
     if not 0 <= args.trigger_delay <= 511 or not 0 <= args.l1a_delay <= 511:
         raise ValueError("trigger-delay and l1a-delay must be in 0..511")
-    if not 0 <= args.delay_start < args.delay_stop <= 512:
-        raise ValueError("delay scan requires 0 <= start < stop <= 512")
     if not 1 <= args.charge_fc <= 32:
         raise ValueError("charge-fc must be in 1..32")
     if args.stage == "fc-scan" and not args.fc_target:
@@ -804,7 +828,7 @@ def main(args):
         break
     while True:
         try:
-            announce('4. Motherboard initialization', 'Create rb, configure declared lpGBTs, mask data links and configure TRIG clocks.', 'Both declared lpGBT objects must be available; ELINK_WIDTH must read back correctly.')
+            announce('4. Motherboard initialization', 'Create rb, configure declared lpGBTs, configure TRIG clocks and enable the selected data links.', 'Both declared lpGBT objects must be available; ELINK_WIDTH must read back correctly.')
             USE_TRIG = "trig" in mapping["lpgbts"]
             if USE_TRIG:
                 upstream = mapping["lpgbts"]["trig"]["control"]
@@ -821,9 +845,8 @@ def main(args):
                 rb=READOUTBOARD_ID, kcu=kcu, config=READOUTBOARD_CONFIG,
                 trigger=USE_TRIG, verbose=True,
             )
-            configure_readout_links(rb, mapping, [])
             if USE_TRIG and (not rb.trigger or getattr(rb, "TRIG_LPGBT", None) is None):
-                raise RuntimeError("TRIG lpGBT was not initialized; readout links remain masked")
+                raise RuntimeError("TRIG lpGBT was not initialized")
 
             # Retain the TRIG clock configuration verified during hardware testing.
             if USE_TRIG:
@@ -835,7 +858,9 @@ def main(args):
             width = rb.kcu.read_node(width_node).value()
             if width != ELINK_WIDTH:
                 raise RuntimeError(f"ELINK_WIDTH mismatch: expected {ELINK_WIDTH}, received {width}")
-            print(f"Initialized controllers: {list(mapping['lpgbts'])}; declared banks are masked")
+            # Enable the selected data links here; every other link stays masked.
+            applied_masks = configure_readout_links(rb, mapping, ids)
+            print(f"Initialized controllers: {list(mapping['lpgbts'])}; selected data links enabled: {ids}")
 
             # Notebook code cell 14
         except Exception as exc:
@@ -912,7 +937,6 @@ def main(args):
             etroc_register_checks_done = False
             etroc_power_checks_done = False
             blnw_scan_passed = False
-            configure_readout_links(rb, mapping, [])
             existing = dict(chips)
             routes = {(mapping["etrocs"][i]["i2c"]["lpgbt"], mapping["etrocs"][i]["i2c"]["channel"],
                        mapping["etrocs"][i]["i2c"]["address"]): chip for i, chip in existing.items()}
@@ -946,48 +970,25 @@ def main(args):
         break
     while True:
         try:
-            announce('5.1. ETROC communication', 'Check communication with the initialized chips.', 'Inspect the per-chip connection results.')
-            basic_checks_passed = False
-            if tuple(ids) != initialized_ids or list(chips) != ids:
-                raise RuntimeError("Selection changed or initialization is incomplete; rerun initialization")
-            connection_results = check_connections(chips)
-            for identity, result in connection_results.items():
-                show_status(f"{identity}: connected={result['connected']}, error={result['error']}", "success" if result["connected"] else "error")
-            if not all(result["connected"] for result in connection_results.values()):
-                raise RuntimeError("One or more ETROCs failed the I2C check")
-
-            # Notebook code cell 24
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True) == "retry":
-                continue
-            return
-        if args.step:
-            action = workflow_menu(locals(), args)
-            if action == "retry":
-                continue
-            if action != "continue":
-                return
-        break
-    while True:
-        try:
-            announce('5.2. ETROC register checks', 'Run the notebook register configuration and checks.', 'Any reported register failure must be investigated.')
+            announce('5.1. ETROC communication and register checks', 'Check I2C communication with the initialized chips, then read the key registers.', 'A failed I2C check names the ETROC and the error; register readings are printed per chip.')
             basic_checks_passed = False
             etroc_register_checks_done = False
             etroc_power_checks_done = False
             blnw_scan_passed = False
             if not ids or tuple(ids) != initialized_ids or list(chips) != ids:
                 raise RuntimeError("Selection is empty or initialization is incomplete; rerun initialization")
-            configure_readout_links(rb, mapping, [])
+            connection_results = check_connections(chips)
+            for identity, result in connection_results.items():
+                show_status(f"{identity}: connected={result['connected']}, error={result['error']}", "success" if result["connected"] else "error")
+            failed_i2c = {identity: result["error"] for identity, result in connection_results.items() if not result["connected"]}
+            if failed_i2c:
+                raise RuntimeError("I2C check failed for " + "; ".join(f"{identity}: {error}" for identity, error in failed_i2c.items()))
+
             etroc_register_results = {}
             for identity, etroc in chips.items():
                 values = {}
                 etroc_register_results[identity] = values
                 try:
-                    if not etroc.is_connected():
-                        raise RuntimeError("ETROC is not responding")
                     etroc.wr_reg("PS_CapRst", 1)
                     etroc.wr_reg("PS_CapRst", 0)
                     for register in ("disScrambler", "controllerState", "pllUnlockCount", "L1Adelay"):
@@ -999,10 +1000,10 @@ def main(args):
                         show_status(f"{identity}: controllerState differs from the legacy expected value 11", "warning")
                 except Exception as exc:
                     values["error"] = str(exc)
-                    raise RuntimeError(f"ETROC register configuration failed for {identity}; readout remains masked") from exc
+                    raise RuntimeError(f"ETROC register check failed for {identity}: {exc}") from exc
             etroc_register_checks_done = True
 
-            # Notebook code cell 26
+            # Notebook code cells 24 and 26
         except Exception as exc:
             if not args.interactive:
                 raise
@@ -1019,7 +1020,7 @@ def main(args):
         break
     while True:
         try:
-            announce('5.3. ETROC power configuration', 'Apply and check the existing ETROC power settings.', 'Power-mode checks must pass before scanning.')
+            announce('5.2. Power mode, rate and merge configuration', 'Apply high power mode, link rate and merged trigger data (ETROC and FPGA trigger bits).', 'Power-mode, merge and TRIG_DATA_SIZE readbacks must pass; subsequent link retries preserve these settings.')
             basic_checks_passed = False
             etroc_power_checks_done = False
             blnw_scan_passed = False
@@ -1027,13 +1028,12 @@ def main(args):
                 raise RuntimeError("Selection changed or initialization is incomplete")
             if not etroc_register_checks_done:
                 raise RuntimeError("Complete the ETROC register configuration cell first")
-            configure_readout_links(rb, mapping, [])
             etroc_power_results = {}
             for identity, etroc in chips.items():
                 try:
                     etroc.set_power_mode(mode="high", row=0, col=0, broadcast=True)
                 except Exception as exc:
-                    raise RuntimeError(f"High power configuration failed for {identity}; readout remains masked") from exc
+                    raise RuntimeError(f"High power configuration failed for {identity}") from exc
 
             for identity, etroc in chips.items():
                 try:
@@ -1043,28 +1043,11 @@ def main(args):
                     if mode != "high":
                         raise RuntimeError(f"Expected high power mode, received {mode!r}")
                 except Exception as exc:
-                    raise RuntimeError(f"Power mode verification failed for {identity}; readout remains masked") from exc
-            etroc_power_checks_done = True
+                    raise RuntimeError(f"Power mode verification failed for {identity}") from exc
             show_status("High power mode configured; sampled pixel readbacks passed", "success")
 
             import time
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True) == "retry":
-                continue
-            return
-        if args.step:
-            action = workflow_menu(locals(), args)
-            if action == "retry":
-                continue
-            if action != "continue":
-                return
-        break
-    while True:
-        try:
-            announce("5.4. Rate and merge configuration", "Synchronize rate and trigger width.", "Subsequent link retries preserve these settings.")
+
             # Configure merged data and keep ETROC/FPGA trigger widths consistent.
             TRIGGER_BITS = args.trigger_bits  # Current test: 0, 1, or 2 bits
 
@@ -1097,14 +1080,28 @@ def main(args):
                 raise RuntimeError(f"FPGA TRIG_DATA_SIZE readback={actual}")
 
             print(f"FPGA: TRIG_DATA_SIZE={actual}")
-            from pathfinder_control import set_link_rate, apply_etroc_phases
+            from pathfinder_control import set_link_rate, apply_etroc_phases, check_link_rate
             set_link_rate(rb, chips, mbps=args.rate)
-            configure_readout_links(rb, mapping, ids)
+            applied_masks = configure_readout_links(rb, mapping, ids)
             if args.phase_settings:
                 set_fixed_phase_groups(rb, mapping, list(args.phase_settings))
                 apply_etroc_phases(rb, mapping, chips, args.phase_settings)
             rb.rerun_bitslip()
             time.sleep(1.0)
+            # Read everything back once more and show the current values.
+            rate_report = check_link_rate(rb, chips, mbps=args.rate, verbose=False)
+            if not rate_report["consistent"]:
+                raise RuntimeError("Link rate check failed: " + "; ".join(rate_report["mismatches"]))
+            def layer_rate(prefix):
+                values = {info["mbps"] for key, info in rate_report["layers"].items()
+                          if key.startswith(prefix) and "mbps" in info and not info.get("unused")}
+                return "/".join(str(v) for v in sorted(values))
+            print(f"Rate read back (Mbps): FPGA={layer_rate('FPGA')}, DAQ lpGBT={layer_rate('DAQ')}, "
+                  f"TRIG lpGBT={layer_rate('TRIG') or 'n/a'}, ETROC={'/'.join(sorted({layer_rate(i) for i in chips}))}")
+            print("Readout masks read back: " + ", ".join(
+                f"{'DAQ' if bank == 0 else 'TRIG'}=0x{mask:07X}" for bank, mask in sorted(applied_masks.items())))
+            show_status(f"Link rate {args.rate} Mbps; merge on; trigger bits {TRIGGER_BITS} (ETROC and FPGA)", "success")
+            etroc_power_checks_done = True
         except Exception as exc:
             if not args.interactive:
                 raise
@@ -1121,7 +1118,7 @@ def main(args):
         break
     while True:
         try:
-            announce("5.5. Initial E-link check", "Check selected E-link locks before pixel calibration.", "On failure use compare, masks, phase scan/apply, then retry this check.")
+            announce("6. E-link lock check", "Check selected E-link locks before pixel calibration.", "On failure use compare, masks, phase scan/apply, then retry this check.")
             if args.stage != "phase-scan":
                 configure_readout_links(rb, mapping, ids)
                 rb.rerun_bitslip()
@@ -1135,8 +1132,9 @@ def main(args):
                 print(f"E-link lock: {locked_count}/{link_count}")
                 if not all(item["all_locked"] for item in current_links.values()):
                     raise RuntimeError("E-link check failed before calibration")
+                basic_checks_passed = True
             if args.stage in ("links", "phase-scan"):
-                announce("5.4. Link diagnostics", "Read settings, masks, controllerState and lock status.",
+                announce("6.1. Link diagnostics", "Read settings, masks, controllerState and lock status.",
                          "Check optical link, rate/merge, ENABLE/INVERT/TERM and masks before scanning phase.")
                 if args.stage == "phase-scan":
                     from pathfinder_control import scan_etroc_phases
@@ -1172,11 +1170,22 @@ def main(args):
         break
     while True:
         try:
-            announce('6. BL/NW scan settings', 'Apply pixel coverage and BL/NW save options.', 'sample scans 4 pixels per chip; all scans 256 pixels per chip.')
+            announce('7. BL/NW scan settings', 'Apply pixel coverage and BL/NW save options.', 'sample scans 4 pixels per chip; all scans 256 pixels per chip.')
             # Choose "sample" for 4 pixels or "all" for the full 16 x 16 matrix.
+            # Change it on the command line with --blnw sample|all (default: sample).
+            # The scanned pixels are also the ones given thresholds and QInj later.
             BLNW_SCAN_MODE = args.pixels
             BLNW_SAVE_RESULTS = not args.no_save
             BLNW_OUTPUT_DIR = TAMALERO_ROOT / "pathfinder" / "results" / "blnw" 
+
+            def show_blnw_mode():
+                print(f"Current BL/NW mode: {BLNW_SCAN_MODE}")
+                if args.blnw_load:
+                    print(f"Load saved results: {args.blnw_load} (scan skipped; saved mode must cover --blnw {BLNW_SCAN_MODE})")
+                else:
+                    print(f"Save results: {BLNW_SAVE_RESULTS}; output folder: {BLNW_OUTPUT_DIR}")
+
+            show_blnw_mode()
 
             # Notebook code cell 30
         except Exception as exc:
@@ -1195,7 +1204,7 @@ def main(args):
         break
     while True:
         try:
-            announce('6.1. BL/NW scan', 'Scan selected pixels using the original notebook sequence.', 'Follow the progress bar and failure summary; saved results use BLNW_OUTPUT_DIR.')
+            announce('7.1. BL/NW scan', 'Scan selected pixels using the original notebook sequence.', 'Follow the progress bar and failure summary; saved results use BLNW_OUTPUT_DIR.')
             import pickle
             import io
             from contextlib import redirect_stdout
@@ -1209,104 +1218,146 @@ def main(args):
                 raise ValueError("BLNW_SCAN_MODE must be 'sample' or 'all'")
 
 
-            basic_checks_passed = False
             blnw_scan_passed = False
             scan_pixels = build_blnw_pixels(BLNW_SCAN_MODE)
             if not ids or tuple(ids) != initialized_ids or list(chips) != ids:
                 raise RuntimeError("Selection is empty or initialization is incomplete")
             if not etroc_register_checks_done or not etroc_power_checks_done:
                 raise RuntimeError("Complete ETROC register and power configuration first")
-            blnw_save_enabled = BLNW_SAVE_RESULTS
-            blnw_output_path = None
-            if blnw_save_enabled:
-                BLNW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-                blnw_output_path = BLNW_OUTPUT_DIR / (
-                    "blnw_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".pkl"
-                )
-            baseline_dict = {identity: {} for identity in ids}
-            nw_dict = {identity: {} for identity in ids}
-            failed_pixels = {identity: [] for identity in ids}
-            blnw_results = {
-                "baseline": baseline_dict,
-                "NW": nw_dict,
-                "chip_name": list(ids),
-                "failed_pixels": failed_pixels,
-                "records": [],
-                "scan_mode": BLNW_SCAN_MODE,
-                "pixels": scan_pixels,
-                "mapping_path": str(MAPPING_PATH),
-                "started_at": datetime.now().isoformat(),
-                "completed": False,
-            }
+            if args.blnw_load:
+                def blnw_load_error(data):
+                    if not isinstance(data, dict) or "baseline" not in data or "pixels" not in data:
+                        return "not a BL/NW result file"
+                    if not data.get("completed"):
+                        return "scan was not completed"
+                    if any(p not in data["pixels"] for p in scan_pixels):
+                        return f"saved mode '{data.get('scan_mode')}' does not cover requested '{BLNW_SCAN_MODE}'"
+                    missing = [i for i in ids if i not in data.get("chip_name", [])]
+                    if missing:
+                        return f"no data for {missing}"
+                    for i in ids:
+                        if any((p not in data["baseline"].get(i, {})) for p in scan_pixels):
+                            return f"{i}: baseline missing for some pixels"
+                    return None
 
-
-            def save_blnw_results():
-                if not blnw_save_enabled:
-                    return
-                temporary_path = blnw_output_path.with_suffix(".tmp")
-                with temporary_path.open("wb") as handle:
-                    pickle.dump(blnw_results, handle)
-                temporary_path.replace(blnw_output_path)
-
-
-            save_blnw_results()
-            print(f"Scanning {len(scan_pixels)} pixels per ETROC on {len(chips)} ETROCs")
-            if blnw_save_enabled:
-                print(f"Results: {blnw_output_path.resolve()}")
-            else:
-                print("Local saving is disabled; results remain in blnw_results")
-
-            scan_failure_count = 0
-            try:
-                for identity, etroc in chips.items():
-                    progress = tqdm(total=len(scan_pixels), desc=f"BL/NW scan: {identity}",
-                                    unit="pixel", leave=True)
+                if args.blnw_load == "latest":
+                    candidates = sorted(BLNW_OUTPUT_DIR.glob("blnw_*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
+                else:
+                    candidates = [Path(args.blnw_load)]
+                blnw_results = None
+                for candidate in candidates:
                     try:
-                        for row, col in scan_pixels:
-                            record = {"chip": identity, "row": row, "col": col,
-                                      "baseline": None, "noise_width": None, "error": None}
-                            driver_output = io.StringIO()
-                            progress.set_postfix(row=row, col=col,
-                                                 failed=len(failed_pixels[identity]), refresh=False)
-                            try:
-                                # Retain unsolicited driver output in the result, not in the cell output.
-                                with redirect_stdout(driver_output):
-                                    baseline, noise_width = etroc.auto_threshold_scan(
-                                        row=row, col=col, broadcast=False,
-                                        offset=1023, use=False, verbose=False,
-                                    )
-                                if baseline is None or noise_width is None:
-                                    raise RuntimeError("Scan returned an incomplete result")
-                                record.update(baseline=baseline, noise_width=noise_width)
-                            except Exception as exc:
-                                record["error"] = str(exc)
-                                failed_pixels[identity].append((row, col))
-                                scan_failure_count += 1
-                            record["driver_output"] = driver_output.getvalue()
-                            record["timestamp"] = datetime.now().isoformat()
-                            baseline_dict[identity][(row, col)] = record["baseline"]
-                            nw_dict[identity][(row, col)] = record["noise_width"]
-                            blnw_results["records"].append(record)
-                            save_blnw_results()
-                            progress.set_postfix(failed=len(failed_pixels[identity]), refresh=False)
-                            progress.update(1)
-                    finally:
-                        progress.close()
-                blnw_results["completed"] = True
-            finally:
-                blnw_results["last_saved_at"] = datetime.now().isoformat()
-                save_blnw_results()
+                        with open(candidate, "rb") as handle:
+                            data = pickle.load(handle)
+                        error = blnw_load_error(data)
+                    except Exception as exc:
+                        error = f"{type(exc).__name__}: {exc}"
+                    if error is None:
+                        blnw_results, loaded_path = data, candidate
+                        break
+                    print(f"Skip {candidate.name}: {error}")
+                if blnw_results is None:
+                    raise RuntimeError(f"No usable saved BL/NW result for {list(ids)} ({args.blnw_load})")
+                # A larger saved scan (all) can serve a smaller request (sample); use only the requested pixels.
+                blnw_results["pixels"] = list(scan_pixels)
+                blnw_results["scan_mode"] = BLNW_SCAN_MODE
+                failure_count = sum(1 for i in ids for p in scan_pixels if blnw_results["baseline"][i].get(p) is None)
+                show_status(f"Loaded BL/NW results: {loaded_path.resolve()}", "success")
+                show_status(f"mode={BLNW_SCAN_MODE}, {len(scan_pixels)} pixels/chip, "
+                            f"{failure_count} failed (skipped at thresholds)", "warning" if failure_count else "success")
+                blnw_scan_passed = True
+            else:
+                blnw_save_enabled = BLNW_SAVE_RESULTS
+                blnw_output_path = None
+                if blnw_save_enabled:
+                    BLNW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                    blnw_output_path = BLNW_OUTPUT_DIR / (
+                        "blnw_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".pkl"
+                    )
+                baseline_dict = {identity: {} for identity in ids}
+                nw_dict = {identity: {} for identity in ids}
+                failed_pixels = {identity: [] for identity in ids}
+                blnw_results = {
+                    "baseline": baseline_dict,
+                    "NW": nw_dict,
+                    "chip_name": list(ids),
+                    "failed_pixels": failed_pixels,
+                    "records": [],
+                    "scan_mode": BLNW_SCAN_MODE,
+                    "pixels": scan_pixels,
+                    "mapping_path": str(MAPPING_PATH),
+                    "started_at": datetime.now().isoformat(),
+                    "completed": False,
+                }
 
-            failure_count = sum(len(pixels) for pixels in failed_pixels.values())
-            show_status(f"BL/NW scan finished: {len(blnw_results['records'])} pixels, "
-                        f"{failure_count} failed", "error" if failure_count else "success")
-            for identity in ids:
-                count = len(failed_pixels[identity])
-                show_status(f"{identity}: {len(scan_pixels) - count}/{len(scan_pixels)} pixels passed",
-                            "warning" if count else "success")
-            if failure_count:
-                raise RuntimeError(f"{failure_count} pixels failed; inspect failed_pixels and blnw_results; selected receiver masks are preserved")
-            blnw_scan_passed = True
+
+                def save_blnw_results():
+                    if not blnw_save_enabled:
+                        return
+                    temporary_path = blnw_output_path.with_suffix(".tmp")
+                    with temporary_path.open("wb") as handle:
+                        pickle.dump(blnw_results, handle)
+                    temporary_path.replace(blnw_output_path)
+
+
+                save_blnw_results()
+                print(f"Scanning {len(scan_pixels)} pixels per ETROC on {len(chips)} ETROCs")
+                if blnw_save_enabled:
+                    print(f"Results: {blnw_output_path.resolve()}")
+                else:
+                    print("Local saving is disabled; results remain in blnw_results")
+
+                scan_failure_count = 0
+                try:
+                    for identity, etroc in chips.items():
+                        progress = tqdm(total=len(scan_pixels), desc=f"BL/NW scan: {identity}",
+                                        unit="pixel", leave=True)
+                        try:
+                            for row, col in scan_pixels:
+                                record = {"chip": identity, "row": row, "col": col,
+                                          "baseline": None, "noise_width": None, "error": None}
+                                driver_output = io.StringIO()
+                                progress.set_postfix(row=row, col=col,
+                                                     failed=len(failed_pixels[identity]), refresh=False)
+                                try:
+                                    # Retain unsolicited driver output in the result, not in the cell output.
+                                    with redirect_stdout(driver_output):
+                                        baseline, noise_width = etroc.auto_threshold_scan(
+                                            row=row, col=col, broadcast=False,
+                                            offset=1023, use=False, verbose=False,
+                                        )
+                                    if baseline is None or noise_width is None:
+                                        raise RuntimeError("Scan returned an incomplete result")
+                                    record.update(baseline=baseline, noise_width=noise_width)
+                                except Exception as exc:
+                                    record["error"] = str(exc)
+                                    failed_pixels[identity].append((row, col))
+                                    scan_failure_count += 1
+                                record["driver_output"] = driver_output.getvalue()
+                                record["timestamp"] = datetime.now().isoformat()
+                                baseline_dict[identity][(row, col)] = record["baseline"]
+                                nw_dict[identity][(row, col)] = record["noise_width"]
+                                blnw_results["records"].append(record)
+                                save_blnw_results()
+                                progress.set_postfix(failed=len(failed_pixels[identity]), refresh=False)
+                                progress.update(1)
+                        finally:
+                            progress.close()
+                    blnw_results["completed"] = True
+                finally:
+                    blnw_results["last_saved_at"] = datetime.now().isoformat()
+                    save_blnw_results()
+
+                failure_count = sum(len(pixels) for pixels in failed_pixels.values())
+                show_status(f"BL/NW scan finished: {len(blnw_results['records'])} pixels, "
+                            f"{failure_count} failed", "error" if failure_count else "success")
+                for identity in ids:
+                    count = len(failed_pixels[identity])
+                    show_status(f"{identity}: {len(scan_pixels) - count}/{len(scan_pixels)} pixels passed",
+                                "warning" if count else "success")
+                if failure_count:
+                    raise RuntimeError(f"{failure_count} pixels failed; inspect failed_pixels and blnw_results")
+                blnw_scan_passed = True
 
             # Notebook code cell 32
         except Exception as exc:
@@ -1326,7 +1377,7 @@ def main(args):
     if not args.no_plots:
         while True:
             try:
-                announce('6.2. BL/NW figures', 'Display maps and applicable histograms unless --no-plots is set.', 'A plot window may block execution; close it to continue.')
+                announce('7.2. BL/NW figures', 'Display maps and applicable histograms unless --no-plots is set.', 'A plot window may block execution; close it to continue.')
                 if not args.no_plots:
                     show_blnw_plots(blnw_results)
             except Exception as exc:
@@ -1350,51 +1401,6 @@ def main(args):
         return
     while True:
         try:
-            announce('7. Post-scan connection and E-link check', 'Read I2C connectivity and selected E-link lock after BL/NW.', 'Receiver masks are preserved; use interactive diagnostics if realignment is needed.')
-            basic_checks_passed = False
-            if tuple(ids) != initialized_ids or list(chips) != ids:
-                raise RuntimeError("Selection changed or initialization is incomplete")
-            if not etroc_register_checks_done or not etroc_power_checks_done:
-                raise RuntimeError("Complete ETROC register and power configuration before checking links")
-            if not blnw_scan_passed:
-                raise RuntimeError("Complete the BL/NW scan successfully before checking links")
-            try:
-                connection_results = check_connections(chips)
-                if not all(result["connected"] for result in connection_results.values()):
-                    raise RuntimeError(f"I2C checks failed: {connection_results}")
-                link_results = check_links(rb, mapping, ids)
-                for identity, result in link_results.items():
-                    for link in result["links"]:
-                        print(f"{identity}: {link['lpgbt']} E-link {link['elink']}, "
-                              f"locked={link['locked']}, error={link['error']}")
-                if not all(result["all_locked"] for result in link_results.values()):
-                    raise RuntimeError("One or more selected data links are not locked")
-            except Exception:
-                print("Link check failed; preserving selected masks for diagnosis. No acquisition will run.")
-                print("Review ENABLE/INVERT/TERM, rate/merge, masks, controllerState (expected 11), then phase scan.")
-                raise
-
-            basic_checks_passed = True
-            show_status("Selected ETROCs respond and selected data links are locked", "success")
-            print("Only selected readout links are enabled; no acquisition has been started")
-
-            # Notebook code cell 36
-        except Exception as exc:
-            if not args.interactive:
-                raise
-            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
-            if workflow_menu(locals(), args, failed=True) == "retry":
-                continue
-            return
-        if args.step:
-            action = workflow_menu(locals(), args)
-            if action == "retry":
-                continue
-            if action != "continue":
-                return
-        break
-    while True:
-        try:
             announce('8. Pixel thresholds', 'Apply baseline-derived DAC thresholds and activate scanned pixels.', 'Threshold configuration must complete before acquisition.')
             import time
 
@@ -1409,7 +1415,7 @@ def main(args):
             CAL_RANGE = (0, 0x3ff)
 
             if not basic_checks_passed:
-                raise RuntimeError("Complete section 7 (link enable) successfully before configuring thresholds")
+                raise RuntimeError("Complete the E-link lock check (6) successfully before configuring thresholds")
             if not blnw_scan_passed:
                 raise RuntimeError("Complete the BL/NW scan before configuring thresholds")
 
@@ -1418,14 +1424,14 @@ def main(args):
                                       l1a_delay=L1A_DELAY_DEFAULT, reset_first=False,
                                       toa_range=TOA_RANGE, tot_range=TOT_RANGE, cal_range=CAL_RANGE):
                 """Apply DAC threshold (baseline + offset), activate the pixels that
-                were BL/NW-scanned in section 6.1, and open their TOA/TOT/Cal trigger-
+                were BL/NW-scanned in section 7.1, and open their TOA/TOT/Cal trigger-
                 and data-path windows. Reuses baseline values already in memory; does
                 not reload from disk. A pixel with baseline=None (failed scan) is
                 skipped, not assigned a threshold.
 
                 reset_first=True calls etroc.reset() per chip, which internally also
                 calls rb.rerun_bitslip() (see tamalero/ETROC.py). Re-run the link-lock
-                check in section 7 afterward if you need to confirm links are still
+                check in section 6 afterward if you need to confirm links are still
                 locked.
                 """
                 scan_pixels = blnw_results["pixels"]
@@ -1500,7 +1506,7 @@ def main(args):
             import time
 
             if not basic_checks_passed:
-                raise RuntimeError("Complete section 7 (link enable) successfully before configuring self-trigger")
+                raise RuntimeError("Complete the E-link lock check (6) successfully before configuring self-trigger")
 
             TRIGGER_DELAY_DEFAULT = args.trigger_delay
 
@@ -1555,10 +1561,17 @@ def main(args):
                                     raise RuntimeError(f"{identity} elink {elink} FAILED to lock after self-trigger setup")
 
                 show_status("Self-trigger configured", "success")
+                # FC status: read invalidFCCount twice; unchanged means no new invalid
+                # fast commands. A constant nonzero count is not an error.
                 for identity, etroc in chips.items():
-                    fc_status = etroc.FC_status()
-                    invalid_count = etroc.get_invalidFCCount()
-                    print(f"{identity}: FC status={fc_status}, invalid FC count={invalid_count}")
+                    first = etroc.get_invalidFCCount()
+                    time.sleep(0.5)
+                    second = etroc.get_invalidFCCount()
+                    fc_status = second == first
+                    clk_delay = etroc.rd_reg("fcClkDelayEn")
+                    data_delay = etroc.rd_reg("fcDataDelayEn")
+                    print(f"{identity}: FC status={fc_status}, FC delay: clk={clk_delay}, data={data_delay}"
+                          + ("" if fc_status else f" (invalid FC count {first} -> {second})"))
 
 
             configure_self_trigger(rb, mapping, ids, chips, trigger_delay=TRIGGER_DELAY_DEFAULT, trigger_board_ids=trigger_ids, trigger_combination_logic=TRIGGER_COMBINATION_LOGIC, trigger_data_size=args.trigger_bits)
@@ -1586,7 +1599,7 @@ def main(args):
             from tamalero.DataFrame import DataFrame   # adjust the import path if DataFrame lives elsewhere in this driver
 
             if not basic_checks_passed:
-                raise RuntimeError("Complete section 7 (link enable) successfully before running charge injection")
+                raise RuntimeError("Complete the E-link lock check (6) successfully before running charge injection")
 
             QINJ_COUNT_DEFAULT = args.qinj_count
             EMPTY_SLOT_BCID = 500   # must be < 3563
@@ -1594,7 +1607,7 @@ def main(args):
 
 
             def enable_qinj_pixels(chips, blnw_results, charge_fc=CHARGE_FC_DEFAULT):
-                """Enable charge injection on the pixels scanned in section 6d.
+                """Enable charge injection on the pixels scanned in section 7.1.
 
                 QSel selects the injected charge amplitude (QSel = charge_fc - 1, per
                 the reference confChip()). QInjEn=1 turns injection on for that pixel;
@@ -1619,12 +1632,12 @@ def main(args):
                         etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
                         count += 1
                     enabled[identity] = count
-                    show_status(f"{identity}: QInj enabled on {count} pixels (QSel={qsel}, charge={charge_fc}fC)", "info")
+                    show_status(f"{identity}: QInj enabled on {count} pixels (offset={THRESHOLD_OFFSET}, charge={charge_fc}fC)", "info")
                 return enabled
 
 
             def disable_qinj_pixels(chips, blnw_results):
-                """Turn QInjEn back off on the pixels scanned in section 6d."""
+                """Turn QInjEn back off on the pixels scanned in section 7.1."""
                 scan_pixels = blnw_results["pixels"]
                 for identity, etroc in chips.items():
                     for row, col in scan_pixels:
@@ -1679,6 +1692,7 @@ def main(args):
                             elink_names[28 * bank + e] = identity
                 per_elink = {n: {"header": 0, "data": 0, "trailer": 0} for n in elink_names}
                 records = {n: [] for n in elink_names}
+                unexpected_elinks = {}
 
                 start_time = datetime.now(timezone.utc)
                 last_report_time = time.time()
@@ -1709,8 +1723,12 @@ def main(args):
                                 if (event and len(event) >= 2 and event[0] in ("header", "data", "trailer")
                                         and isinstance(event[1], dict) and "elink" in event[1]):
                                     n = event[1]["elink"]
-                                    per_elink.setdefault(n, {"header": 0, "data": 0, "trailer": 0})[event[0]] += 1
-                                    records.setdefault(n, []).append(event)
+                                    if n not in elink_names:
+                                        # Not an E-link of the selected ETROCs: do not count or print it here.
+                                        unexpected_elinks[n] = unexpected_elinks.get(n, 0) + 1
+                                        continue
+                                    per_elink[n][event[0]] += 1
+                                    records[n].append(event)
                                 if event and len(event) >= 2:
                                     if event[0] == "header":
                                         if print_records:
@@ -1768,6 +1786,9 @@ def main(args):
                     if silent:
                         show_status("No packets at all from E-link(s): "
                                     + ", ".join(f"{n} ({elink_names[n]})" for n in sorted(silent)), "warning")
+                if unexpected_elinks:
+                    show_status("Ignored packets from E-links outside the selection: "
+                                + ", ".join(f"{n} (x{c})" for n, c in sorted(unexpected_elinks.items())), "warning")
                 if print_records:
                     for n in sorted(records):
                         print(f"\n===== E-link {n} ({elink_names.get(n, '?')}): {len(records[n])} records =====")
@@ -1814,21 +1835,9 @@ def main(args):
         break
     while True:
         try:
-            announce("10.1. Acquisition or timing scan", "Use current prepared settings.", "Errors return to debugging; retry resends an injection burst and resets FIFO.")
-            if args.stage == "qinj-ready":
-                print("QInj configuration ready. No injection burst sent; use interactive actions 12/13.")
-            elif args.stage == "trigger-scan":
-                from pathfinder_control import scan_trigger_delay
-                announce("10. Trigger delay scan", "Scan FPGA TRIG_DLY_SEL with fixed pixel L1Adelay.",
-                         "Compare each E-link's headers/hits/trailers; a total-hit peak alone is insufficient.")
-                report = scan_trigger_delay(rb, chips, mapping, scan_pixels=blnw_results["pixels"],
-                                            delays=range(args.delay_start, args.delay_stop),
-                                            l1a_delay=args.l1a_delay, qinj_count=args.qinj_count)
-                save_diagnostic(args.scan_output, "trigger_delay", report)
-                for delay, item in report["results"].items():
-                    print(f"delay={delay}: {item['per_elink']}")
-            elif args.stage == "fc-scan":
-                announce("10. FC input delay scan", "Scan three distinct clk/data delay-bit combinations: 00, 01, 10 (11 is equivalent to 00).",
+            announce("11. Data Acquisition", "Use current prepared settings.", "Errors return to debugging; retry resends an injection burst and resets FIFO.")
+            if args.stage == "fc-scan":
+                announce("11.1. FC input delay scan", "Scan all four clk/data delay-bit combinations: 00, 01, 10, 11.",
                          "Original FC bits are restored, even on acquisition failure; other chips remain unchanged.")
                 run_fc_scan(chips, args.fc_target,
                             lambda: run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
@@ -1860,7 +1869,7 @@ def main(args):
         break
     while True:
         try:
-            announce('11. End of test', 'Mask the declared readout banks using the notebook cleanup step.', 'This does not power down chips or disable every external trigger source.')
+            announce('12. End of test', 'Mask the declared readout banks using the notebook cleanup step.', 'This does not power down chips or disable every external trigger source.')
             configure_readout_links(rb, mapping, [])
             print(f"Basic checks passed: {basic_checks_passed}")
             show_status("All declared readout banks are masked", "info")
@@ -1869,7 +1878,7 @@ def main(args):
             if args.interactive:
                 interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
                                        mapping=mapping, chips=chips, ids=ids,
-                                       qinj_context={"pixels": blnw_results["pixels"], "charge_fc": args.charge_fc,
+                                       qinj_context={"pixels": blnw_results["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
                                                      "acquire": interactive_acquire}, output_dir=args.scan_output, blnw_results=locals().get("blnw_results"))
         except Exception as exc:
             if not args.interactive:
