@@ -135,7 +135,7 @@ BL/NW results are saved to `pathfinder/results/blnw/blnw_<timestamp>.pkl`.
 | 12 | End of test | Mask the declared readout banks using the notebook cleanup step. | This does not power down chips or disable every external trigger source. |
 
 On a failed step the script stops (with `--interactive` / `--step` it opens the menu instead).
-In that menu: **R** reruns the step, **Enter/c** continues (only once the step passes), **0** exits. Exiting never powers down hardware.
+In that menu: **r** reruns the step, **Enter/c** continues (only once the step passes), **0** exits. Exiting never powers down hardware.
 
 ## 5. Reusing saved BL/NW results
 
@@ -203,7 +203,7 @@ This needs the `configure_fc_delay` function in `pathfinder_control.py`.
 
 ## 8. If something goes wrong
 
-General: read the `[FAILED] <step>` line, fix the cause, press **R** to rerun the step.
+General: read the `[FAILED] <step>` line, fix the cause, press **r** to rerun the step.
 Use `--step --interactive` to stay in one session. Partial hardware configuration may remain after a failure.
 Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 
@@ -216,10 +216,10 @@ Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 | `invalidFCCount` constant but L1As are lost | It only counts malformed FC commands. Judge by the received L1A count and try the FC delay bits (menu 19/20). |
 | `controllerState` is not 11 (`ETROC.is_good()` fails) | Check the ETROC supply. Seen once as 7 on one hybrid; cause not understood. |
 | Trigger does not reach all chips | Trigger mask bit = 14 x bank + E-link/2; TRIG E4..E10 are bits 16-19 (`0xF0000`). Check `--trigger-selection`. |
-| "Link lock lost during QInj preparation" | The script refuses to send the burst. Rerun bitslip (menu 9), check links (menu 11), then retry (R). |
+| "Link lock lost during QInj preparation" | The script refuses to send the burst. Rerun bitslip (menu 9), check links (menu 11), then retry (r). |
 | `--blnw-load`: "No usable saved BL/NW result" | The file is incomplete, was a `sample` scan while `all` is requested, or lacks one of the selected ETROCs. Rescan once without `--blnw-load`. |
 | KCU does not answer / uhal errors | Check `--ip` (default 192.168.0.10), power and the Ethernet link. |
-| Start over | Press R for the failed step. For a clean start rerun the script from the beginning (exiting does not reset the hardware). |
+| Start over | Press r for the failed step. For a clean start rerun the script from the beginning (exiting does not reset the hardware). |
 
 ## 9. Notes
 

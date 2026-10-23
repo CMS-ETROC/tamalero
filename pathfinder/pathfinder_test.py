@@ -102,6 +102,50 @@ def show_run_plan(args):
 
 
 
+MENU_GROUPS = (
+    ("Optical Link", (1, 2, 3, 4, 5, 6)),
+    ("Readout Links", (7, 8, 9, 10, 11, 12, 13)),
+    ("Phase Select", (14, 15)),
+    ("BL/NW", (16,)),
+    ("Trigger Delay", (17, 18)),
+    ("FC Delay and QInj", (19, 20, 21)),
+    ("Monitoring", (22,)),
+)
+
+
+def render_menu(actions, notes, footer, title):
+    """Return the interactive menu as boxed, grouped lines (plain ASCII if the terminal is not UTF-8)."""
+    utf = (getattr(sys.stdout, "encoding", None) or "").lower().startswith("utf")
+    color = (sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+             and (os.name != "nt" or os.environ.get("WT_SESSION")))
+    tl, tr, bl, br, h, v, ml, mr = ("╭", "╮", "╰", "╯", "─", "│", "├", "┤") if utf else ("+", "+", "+", "+", "-", "|", "+", "+")
+    def paint(text, code):
+        return f"\033[{code}m{text}\033[0m" if color else text
+    rows = []   # (plain text, painted text)
+    shown = set()
+    for group, keys in MENU_GROUPS:
+        items = [k for k in keys if str(k) in actions]
+        if not items:
+            continue
+        rows.append((f" {group}", " " + paint(group, "1;36")))
+        for k in items:
+            shown.add(str(k))
+            label = actions[str(k)][0] + notes.get(str(k), "")
+            rows.append((f"   {k:>2}  {label}", f"   {paint(f'{k:>2}', '33')}  {label}"))
+    for k in sorted(set(actions) - shown, key=int):      # anything not in a group
+        label = actions[k][0] + notes.get(k, "")
+        rows.append((f"   {int(k):>2}  {label}", f"   {paint(f'{int(k):>2}', '33')}  {label}"))
+    width = max([len(p) for p, _ in rows] + [len(f) + 3 for f in footer] + [len(title) + 2, 50]) + 2
+    def line(plain, painted=None):
+        return f"{v}{painted if painted is not None else plain}{' ' * (width - len(plain))}{v}"
+    out = [tl + h * width + tr, line(f" {title}", " " + paint(title, "1")), ml + h * width + mr]
+    out += [line(p, c) for p, c in rows]
+    out.append(ml + h * width + mr)
+    out += [line(f" {f}") for f in footer]
+    out.append(bl + h * width + br)
+    return out
+
+
 def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None, qinj_context=None, output_dir="diagnostic_results", recovery=False, failed=False, blnw_results=None): 
     """Repeat diagnostics without reconstructing KCU or ReadoutBoard."""
     from pathfinder_control import (
@@ -147,15 +191,14 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         for key in ("17", "19", "21"):
             actions.pop(key, None)
     while True:
-        print("\n" + "=" * 72)
-        print("Interactive diagnostics - reuse the current hardware connection")
-        for key, (title, kind, _) in sorted(actions.items(), key=lambda item: int(item[0])):
-            suffix = " (unavailable for this mapping)" if key == "6" and not pathfinder_profile else ""
-            print(f"{key}. {title}{suffix}")
+        footer = []
         if recovery:
-            print("Enter / c: Continue (unavailable until this step passes)" if failed else "Enter / c: Continue to the next step")
-            print("R: Rerun the current step")
-        print("0. Exit (does not power down hardware)")
+            footer.append("Enter / c   Continue (unavailable until this step passes)" if failed else "Enter / c   Continue to the next step")
+            footer.append("r           Rerun the current step")
+        footer.append("0           Exit (does not power down hardware)")
+        notes = {} if pathfinder_profile else {"6": " (unavailable for this mapping)"}
+        print()
+        print("\n".join(render_menu(actions, notes, footer, "Interactive diagnostics - current hardware connection")))
         try:
             choice = input("Select an action: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -165,7 +208,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             return "retry"
         if recovery and choice.lower() in ("", "c"):
             if failed:
-                print("Step failed. Debug, then press R to retry; continuing is unavailable.")
+                print("Step failed. Debug, then press r to retry; continuing is unavailable.")
                 continue
             return "continue"
         if choice == "0":
@@ -541,7 +584,7 @@ def workflow_menu(state, args, failed=False):
     if "interactive_acquire" in state:
         context = {"pixels": state["blnw_results"]["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
                    "acquire": state["interactive_acquire"]}
-    print("Use R to retry the failed step; continuing requires a successful check." if failed else "Step complete. Debug now or continue.")
+    print("Use r to retry the failed step; continuing requires a successful check." if failed else "Step complete. Debug now or continue.")
     return interactive_checks(state.get("kcu"), state.get("rb"),
                               pathfinder_profile=Path(args.mapping).name == "pathfinder_mapping.yaml",
                               mapping=state.get("mapping"), chips=state.get("chips"), ids=state.get("ids"),
