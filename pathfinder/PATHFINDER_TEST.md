@@ -134,8 +134,19 @@ BL/NW results are saved to `pathfinder/results/blnw/blnw_<timestamp>.pkl`.
 | 11.1 | FC input delay scan | Scan all four clk/data delay-bit combinations: 00, 01, 10, 11. | Original FC bits are restored, even on acquisition failure; other chips remain unchanged. |
 | 12 | End of test | Mask the declared readout banks using the notebook cleanup step. | This does not power down chips or disable every external trigger source. |
 
-On a failed step the script stops (with `--interactive` / `--step` it opens the menu instead).
-In that menu: **r** reruns the step, **Enter/c** continues (only once the step passes), **0** exits. Exiting never powers down hardware.
+### Run modes
+
+The workflow always runs from Step 0 up to the end point given by `--stage` (section 2). It cannot start in the middle,
+because each step needs the objects created by the earlier ones. `--step` and `--interactive` only change when it stops:
+
+| Options | On success | On a failed step |
+|---|---|---|
+| neither | Runs straight through to the end of the stage, then exits. | Prints the error and traceback, then exits. Hardware settings already written stay in place. |
+| `--interactive` | Runs straight through, then opens the menu at the end of the stage. | Opens the menu at the failed step. |
+| `--step` | Pauses after every step with the menu (implies `--interactive`). | Opens the menu at the failed step. |
+
+In the menu opened at a step: **r** reruns the step, **Enter/c** continues (only once the step passes), **0** exits. Exiting never powers down hardware.
+The menu at the end of the stage has no r / Enter lines.
 
 ## 5. Reusing saved BL/NW results
 
