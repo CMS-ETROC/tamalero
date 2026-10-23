@@ -112,29 +112,26 @@ MENU_GROUPS = (
 def render_menu(actions, notes, footer, title):
     """Return the interactive menu as boxed, grouped lines (plain ASCII if the terminal is not UTF-8)."""
     utf = (getattr(sys.stdout, "encoding", None) or "").lower().startswith("utf")
-    color = (sys.stdout.isatty() and not os.environ.get("NO_COLOR")
-             and (os.name != "nt" or os.environ.get("WT_SESSION")))
+    red, green, blue, yellow, cyan = tamalero_colors()
     tl, tr, bl, br, h, v, ml, mr = ("╭", "╮", "╰", "╯", "─", "│", "├", "┤") if utf else ("+", "+", "+", "+", "-", "|", "+", "+")
-    def paint(text, code):
-        return f"\033[{code}m{text}\033[0m" if color else text
     rows = []   # (plain text, painted text)
     shown = set()
     for group, keys in MENU_GROUPS:
         items = [k for k in keys if str(k) in actions]
         if not items:
             continue
-        rows.append((f" {group}", " " + paint(group, "1;36")))
+        rows.append((f" {group}", " " + cyan(group)))
         for k in items:
             shown.add(str(k))
             label = actions[str(k)][0] + notes.get(str(k), "")
-            rows.append((f"   {k:>2}  {label}", f"   {paint(f'{k:>2}', '33')}  {label}"))
+            rows.append((f"   {k:>2}  {label}", f"   {green(f'{k:>2}')}  {label}"))
     for k in sorted(set(actions) - shown, key=int):      # anything not in a group
         label = actions[k][0] + notes.get(k, "")
-        rows.append((f"   {int(k):>2}  {label}", f"   {paint(f'{int(k):>2}', '33')}  {label}"))
+        rows.append((f"   {int(k):>2}  {label}", f"   {green(f'{int(k):>2}')}  {label}"))
     width = max([len(p) for p, _ in rows] + [len(f) + 3 for f in footer] + [len(title) + 2, 50]) + 2
     def line(plain, painted=None):
         return f"{v}{painted if painted is not None else plain}{' ' * (width - len(plain))}{v}"
-    out = [tl + h * width + tr, line(f" {title}", " " + paint(title, "1")), ml + h * width + mr]
+    out = [tl + h * width + tr, line(f" {title}", " " + title), ml + h * width + mr]
     out += [line(p, c) for p, c in rows]
     out.append(ml + h * width + mr)
     out += [line(f" {f}") for f in footer]
@@ -681,6 +678,27 @@ def show_blnw_plots(blnw_results):
     blnw_figures = plot_blnw_maps(blnw_results)
     blnw_histogram_figures = plot_blnw_histograms(blnw_results)
 
+def tamalero_colors():
+    """Return (red, green, blue, yellow, cyan) from tamalero.colors, the colors used everywhere else in tamalero.
+
+    Imported at call time because the repository path is set up in Step 0. Falls back to plain text
+    if tamalero.colors cannot be imported.
+    """
+    try:
+        from tamalero.colors import red, green, blue, yellow, cyan
+        return red, green, blue, yellow, cyan
+    except Exception:
+        plain = lambda text: text
+        return plain, plain, plain, plain, plain
+
+
+def status_line(message, level="info"):
+    """Format '[LEVEL] message' with tamalero colors: success green, warning yellow, error red, info blue."""
+    red, green, blue, yellow, cyan = tamalero_colors()
+    paint = {"success": green, "warning": yellow, "error": red, "info": blue}.get(level, lambda text: text)
+    return paint(f"[{level.upper()}] {message}")
+
+
 def set_line_wrap(enabled):
     """Turn terminal auto-wrap on/off (ANSI DECAWM). Long lines are cut at the window edge, not wrapped."""
     if sys.stdout.isatty() and (os.name != "nt" or os.environ.get("WT_SESSION")):
@@ -740,7 +758,7 @@ def main(args):
 
 
     def show_status(message, level="info"):
-        print(f"[{level.upper()}] {message}")
+        print(status_line(message, level))
 
 
     from pathlib import Path
