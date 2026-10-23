@@ -103,12 +103,8 @@ def show_run_plan(args):
 
 
 MENU_GROUPS = (
-    ("Optical Link", (1, 2, 3, 4, 5, 6)),
-    ("Readout Links", (7, 8, 9, 10, 11, 12, 13)),
-    ("Phase Select", (14, 15)),
-    ("BL/NW", (16,)),
-    ("Trigger Delay", (17, 18)),
-    ("FC Delay and QInj", (19, 20, 21)),
+    ("Links", tuple(range(1, 16))),
+    ("Trigger and Data", tuple(range(16, 22))),
     ("Monitoring", (22,)),
 )
 
