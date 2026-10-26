@@ -26,10 +26,11 @@ flavors = {
 
 class ReadoutBoard:
 
-    def __init__(self, rb=0, trigger=True, flavor='small', kcu=None, config='default', alignment=False, data_mode=True, etroc='ETROC2', verbose=False, allow_bad_links=False, poke=False):
+    def __init__(self, rb=0, trigger=True, flavor='small', kcu=None, config='default', alignment=False, data_mode=True, etroc='ETROC2', verbose=False, allow_bad_links=False, poke=False, skip_vtrx=False):
         '''
         create a readout board.
         trigger: if true, also configure a trigger lpGBT
+        skip_vtrx: skip VTRx access; retain lpGBT setup and optical checks
         '''
         # print('############################version check############################')
         self.rb = rb
@@ -42,7 +43,10 @@ class ReadoutBoard:
         # print('############################ReadoutBoard LPGBT Instantiation############################')
         self.DAQ_LPGBT = LPGBT(rb=rb, flavor=flavor, kcu=kcu, config=self.config, poke=poke, rbver=self.ver)
         # print('############################ReadoutBoard VTRX Instantiation############################')
-        self.VTRX = VTRX(self.DAQ_LPGBT)
+        self.skip_vtrx = bool(skip_vtrx)
+        self.VTRX = None if self.skip_vtrx else VTRX(self.DAQ_LPGBT)
+        if self.skip_vtrx:
+            print(" > VTRx access skipped; channel settings are not verified or changed.")
         # This is not yet recommended:
         #for adr in [0x06, 0x0A, 0x0E, 0x12]:
         #    self.VTRX.wr_adr(adr, 0x20)
@@ -134,9 +138,10 @@ class ReadoutBoard:
         if test_read is not None and self.trigger and not poke:
             print (" > Found trigger lpGBT, will configure it now.")
             self.trigger = True
-            print (" > Enabling VTRX channel for trigger lpGBT")
-            self.VTRX.enable(ch=1)
-            sleep(1)
+            if self.VTRX is not None:
+                print (" > Enabling VTRX channel for trigger lpGBT")
+                self.VTRX.enable(ch=1)
+                sleep(1)
         elif test_read is None:
             print ("No trigger lpGBT found.")
             self.trigger = False
@@ -386,7 +391,8 @@ class ReadoutBoard:
     def configure(self):
 
         # configure the VTRX
-        self.VTRX.configure(trigger=self.trigger)
+        if self.VTRX is not None:
+            self.VTRX.configure(trigger=self.trigger)
 
         # the logic here is as follows:
         # dict -> load the provided alignment
@@ -423,13 +429,14 @@ class ReadoutBoard:
         Resets the links entirely, different procedure is necessary for production / prototype version of VTRX
         '''
         if trigger:
-            if self.VTRX.ver == 'production':
-                self.VTRX.reset(toggle_channels=[1])
-            elif self.VTRX.ver == 'prototype':
-                self.VTRX.reset(toggle_channels=[1])
-            else:
-                print ("Don't know how to reset VTRX version", self.VTRX.ver)
-            self.VTRX.configure(trigger=trigger)
+            if self.VTRX is not None:
+                if self.VTRX.ver == 'production':
+                    self.VTRX.reset(toggle_channels=[1])
+                elif self.VTRX.ver == 'prototype':
+                    self.VTRX.reset(toggle_channels=[1])
+                else:
+                    print ("Don't know how to reset VTRX version", self.VTRX.ver)
+                self.VTRX.configure(trigger=trigger)
             self.DAQ_LPGBT.reset_trigger_mgts()
             self.TRIG_LPGBT.power_up_init()
         # else:
@@ -578,6 +585,8 @@ class ReadoutBoard:
     #     return 1
 
     def read_vtrx_temp(self):
+        if self.VTRX is None:
+            raise RuntimeError("VTRx temperature unavailable: skip_vtrx=True")
         return self.VTRX.get_temp()
 
     def read_rb_thermistor(self, rt):

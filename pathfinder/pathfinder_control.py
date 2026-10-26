@@ -681,6 +681,7 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
 
     Run after the existing motherboard and ECLK/E-link initialization.
     Current-board settings are based on the successfully tested setup.
+    Honors rb.skip_vtrx; optical READY/FEC checks still run when bypassed.
     """
     def status(message, ok=True):
         color = "#16803c" if ok else "#c62828"
@@ -724,16 +725,20 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
         for field in lpgbt_settings:
             chip.rd_reg(field)
 
-    for field in vtrx_settings:
-        if field not in rb.VTRX.regs:
-            raise RuntimeError(
-                f"VTRx+ register table does not support {field}"
-            )
+    skip_vtrx = getattr(rb, "skip_vtrx", False)
+    if skip_vtrx:
+        vtrx_settings = {}
+    else:
+        for field in vtrx_settings:
+            if field not in rb.VTRX.regs:
+                raise RuntimeError(
+                    f"VTRx+ register table does not support {field}"
+                )
 
-    # Prototype-only enables: configure only if supported.
-    for field in ("CHxLAEN", "CHxBEN"):
-        if field in rb.VTRX.regs:
-            vtrx_settings[field] = 1
+        # Prototype-only enables: configure only if supported.
+        for field in ("CHxLAEN", "CHxBEN"):
+            if field in rb.VTRX.regs:
+                vtrx_settings[field] = 1
 
     def snapshot():
         return {
@@ -783,8 +788,11 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
                     f"expected {value}, read {actual}"
                 )
 
-    print("\n3. Configuring VTRx+ TX1 and TX2")
-    print(f"VTRx+ version: {getattr(rb.VTRX, 'ver', 'unknown')}")
+    if skip_vtrx:
+        print("\n3. VTRx+ configuration/readback skipped (skip_vtrx=True)")
+    else:
+        print("\n3. Configuring VTRx+ TX1 and TX2")
+        print(f"VTRx+ version: {getattr(rb.VTRX, 'ver', 'unknown')}")
 
     for ch in (0, 1):
         for field, value in vtrx_settings.items():
