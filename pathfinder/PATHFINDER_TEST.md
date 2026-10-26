@@ -89,7 +89,7 @@ Each stage runs all earlier ones first.
 | `--trigger-delay` | `469` | FPGA `TRIG_DLY_SEL` (one global delay line). |
 | `--l1a-delay` | `501` | Per-ETROC pixel `L1Adelay` (BX). Different from the FPGA delay and from the FC input delay bits. |
 | `--scan-selection` | = selection | Subset to phase-scan. |
-| `--phase-settings` | `{}` | Fixed phases applied after initialization, e.g. `'{"D3H1":4}'`. Without it, Step 5.2 sets EPRX `TRACKMODE=2` (auto phase tracking) after the link-rate change. |
+| `--phase-settings` | `{}` | Fixed phases applied after initialization, e.g. `'{"D3H1":4}'`. Sets fixed phase mode for the affected groups (see section 7). |
 | `--blnw` / `--pixels` | `sample` | BL/NW coverage: `sample` = 4 pixels/chip (corners), `all` = 256 pixels/chip. |
 | `--blnw-load` | off | Skip the BL/NW scan and load saved results: a `.pkl` path or `latest` (section 5). |
 | `--no-save` | off | Do not save the BL/NW pickle. |
@@ -118,7 +118,7 @@ BL/NW results are saved to `pathfinder/results/blnw/blnw_<timestamp>.pkl`.
 | 2.1 | Trigger preview | Calculate the trigger mask without writing hardware. | Trigger sources must be included in the readout selection. |
 | 3 | KCU connection | Connect to KCU and perform the register loopback test. | Loopback must pass. Initial optical status is not the final post-configuration result. |
 | 4 | Motherboard initialization | Create rb, configure declared lpGBTs, configure TRIG clocks and enable the selected data links. | Both declared lpGBT objects must be available; ELINK_WIDTH must read back correctly. |
-| 4.1 | Optical-link configuration and checks | Configure optical links, verify readback and monitor uplinks, then check lpGBT status. | For Pathfinder, both READY flags must stay 1 and FEC counters stay 0 at the sampled times. |
+| 4.1 | Optical-link configuration and checks | Configure optical links (EPRX enable/invert, and EPRX phase tracking set to auto, `TRACKMODE=2`), verify readback and monitor uplinks, then check lpGBT status. | For Pathfinder, both READY flags must stay 1 and FEC counters stay 0 at the sampled times. |
 | 5 | ETROC initialization | Create the selected ETROC objects. | Selected chips must be connected; motherboard-only runs stop before this step. |
 | 5.1 | ETROC communication and register checks | Check I2C communication with the initialized chips, then read the key registers. | A failed I2C check names the ETROC and the error; register readings are printed per chip. |
 | 5.2 | Power mode, rate and merge configuration | Apply high power mode, link rate and merged trigger data (ETROC and FPGA trigger bits). | Power-mode, merge and TRIG_DATA_SIZE readbacks must pass; subsequent link retries preserve these settings. |
@@ -175,14 +175,14 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 3 | Monitor Uplinks | READ ONLY | Sample READY/FEC once per second for 10 seconds; counters are not reset. |  |
 | 4 | Check Clock Registers | READ ONLY | Read ECLK0-27 frequency and drive strength; this does not measure waveforms. |  |
 | 5 | Reset FEC Counters | WRITE HARDWARE | Clear historical FEC counts on both uplinks. |  |
-| 6 | Configure Optical Links | WRITE HARDWARE | Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds. | Only for `pathfinder_mapping.yaml`. |
+| 6 | Configure Optical Links | WRITE HARDWARE | Apply the tested Pathfinder lpGBT/VTRx+ profile (including EPRX `TRACKMODE=2`), clear FEC counts and verify for 10 seconds. | Only for `pathfinder_mapping.yaml`. Replaces a fixed phase set by menu 15 / `--phase-settings`. |
 | 7 | Read Receiver Masks | READ ONLY | Read DAQ/TRIG disable masks without changing them. |  |
 | 8 | Enable Selected Readout Links | WRITE HARDWARE | Apply masks for initialized selected ETROCs; other receivers remain disabled. |  |
 | 9 | Rerun Bitslip and Check Links | WRITE HARDWARE | Rerun shared bitslip; report selected link status. Does not change masks. | Shared bitslip may realign other channels. |
 | 10 | Retry Direct I2C Reads | READ ONLY | Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration. | Prompts for an I2C selection JSON, e.g. `{"5":"all"}`, and the number of read repetitions (default 3). |
 | 11 | Compare Links | READ ONLY | Compare initialized ETROCs side by side; no resets or configuration writes. | Prompts for ETROC IDs (Enter = all) and whether to show only differences. |
 | 12 | Check Link Rate | READ ONLY | Compare configured FPGA/lpGBT/ETROC rates. |  |
-| 13 | Set Link Rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), set EPRX tracking back to auto (`TRACKMODE=2`, replaces a fixed phase from menu 15), then rerun bitslip. Trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
+| 13 | Set Link Rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. EPRX tracking mode is not changed here. Trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
 | 14 | Scan EPRX Phase Select | WRITE HARDWARE | Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels. | Prompts for a selection JSON, e.g. `{"3":[1]}`. |
 | 15 | Apply EPRX Phase Select | WRITE HARDWARE | Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards. | Prompts for phases as JSON, e.g. `{"D3H1":4}` (phase 0..14). |
 | 16 | Plot BL/NW Results | READ ONLY | Plot current in-memory maps; full scans also show histograms. Close plot windows to return. | Needs BL/NW results in memory. |
@@ -197,6 +197,11 @@ Menus 17, 19 and 21 appear only after QInj preparation (`--stage qinj` / `fc-sca
 They enable the selected links temporarily, so they also work after Step 12 has masked the links.
 
 ## 7. Per-slot settings in `pathfinder_mapping.yaml`
+
+EPRX phase mode: the lpGBT initialization (Step 4.1 / menu 6) sets every used EPRX group to automatic phase tracking
+(`TRACKMODE=2`, continuous tracking). Nothing changes it afterwards, including a link-rate change.
+Only a fixed phase (menu 15 or `--phase-settings`; menu 14 restores the previous mode after the scan) switches the affected groups to `TRACKMODE=0`.
+`TRACKMODE` is shared by four EPRX inputs. To return to auto after a fixed phase, rerun menu 6 (or the script from the start).
 
 Settings are rate- and slot-specific. At 640 Mbps expect to need a per-slot `TRIG_DLY_SEL` and lpGBT `PHASESELECT`;
 320 Mbps worked with the defaults. A hybrid that needs the FC data delay (found on D2H0 at 640 Mbps) is listed in the mapping:

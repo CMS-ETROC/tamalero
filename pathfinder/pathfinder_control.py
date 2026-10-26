@@ -646,8 +646,11 @@ def read_clock_configuration(rb, *, verbose=True):
 def initialize_pathfinder_eprx(rb):
     """Enable and invert the 14 wired even inputs on each Pathfinder lpGBT.
 
+    Also sets TRACKMODE=2 (continuous phase tracking) on every EPRX group
+    that contains a wired input (shared by four inputs).
+
     Run with acquisition stopped, after base lpGBT initialization. Does not
-    change rates, phase, termination, odd inputs, or FPGA readout masks.
+    change rates, PHASESELECT, termination, odd inputs, or FPGA readout masks.
     Every write is verified; failure can leave a partially applied setup.
     """
     controllers = [("DAQ", getattr(rb, "DAQ_LPGBT", None), "uplink"),
@@ -677,6 +680,14 @@ def initialize_pathfinder_eprx(rb):
                     raise RuntimeError(f"{name} E-link {elink}: {field} expected=1, readback={actual}")
                 report[name][elink][field] = actual
         print(f"{name}: {len(used_elinks)} wired E-links verified (ENABLE=1, INVERT=1)")
+        for group in sorted({elink // 4 for elink in used_elinks}):
+            node = f"LPGBT.RWF.EPORTRX.EPRX{group}TRACKMODE"
+            lp.wr_reg(node, 2)
+            actual = number(lp.rd_reg(node))
+            if actual != 2:
+                raise RuntimeError(f"{name} {node}: expected=2, readback={actual}")
+            report[name][f"group{group}_TRACKMODE"] = actual
+        print(f"{name}: EPRX groups {sorted({e // 4 for e in used_elinks})} set to auto phase tracking (TRACKMODE=2)")
     return report
 
 
@@ -1213,29 +1224,6 @@ def set_link_rate(rb, chips, mbps=320, include_trig=None, settle=0.2):
     time.sleep(settle)
     print(f"Rate verified: {mbps} Mbps; receivers={[n for n, _ in controllers]}, ETROCs={list(chips)}")
     return report
-
-
-def set_auto_phase_groups(rb, mapping, ids):
-    """Set EPRX TRACKMODE=2 (continuous phase tracking) on every lpGBT group used by ids; verify by readback.
-
-    TRACKMODE is shared by four EPRX inputs, so other inputs of the same group change too.
-    Call after set_link_rate() so the receivers track the phase again; run bitslip afterwards.
-    Replaces a fixed phase mode (TRACKMODE=0) used for manual phase scans/apply.
-    """
-    targets = {}
-    for identity in ids:
-        for bank, links in build_elinks(mapping, identity).items():
-            for elink in links:
-                targets[bank, elink // 4] = getattr(rb, "DAQ_LPGBT" if bank == 0 else "TRIG_LPGBT")
-    for (bank, group), lp in sorted(targets.items()):
-        node = f"LPGBT.RWF.EPORTRX.EPRX{group}TRACKMODE"
-        name = "DAQ" if bank == 0 else "TRIG"
-        old = _link_int(lp.rd_reg(node))
-        lp.wr_reg(node, 2)
-        new = _link_int(lp.rd_reg(node))
-        if new != 2:
-            raise RuntimeError(f"{name} {node}: readback={new}, expected 2")
-        print(f"{name} {node}: {old} -> 2 (auto tracking, shared by four EPRX inputs)")
 
 
 _FPGA_RATE = {2: 320, 3: 640, 4: 1280}
