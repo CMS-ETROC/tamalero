@@ -386,6 +386,10 @@ def initialize_etrocs(rb, mapping, ids, *, etroc_factory=None,
     chips = {}
     for identity in ids:
         i2c = mapping["etrocs"][identity]["i2c"]
+        print(
+            f"\nInitializing {identity}: "
+            f"{i2c['lpgbt'].upper()}/M{i2c['channel']}/0x{i2c['address']:02X}"
+        )
         try:
             chip = etroc_factory(
                 rb,
