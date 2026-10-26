@@ -89,7 +89,7 @@ Each stage runs all earlier ones first.
 | `--trigger-delay` | `469` | FPGA `TRIG_DLY_SEL` (one global delay line). |
 | `--l1a-delay` | `501` | Per-ETROC pixel `L1Adelay` (BX). Different from the FPGA delay and from the FC input delay bits. |
 | `--scan-selection` | = selection | Subset to phase-scan. |
-| `--phase-settings` | `{}` | Fixed phases applied after initialization, e.g. `'{"D3H1":4}'`. |
+| `--phase-settings` | `{}` | Fixed phases applied after initialization, e.g. `'{"D3H1":4}'`. Without it, Step 5.2 sets EPRX `TRACKMODE=2` (auto phase tracking) after the link-rate change. |
 | `--blnw` / `--pixels` | `sample` | BL/NW coverage: `sample` = 4 pixels/chip (corners), `all` = 256 pixels/chip. |
 | `--blnw-load` | off | Skip the BL/NW scan and load saved results: a `.pkl` path or `latest` (section 5). |
 | `--no-save` | off | Do not save the BL/NW pickle. |
@@ -182,7 +182,7 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 10 | Retry Direct I2C Reads | READ ONLY | Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration. | Prompts for an I2C selection JSON, e.g. `{"5":"all"}`, and the number of read repetitions (default 3). |
 | 11 | Compare Links | READ ONLY | Compare initialized ETROCs side by side; no resets or configuration writes. | Prompts for ETROC IDs (Enter = all) and whether to show only differences. |
 | 12 | Check Link Rate | READ ONLY | Compare configured FPGA/lpGBT/ETROC rates. |  |
-| 13 | Set Link Rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
+| 13 | Set Link Rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), set EPRX tracking back to auto (`TRACKMODE=2`, replaces a fixed phase from menu 15), then rerun bitslip. Trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
 | 14 | Scan EPRX Phase Select | WRITE HARDWARE | Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels. | Prompts for a selection JSON, e.g. `{"3":[1]}`. |
 | 15 | Apply EPRX Phase Select | WRITE HARDWARE | Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards. | Prompts for phases as JSON, e.g. `{"D3H1":4}` (phase 0..14). |
 | 16 | Plot BL/NW Results | READ ONLY | Plot current in-memory maps; full scans also show histograms. Close plot windows to return. | Needs BL/NW results in memory. |

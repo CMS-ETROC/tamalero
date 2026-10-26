@@ -171,7 +171,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         actions["20"] = ("Set FC Input Delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
         actions["9"] = ("Rerun Bitslip and Check Links", "WRITE HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
         actions["12"] = ("Check Link Rate", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
-        actions["13"] = ("Set Link Rate", "WRITE HARDWARE", "Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. Phase select and trigger delay may need to be found again.")
+        actions["13"] = ("Set Link Rate", "WRITE HARDWARE", "Set FPGA, lpGBT receiver and ETROC link rate (320/640), set EPRX tracking back to auto (TRACKMODE=2), then rerun bitslip. A fixed phase from menu 15 is replaced; trigger delay may need to be found again.")
         actions["8"] = ("Enable Selected Readout Links", "WRITE HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
     if blnw_results is not None:
         actions["16"] = ("Plot BL/NW Results", "READ ONLY", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
@@ -381,6 +381,8 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 if rate not in ("320", "640"):
                     raise ValueError("Use 320 or 640")
                 set_link_rate(rb, chips, mbps=int(rate))
+                from pathfinder_control import set_auto_phase_groups
+                set_auto_phase_groups(rb, mapping, list(chips))
                 configure_readout_links(rb, mapping, list(chips))
                 rb.rerun_bitslip()
                 time.sleep(1.0)
@@ -1147,8 +1149,10 @@ def main(args):
                 raise RuntimeError(f"FPGA TRIG_DATA_SIZE readback={actual}")
 
             print(f"FPGA: TRIG_DATA_SIZE={actual}")
-            from pathfinder_control import set_link_rate, apply_etroc_phases, check_link_rate
+            from pathfinder_control import set_link_rate, apply_etroc_phases, check_link_rate, set_auto_phase_groups
             set_link_rate(rb, chips, mbps=args.rate)
+            if not args.phase_settings:
+                set_auto_phase_groups(rb, mapping, ids)   # let the receivers track the phase again after the rate change
             applied_masks = configure_readout_links(rb, mapping, ids)
             if args.phase_settings:
                 set_fixed_phase_groups(rb, mapping, list(args.phase_settings))

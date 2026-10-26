@@ -685,7 +685,6 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
 
     Run after the existing motherboard and ECLK/E-link initialization.
     Current-board settings are based on the successfully tested setup.
-    Honors rb.skip_vtrx; optical READY/FEC checks still run when bypassed.
     """
     def status(message, ok=True):
         color = "#16803c" if ok else "#c62828"
@@ -729,20 +728,16 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
         for field in lpgbt_settings:
             chip.rd_reg(field)
 
-    skip_vtrx = getattr(rb, "skip_vtrx", False)
-    if skip_vtrx:
-        vtrx_settings = {}
-    else:
-        for field in vtrx_settings:
-            if field not in rb.VTRX.regs:
-                raise RuntimeError(
-                    f"VTRx+ register table does not support {field}"
-                )
+    for field in vtrx_settings:
+        if field not in rb.VTRX.regs:
+            raise RuntimeError(
+                f"VTRx+ register table does not support {field}"
+            )
 
-        # Prototype-only enables: configure only if supported.
-        for field in ("CHxLAEN", "CHxBEN"):
-            if field in rb.VTRX.regs:
-                vtrx_settings[field] = 1
+    # Prototype-only enables: configure only if supported.
+    for field in ("CHxLAEN", "CHxBEN"):
+        if field in rb.VTRX.regs:
+            vtrx_settings[field] = 1
 
     def snapshot():
         return {
@@ -792,11 +787,8 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
                     f"expected {value}, read {actual}"
                 )
 
-    if skip_vtrx:
-        print("\n3. VTRx+ configuration/readback skipped (skip_vtrx=True)")
-    else:
-        print("\n3. Configuring VTRx+ TX1 and TX2")
-        print(f"VTRx+ version: {getattr(rb.VTRX, 'ver', 'unknown')}")
+    print("\n3. Configuring VTRx+ TX1 and TX2")
+    print(f"VTRx+ version: {getattr(rb.VTRX, 'ver', 'unknown')}")
 
     for ch in (0, 1):
         for field, value in vtrx_settings.items():
@@ -1221,6 +1213,29 @@ def set_link_rate(rb, chips, mbps=320, include_trig=None, settle=0.2):
     time.sleep(settle)
     print(f"Rate verified: {mbps} Mbps; receivers={[n for n, _ in controllers]}, ETROCs={list(chips)}")
     return report
+
+
+def set_auto_phase_groups(rb, mapping, ids):
+    """Set EPRX TRACKMODE=2 (continuous phase tracking) on every lpGBT group used by ids; verify by readback.
+
+    TRACKMODE is shared by four EPRX inputs, so other inputs of the same group change too.
+    Call after set_link_rate() so the receivers track the phase again; run bitslip afterwards.
+    Replaces a fixed phase mode (TRACKMODE=0) used for manual phase scans/apply.
+    """
+    targets = {}
+    for identity in ids:
+        for bank, links in build_elinks(mapping, identity).items():
+            for elink in links:
+                targets[bank, elink // 4] = getattr(rb, "DAQ_LPGBT" if bank == 0 else "TRIG_LPGBT")
+    for (bank, group), lp in sorted(targets.items()):
+        node = f"LPGBT.RWF.EPORTRX.EPRX{group}TRACKMODE"
+        name = "DAQ" if bank == 0 else "TRIG"
+        old = _link_int(lp.rd_reg(node))
+        lp.wr_reg(node, 2)
+        new = _link_int(lp.rd_reg(node))
+        if new != 2:
+            raise RuntimeError(f"{name} {node}: readback={new}, expected 2")
+        print(f"{name} {node}: {old} -> 2 (auto tracking, shared by four EPRX inputs)")
 
 
 _FPGA_RATE = {2: 320, 3: 640, 4: 1280}
