@@ -2453,6 +2453,99 @@ def scan_l1a_delay(rb, chips, mapping, scan_pixels, delays=range(480, 512),
     return summary
 
 
+def summarize_l1a_scan(scan, mapping, chips, fraction=0.5):
+    """Per-ETROC result of scan_l1a_delay().
+
+    Sums the data words of each ETROC's E-links at every scanned L1Adelay and
+    returns {identity: {"peak", "window", "centre", "best"}}: the half-max
+    window (data >= fraction * peak), its centre and the rounded L1Adelay to
+    use ("best"). An ETROC without data gets None for window/centre/best.
+    """
+    summary = {}
+    for identity in chips:
+        keys = [28 * bank + e for bank, elinks in build_elinks(mapping, identity).items() for e in elinks]
+        hits = {d: sum(r["per_elink"].get(k, {}).get("data", 0) for k in keys)
+                for d, r in scan["results"].items()}
+        peak = max(hits.values()) if hits else 0
+        if not peak:
+            summary[identity] = {"peak": 0, "window": None, "centre": None, "best": None}
+            continue
+        window = [d for d, h in hits.items() if h >= fraction * peak]
+        centre = (min(window) + max(window)) / 2
+        summary[identity] = {"peak": peak, "window": (min(window), max(window)),
+                             "centre": centre, "best": int(centre + 0.5)}
+    return summary
+
+
+def test_delay_compensation(rb, chips, mapping, scan_pixels, offsets=(-6, -3, 0, 3, 6),
+                            l1a_default=DEFAULT_L1A_DELAY, qinj_count=1, span=None):
+    """Check whether L1Adelay can compensate a shifted FPGA TRIG_DLY_SEL.
+
+    Starting from the current TRIG_DLY_SEL (the reference, which should give data
+    with l1a_default), TRIG_DLY_SEL is moved by each offset, L1Adelay is scanned
+    over l1a_default +/- span, and the per-ETROC window centre is compared with the
+    one at offset 0. If both delays shift the same timing, the L1Adelay centre moves
+    by about the same number of steps as TRIG_DLY_SEL (slope ~ +1).
+
+    Writes TRIG_DLY_SEL while running; restores it and the pixel L1Adelay
+    (l1a_default) afterwards. Returns {"reference", "offsets", "centres", "shifts", "slope"}.
+    """
+    offsets = list(offsets)
+    if not offsets or 0 not in offsets:
+        raise ValueError("offsets must contain 0 (the reference)")
+    node = f"READOUT_BOARD_{rb.rb}.TRIG_DLY_SEL"
+    reference = int(rb.kcu.read_node(node).value())
+    if any(not 0 <= reference + k <= 511 for k in offsets):
+        raise ValueError(f"reference TRIG_DLY_SEL {reference} + offsets must stay within 0..511")
+    if span is None:
+        span = max(abs(k) for k in offsets) + 8
+    lo, hi = max(0, l1a_default - span), min(511, l1a_default + span)
+    print(f"Reference TRIG_DLY_SEL={reference}; L1Adelay scan {lo}..{hi} at each offset {offsets}")
+
+    runs = {}
+    try:
+        for k in offsets:
+            rb.kcu.write_node(node, reference + k)
+            actual = int(rb.kcu.read_node(node).value())
+            if actual != reference + k:
+                raise RuntimeError(f"TRIG_DLY_SEL readback {actual} != {reference + k}")
+            scan = scan_l1a_delay(rb, chips, mapping, scan_pixels, delays=range(lo, hi + 1),
+                                  qinj_count=qinj_count, restore=l1a_default, verbose=False)
+            runs[k] = {"trig_dly_sel": reference + k, "per_etroc": summarize_l1a_scan(scan, mapping, chips), "scan": scan}
+            line = ", ".join(f"{i}={v['centre']:.1f}" if v["centre"] is not None else f"{i}=no data"
+                             for i, v in runs[k]["per_etroc"].items())
+            print(f"  TRIG_DLY_SEL {reference + k:>4} (offset {k:+d}): L1Adelay centre {line}")
+    finally:
+        try:
+            rb.kcu.write_node(node, reference)
+        except Exception as exc:                       # pragma: no cover
+            print(f"WARNING: could not restore TRIG_DLY_SEL={reference}: {exc}")
+
+    centres = {i: {k: runs[k]["per_etroc"][i]["centre"] for k in offsets} for i in chips}
+    shifts, slopes = {}, {}
+    for i, by_offset in centres.items():
+        base = by_offset[0]
+        shifts[i] = {k: (c - base if c is not None and base is not None else None) for k, c in by_offset.items()}
+        points = [(k, v) for k, v in shifts[i].items() if v is not None]
+        if len(points) >= 2 and len({k for k, _ in points}) >= 2:
+            n = len(points)
+            mean_k = sum(k for k, _ in points) / n
+            mean_v = sum(v for _, v in points) / n
+            den = sum((k - mean_k) ** 2 for k, _ in points)
+            slopes[i] = sum((k - mean_k) * (v - mean_v) for k, v in points) / den
+        else:
+            slopes[i] = None
+    print("\nShift of the L1Adelay centre relative to offset 0 (expected: equal to the offset if the steps match):")
+    print(f"{'ETROC':<8}" + "".join(f"{k:>+8d}" for k in offsets) + f"{'slope':>9}")
+    for i in chips:
+        cells = "".join(f"{shifts[i][k]:>+8.1f}" if shifts[i][k] is not None else f"{'-':>8}" for k in offsets)
+        slope = f"{slopes[i]:>9.2f}" if slopes[i] is not None else f"{'-':>9}"
+        print(f"{i:<8}{cells}{slope}")
+    print(f"TRIG_DLY_SEL restored to {reference}; pixel L1Adelay restored to {l1a_default}.")
+    return {"reference": reference, "offsets": offsets, "l1a_default": l1a_default, "range": [lo, hi],
+            "centres": centres, "shifts": shifts, "slope": slopes, "runs": runs}
+
+
 def scan_trigger_delay(rb, chips, mapping, scan_pixels, delays=range(440, 500),
                        l1a_delay=DEFAULT_L1A_DELAY, qinj_count=20, settle=0.05,
                        empty_slot_bcid=500, restore=None, fifo=None, df=None,
