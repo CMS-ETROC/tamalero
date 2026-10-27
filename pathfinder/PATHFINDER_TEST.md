@@ -9,7 +9,7 @@ and `pathfinder_mapping.yaml`.
 
 ## 1. Run it
 
-Place `pathfinder_test.py` in the repository's `pathfinder/` directory and run it from the repo:
+Place `pathfinder_test.py` in the repository's `pathfinder/` directory and run it from the repo. All paths are relative to the repository, so nothing needs editing on another computer: the repository root is taken from the script's own location (`--repo-root` overrides it), the mapping is read from `pathfinder/`, and results go to `pathfinder/results/`. The notebook finds the repository root automatically (current directory and its parents, or the `TAMALERO_ROOT` environment variable).
 
 ```bash
 python3 pathfinder/pathfinder_test.py --stage <stage> [options]
