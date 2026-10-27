@@ -44,7 +44,7 @@ def build_parser():
     parser.add_argument("--blnw-load", metavar="PKL|latest", default=None, help="Skip the BL/NW scan and load saved results (a .pkl path, or latest = newest valid file in the results folder)")
     plot_options = parser.add_mutually_exclusive_group()
     plot_options.add_argument("--plot", "--plots", dest="no_plots", action="store_false", help="Include BL/NW plotting in the workflow")
-    plot_options.add_argument("--no-plots", "--no-plot", dest="no_plots", action="store_true", help="Skip workflow plots (default); interactive menu 16 remains available")
+    plot_options.add_argument("--no-plots", "--no-plot", dest="no_plots", action="store_true", help="Skip workflow plots (default); interactive menu 14 remains available")
     parser.set_defaults(no_plots=True)
     parser.add_argument("--trigger-delay", type=int, default=469)
     parser.add_argument("--qinj", "--charge-fc", dest="charge_fc", type=int, default=15, help="Injected charge in fC (1..32; default: 15)")
@@ -54,7 +54,7 @@ def build_parser():
                         help="Open repeatable diagnostics after a hardware stage")
     parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
     parser.add_argument("--trigger-bits", type=int, choices=[0, 1, 2], default=1)
-    parser.add_argument("--l1a-table", default=None, help="Per-ETROC L1Adelay table from menu 18: a JSON path or 'latest'; ETROCs not in it use --l1a-delay")
+    parser.add_argument("--l1a-table", default=None, help="Per-ETROC L1Adelay table from menu 17: a JSON path or 'latest'; ETROCs not in it use --l1a-delay")
     parser.add_argument("--l1a-delay", type=int, default=501, help="ETROC pixel L1Adelay; distinct from FPGA trigger delay and FC input delay bits")
     parser.add_argument("--scan-selection", type=selection, help="Subset of initialized D/H to phase-scan; defaults to --selection")
     parser.add_argument("--phase-settings", type=json.loads, default={}, help='Explicit fixed phases, e.g. {"D3H1":4}; applied after initialization')
@@ -105,9 +105,9 @@ def show_run_plan(args):
 
 
 MENU_GROUPS = (
-    ("Links", tuple(range(1, 16))),
-    ("Trigger and Data", tuple(range(16, 23))),
-    ("Monitoring", (23,)),
+    ("Links", tuple(range(1, 14))),
+    ("Trigger and Data", tuple(range(14, 22))),
+    ("Monitoring", (22,)),
 )
 
 
@@ -145,46 +145,45 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
     """Repeat diagnostics without reconstructing KCU or ReadoutBoard."""
     from pathfinder_control import (
         read_optical_link_status, monitor_optical_links,
-        read_clock_configuration, reset_optical_fec_counters,
+        reset_optical_fec_counters,
         initialize_pathfinder_links,
     )
 
     actions = {
         "1": ("KCU Status", "READ ONLY", "Read KCU status, clocks and available E-link lock flags."),
-        "2": ("Uplinks Status", "READ ONLY", "Read current counters without clearing them."),
-        "3": ("Monitor Uplinks", "READ ONLY", "Sample READY/FEC once per second for 10 seconds; counters are not reset."),
-        "4": ("Check Clock Registers", "READ ONLY", "Read ECLK0-27 frequency and drive strength; this does not measure waveforms."),
-        "5": ("Reset FEC Counters", "WRITE HARDWARE", "Clear historical FEC counts on both uplinks."),
-        "6": ("Configure Optical Links", "WRITE HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
+        "2": ("Uplinks Status", "READ ONLY", "Read READY and FEC counters now and once per second for 10 seconds; counters are not reset."),
+        "3": ("Reset FEC Counters", "WRITE HARDWARE", "Clear historical FEC counts on both uplinks."),
+        "4": ("Configure Optical Links", "WRITE HARDWARE", "Apply the tested Pathfinder lpGBT/VTRx+ profile, clear FEC counts and verify for 10 seconds."),
     }
     if mapping is not None and chips:
-        actions["11"] = ("Compare Links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
-        actions["14"] = ("Scan EPRX Phase Select", "WRITE HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
-        actions["15"] = ("Apply EPRX Phase Select", "WRITE HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
-        actions["17"] = ("Scan Trigger Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
-        actions["18"] = ("Scan L1A Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan pixel L1Adelay at the current FPGA trigger delay and build a per-ETROC L1Adelay table, or run the compensation test; previous values are restored.")
-        actions["19"] = ("Set Trigger Delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
-        actions["22"] = ("Charge Injection Acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
-        actions["20"] = ("Scan FC Input Delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
+        actions["9"] = ("Compare Links", "READ ONLY", "Compare initialized ETROCs side by side; no resets or configuration writes.")
+        actions["12"] = ("Scan EPRX Phase Select", "WRITE HARDWARE", "Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels.")
+        actions["13"] = ("Apply EPRX Phase Select", "WRITE HARDWARE", "Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards.")
+        actions["15"] = ("Scan Trigger Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
+        actions["17"] = ("Scan L1A Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan pixel L1Adelay at the current FPGA trigger delay: per-value table, window width and a per-ETROC L1Adelay table; previous values are restored.")
+        actions["16"] = ("Set Trigger Delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
+        actions["21"] = ("Charge Injection Acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
+        actions["18"] = ("Set L1A Delay", "WRITE HARDWARE", "Requires prepared QInj. Show the current pixel L1Adelay of every ETROC, then set and verify it on explicit ETROCs; the values are kept for later scans.")
+        actions["19"] = ("Scan FC Input Delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
-        actions["23"] = ("Read ADC Monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
-        actions["10"] = ("Retry Direct I2C Reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
-        actions["7"] = ("Read Receiver Masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
+        actions["22"] = ("Read ADC Monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
+        actions["8"] = ("Retry Direct I2C Reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
+        actions["5"] = ("Read Receiver Masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
-        actions["21"] = ("Set FC Input Delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
-        actions["9"] = ("Rerun Bitslip and Check Links", "WRITE HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
-        actions["12"] = ("Check Link Rate", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
-        actions["13"] = ("Set Link Rate", "WRITE HARDWARE", "Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. EPRX tracking mode is not changed here. Trigger delay may need to be found again.")
-        actions["8"] = ("Enable Selected Readout Links", "WRITE HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
+        actions["20"] = ("Set FC Input Delay", "WRITE HARDWARE", "Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings.")
+        actions["7"] = ("Rerun Bitslip and Check Links", "WRITE HARDWARE", "Rerun shared bitslip; report selected link status. Does not change masks.")
+        actions["10"] = ("Check Link Rate", "READ ONLY", "Compare configured FPGA/lpGBT/ETROC rates.")
+        actions["11"] = ("Set Link Rate", "WRITE HARDWARE", "Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. EPRX tracking mode is not changed here. Trigger delay may need to be found again.")
+        actions["6"] = ("Enable Selected Readout Links", "WRITE HARDWARE", "Apply masks for initialized selected ETROCs; other receivers remain disabled.")
     if blnw_results is not None:
-        actions["16"] = ("Plot BL/NW Results", "READ ONLY", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
+        actions["14"] = ("Plot BL/NW Results", "READ ONLY", "Plot current in-memory maps; full scans also show histograms. Close plot windows to return.")
     if kcu is None:
         actions.pop("1", None)
     if rb is None:
-        for key in ("2", "3", "4", "5", "6"):
+        for key in ("2", "3", "4"):
             actions.pop(key, None)
     if qinj_context is None:
-        for key in ("17", "18", "20", "22"):
+        for key in ("15", "17", "18", "19", "21"):
             actions.pop(key, None)
     while True:
         footer = []
@@ -192,7 +191,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             footer.append("Enter / c   Continue (unavailable until this step passes)" if failed else "Enter / c   Continue to the next step")
             footer.append("r           Rerun the current step")
         footer.append("0           Exit (does not power down hardware)")
-        notes = {} if pathfinder_profile else {"6": " (unavailable for this mapping)"}
+        notes = {} if pathfinder_profile else {"4": " (unavailable for this mapping)"}
         print()
         print("\n".join(render_menu(actions, notes, footer, "Interactive diagnostics - current hardware connection")))
         try:
@@ -213,7 +212,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         if choice not in actions:
             print("[WARNING] Select one of the displayed action numbers.")
             continue
-        if choice == "6" and not pathfinder_profile:
+        if choice == "4" and not pathfinder_profile:
             print("[SKIPPED] This configuration profile is restricted to pathfinder_mapping.yaml.")
             continue
         title, kind, explanation = actions[choice]
@@ -223,20 +222,14 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
             if choice == "1":
                 kcu.status()
             elif choice == "2":
-                read_optical_link_status(rb)
-            elif choice == "3":
                 monitor_optical_links(rb, seconds=10)
                 print("[CHECK] A saturated counter at 65535 cannot demonstrate error-free operation.")
-            elif choice == "4":
-                results = read_clock_configuration(rb)
-                errors = sum(item["error"] is not None for rows in results.values() for item in rows)
-                print(f"[CHECK] Clock register read errors: {errors}")
-            elif choice == "5":
+            elif choice == "3":
                 reset_optical_fec_counters(rb)
-            elif choice == "6":
+            elif choice == "4":
                 initialize_pathfinder_links(rb, monitor_seconds=10)
                 print("[PASS] Optical configuration and verification completed.")
-            elif choice == "11":
+            elif choice == "9":
                 from pathfinder_control import compare_etroc_links
                 available = [i for i in (ids if ids is not None else chips) if i in chips]
                 print("Initialized ETROCs:", ", ".join(available))
@@ -247,7 +240,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     continue
                 differences = input("Only differences? [y/N]: ").strip().lower() in ("y", "yes")
                 compare_etroc_links(rb, mapping, chips, targets, only_differences=differences)
-            elif choice == "14":
+            elif choice == "12":
                 from pathfinder_control import expand_selection, scan_etroc_phases
                 raw = input('ETROC IDs to scan, e.g. D3H1, D3H2 (Enter = all initialized; JSON such as {"3":[1]} also works): ').strip()
                 if raw.startswith("{"):
@@ -269,7 +262,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         scan_etroc_phases(rb, mapping, chips, selected, output_dir=results_path("phase_scan", output_dir))
                     finally:
                         restore_phase_groups(saved)
-            elif choice == "15":
+            elif choice == "13":
                 from pathfinder_control import apply_etroc_phases
                 settings = json.loads(input('Phase settings JSON, e.g. {"D3H1":4,"D2H3":5}: ').strip())
                 if not isinstance(settings, dict) or not settings or any(
@@ -285,7 +278,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         restore_phase_groups(saved)
                         raise
                 print("Applied phases and fixed group modes retained; inspect lock results above.")
-            elif choice == "17":
+            elif choice == "15":
                 if qinj_context is None:
                     print("[SKIPPED] Run --stage qinj --interactive first: thresholds, injection and self-trigger must be prepared.")
                     continue
@@ -306,25 +299,13 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     print("Scan used one L1Adelay for all ETROCs; the per-ETROC L1Adelay table was written back.")
                 else:
                     print("Pixel L1Adelay remains at the requested value; FPGA trigger delay restored. No best delay applied.")
-            elif choice == "18":
+            elif choice == "17":
                 if qinj_context is None:
                     print("[SKIPPED] Run --stage qinj --interactive first: thresholds, injection and self-trigger must be prepared.")
                     continue
-                from pathfinder_control import scan_l1a_delay, summarize_l1a_scan, test_delay_compensation
+                from pathfinder_control import scan_l1a_delay, summarize_l1a_scan
                 default = qinj_context.get("l1a_delay", 501)
-                mode = input("Mode: Enter = scan L1Adelay and build table / c = compensation test (shift TRIG_DLY_SEL): ").strip().lower()
-                if mode == "c":
-                    raw = input("TRIG_DLY_SEL offsets, comma separated, must include 0 [-6,-3,0,3,6]: ").strip() or "-6,-3,0,3,6"
-                    offsets = [int(x) for x in raw.replace(" ", "").split(",") if x]
-                    count = qinj_context["qinj_count"]
-                    print("Start with the current TRIG_DLY_SEL as the reference; it should give data at the default L1Adelay.")
-                    with temporary_readout_selection(rb, mapping, list(chips)):
-                        report = test_delay_compensation(rb, chips, mapping, qinj_context["pixels"], offsets=offsets,
-                                                         l1a_default=default, qinj_count=count)
-                        apply_l1a_table(chips, qinj_context["pixels"], L1A_TABLE, default)
-                    save_diagnostic(results_path("l1a_delay", output_dir), "l1a_comp", report)
-                    continue
-                lo_default, hi_default = max(0, default - 6), min(511, default + 6)
+                lo_default, hi_default = 491, 511
                 start = int(input(f"Start L1Adelay [{lo_default}]: ").strip() or lo_default)
                 stop = int(input(f"Stop L1Adelay, inclusive [{hi_default}]: ").strip() or hi_default)
                 count = qinj_context["qinj_count"]   # from --qinj-cnt
@@ -337,14 +318,15 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 print(f"FPGA TRIG_DLY_SEL is {trig_dly} (not changed); scanning L1Adelay {start}..{stop}")
                 with temporary_readout_selection(rb, mapping, list(chips)):
                     scan = scan_l1a_delay(rb, chips, mapping, scan_pixels=pixels, delays=range(start, stop + 1),
-                                          qinj_count=count, restore=default, verbose=False)
+                                          qinj_count=count, restore=default)
                     apply_l1a_table(chips, pixels, L1A_TABLE, default)   # back to the values in use before the scan
                 per_etroc = summarize_l1a_scan(scan, mapping, chips)
                 table = {i: v["best"] for i, v in per_etroc.items() if v["best"] is not None}
-                print(f"{'ETROC':<8}{'peak':>6}  {'half-max window':<16}{'L1Adelay':>9}")
+                print(f"\n{'ETROC':<8}{'peak':>6}  {'half-max window':<16}{'width':>6}{'L1Adelay':>10}")
                 for identity, v in per_etroc.items():
                     window = f"{v['window'][0]}..{v['window'][1]}" if v["window"] else "-"
-                    print(f"{identity:<8}{v['peak']:>6}  {window:<16}{(v['best'] if v['best'] is not None else 'no data'):>9}")
+                    width = v["window"][1] - v["window"][0] + 1 if v["window"] else "-"
+                    print(f"{identity:<8}{v['peak']:>6}  {window:<16}{width:>6}{(v['best'] if v['best'] is not None else 'no data'):>10}")
                 missing = [i for i in chips if i not in table]
                 if missing:
                     print(f"[WARNING] No data from: {', '.join(missing)}; they are left out of the table.")
@@ -360,7 +342,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     print("Applied: " + ", ".join(f"{i}={v}" for i, v in L1A_TABLE.items()))
                 else:
                     print("Table not applied; pixels keep their previous L1Adelay.")
-            elif choice == "19":
+            elif choice == "16":
                 value = int(input("FPGA trigger delay (0..511): ").strip())
                 if not 0 <= value <= 511:
                     raise ValueError("Trigger delay must be in 0..511")
@@ -377,12 +359,40 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     kcu.write_node(node, old)
                     raise
                 print(f"TRIG_DLY_SEL: {old} -> {actual}; L1Adelay unchanged")
-            elif choice in ("20", "22"):
+            elif choice == "18":
+                if qinj_context is None:
+                    print("[SKIPPED] Run --stage qinj --interactive first: the scanned pixels come from the BL/NW result.")
+                    continue
+                pixels = qinj_context["pixels"]
+                def show_l1a_values():
+                    print("Current L1Adelay (scanned pixels):")
+                    for identity, etroc in chips.items():
+                        row, col = pixels[0]
+                        value = int(etroc.rd_reg("L1Adelay", row=row, col=col))
+                        print(f"  {identity}: {value}" + ("  (table)" if identity in L1A_TABLE else ""))
+                show_l1a_values()
+                raw = input("ETROC IDs, e.g. D0H1, D0H2 (Enter = all initialized): ").strip()
+                names = [i.strip().strip("\"'").upper() for i in raw.replace(",", " ").split() if i.strip().strip("\"'")] or list(chips)
+                if any(i not in chips for i in names):
+                    raise ValueError("Use initialized ETROC IDs")
+                value = int(input("L1Adelay (0..511): ").strip())
+                if not 0 <= value <= 511:
+                    raise ValueError("L1Adelay must be in 0..511")
+                for identity in names:
+                    for row, col in pixels:
+                        chips[identity].wr_reg("L1Adelay", value, row=row, col=col, broadcast=False)
+                    row, col = pixels[0]
+                    got = int(chips[identity].rd_reg("L1Adelay", row=row, col=col))
+                    if got != value:
+                        raise RuntimeError(f"{identity}: L1Adelay readback {got} != {value}")
+                    L1A_TABLE[identity] = value
+                show_l1a_values()
+            elif choice in ("19", "21"):
                 if qinj_context is None or "acquire" not in qinj_context:
                     print("[SKIPPED] Use --stage qinj --step --interactive to prepare thresholds, self-trigger and QInj first.")
                     continue
                 target = None
-                if choice == "20":
+                if choice == "19":
                     print("Initialized ETROCs:", ", ".join(chips))
                     target = input("FC scan target, e.g. D5H1: ").strip()
                     if target not in chips:
@@ -397,15 +407,15 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 def acquire():
                     return qinj_context["acquire"](charge, count, reads, records)
                 with temporary_readout_selection(rb, mapping, list(chips)):
-                    if choice == "22":
+                    if choice == "21":
                         report = acquire()
                         save_diagnostic(results_path("qinj", output_dir), "interactive_qinj", report)
                     else:
                         run_fc_scan(chips, target, acquire, output_dir)
                 qinj_context["charge_fc"] = charge
-            elif choice == "16":
+            elif choice == "14":
                 show_blnw_plots(blnw_results)
-            elif choice == "23":
+            elif choice == "22":
                 if "adc_monitoring" not in mapping:
                     print("No adc_monitoring section in this mapping.")
                 else:
@@ -418,7 +428,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         lp.calibrate_adc()
                         lp.read_adcs(check=True, strict_limits=False)
                     print("ADC read complete; review individual values and limits.")
-            elif choice == "21":
+            elif choice == "20":
                 show_fc_settings(chips)
                 names = [i.strip().strip("\"'") for i in input('ETROC IDs, e.g. "D0H0", "D0H1": ').split(",") if i.strip().strip("\"'")]
                 pair = input("FC clk/data: 00, 01 or 10: ").strip()
@@ -426,7 +436,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     raise ValueError("Use initialized IDs and one of 00/01/10")
                 set_fc_settings(chips, names, tuple(map(int, pair)))
                 show_fc_settings(chips)
-            elif choice == "10":
+            elif choice == "8":
                 from pathfinder_control import expand_selection
                 selected = selection(input('I2C selection JSON, e.g. {"5":"all"}: ').strip())
                 targets = expand_selection(mapping, selected)
@@ -434,19 +444,19 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 if not 1 <= repeats <= 100:
                     raise ValueError("Repetitions must be 1..100")
                 probe_i2c(rb, mapping, targets, repeats)
-            elif choice == "9":
+            elif choice == "7":
                 from pathfinder_control import check_links
                 rb.rerun_bitslip()
                 print(check_links(rb, mapping, list(chips)))
-            elif choice == "7":
+            elif choice == "5":
                 for bank, suffix in (("daq", ""), ("trig", "_SLAVE")):
                     if bank in mapping["lpgbts"]:
                         node = f"READOUT_BOARD_{rb.rb}.ETROC_DISABLE{suffix}"
                         print(node, rb.kcu.read_node(node))
-            elif choice == "12":
+            elif choice == "10":
                 from pathfinder_control import check_link_rate
                 check_link_rate(rb, chips, mapping=mapping)
-            elif choice == "13":
+            elif choice == "11":
                 from pathfinder_control import set_link_rate, configure_readout_links, check_links
                 import time
                 rate = input("Link rate [320/640]: ").strip()
@@ -457,10 +467,10 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 rb.rerun_bitslip()
                 time.sleep(1.0)
                 print(check_links(rb, mapping, list(chips)))
-            elif choice == "8":
+            elif choice == "6":
                 from pathfinder_control import configure_readout_links
                 print(configure_readout_links(rb, mapping, list(chips)))
-            if choice != "6":
+            if choice != "4":
                 print("[DONE] Operation completed. Review the readings above; this is not an automatic pass verdict.")
         except KeyboardInterrupt:
             print("\n[STOPPED] Action interrupted. Partial configuration may remain; no rollback performed.")

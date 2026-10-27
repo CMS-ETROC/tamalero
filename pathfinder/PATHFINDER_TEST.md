@@ -88,13 +88,13 @@ Each stage runs all earlier ones first.
 | `--trigger-bits` | `1` | Merged trigger bits (0, 1, 2). Written to every selected ETROC (merge on, trigger granularity) and to the FPGA `TRIG_DATA_SIZE` in Step 5.2, and read back. |
 | `--trigger-delay` | `469` | FPGA `TRIG_DLY_SEL` (one global delay line). |
 | `--l1a-delay` | `501` | Pixel `L1Adelay` (BX) written to every selected ETROC. Different from the FPGA delay and from the FC input delay bits. |
-| `--l1a-table` | none | Per-ETROC `L1Adelay` table from menu 18: a JSON path or `latest`. ETROCs not in the table use `--l1a-delay`. Applied in Step 8 (section 7.1). |
+| `--l1a-table` | none | Per-ETROC `L1Adelay` table from menu 17: a JSON path or `latest`. ETROCs not in the table use `--l1a-delay`. Applied in Step 8 (section 7.1). |
 | `--scan-selection` | = selection | Subset to phase-scan. |
 | `--phase-settings` | `{}` | Fixed phases applied after initialization, e.g. `'{"D3H1":4}'`. Sets fixed phase mode for the affected groups (see section 7). |
 | `--blnw` / `--pixels` | `sample` | BL/NW coverage: `sample` = 4 pixels/chip (corners), `all` = 256 pixels/chip. |
 | `--blnw-load` | off | Skip the BL/NW scan and load saved results: a `.pkl` path or `latest` (section 5). |
 | `--no-save` | off | Do not save the BL/NW pickle. |
-| `--plot` (`--plots`) / `--no-plots` (`--no-plot`) | no plots | Show BL/NW figures in the workflow. Menu 16 always works. |
+| `--plot` (`--plots`) / `--no-plots` (`--no-plot`) | no plots | Show BL/NW figures in the workflow. Menu 14 always works. |
 | `--offset` | `50` | Threshold DAC = baseline + offset. |
 | `--qinj` / `--charge-fc` | `15` | Injected charge in fC (1..32). |
 | `--qinj-cnt` / `--qinj-count` | `1` | Injection pulses per burst. |
@@ -161,7 +161,7 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 - A saved result must be **complete**, must cover **all selected ETROCs**, and must cover the requested `--blnw` pixels.
   A `sample` (4 pixel) file cannot be used for `--blnw all`; an `all` file can serve `--blnw sample` (only the 4 corner pixels are used).
 - Pixels whose scan failed (baseline `None`) are skipped when thresholds are set.
-- Step 7.2 / menu 16 plots the loaded data; nothing new is saved.
+- Step 7.2 / menu 14 plots the loaded data; nothing new is saved.
 - Baselines drift with temperature and supply. Rescan after changing the ETROC power supply, slot or conditions.
 
 ## 6. Interactive menu
@@ -172,38 +172,37 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 |---|---|---|---|---|
 | 0 | Exit | | Leave the menu; hardware is not powered down. | |
 | 1 | KCU Status | READ ONLY | Read KCU status, clocks and available E-link lock flags. |  |
-| 2 | Uplinks Status | READ ONLY | Read current counters without clearing them. |  |
-| 3 | Monitor Uplinks | READ ONLY | Sample READY/FEC once per second for 10 seconds; counters are not reset. |  |
-| 4 | Check Clock Registers | READ ONLY | Read ECLK0-27 frequency and drive strength; this does not measure waveforms. |  |
-| 5 | Reset FEC Counters | WRITE HARDWARE | Clear historical FEC counts on both uplinks. |  |
-| 6 | Configure Optical Links | WRITE HARDWARE | Apply the tested Pathfinder lpGBT/VTRx+ profile (including EPRX `TRACKMODE=2`), clear FEC counts and verify for 10 seconds. | Only for `pathfinder_mapping.yaml`. Replaces a fixed phase set by menu 15 / `--phase-settings`. |
-| 7 | Read Receiver Masks | READ ONLY | Read DAQ/TRIG disable masks without changing them. |  |
-| 8 | Enable Selected Readout Links | WRITE HARDWARE | Apply masks for initialized selected ETROCs; other receivers remain disabled. |  |
-| 9 | Rerun Bitslip and Check Links | WRITE HARDWARE | Rerun shared bitslip; report selected link status. Does not change masks. | Shared bitslip may realign other channels. |
-| 10 | Retry Direct I2C Reads | READ ONLY | Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration. | Prompts for an I2C selection JSON, e.g. `{"5":"all"}`, and the number of read repetitions (default 3). |
-| 11 | Compare Links | READ ONLY | Compare initialized ETROCs side by side; no resets or configuration writes. | Prompts for ETROC IDs (Enter = all) and whether to show only differences. |
-| 12 | Check Link Rate | READ ONLY | Compare configured FPGA/lpGBT/ETROC rates. |  |
-| 13 | Set Link Rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. EPRX tracking mode is not changed here. Trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
-| 14 | Scan EPRX Phase Select | WRITE HARDWARE | Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels. | Prompts for ETROC IDs, e.g. `D3H1, D3H2` (Enter = all initialized). A selection JSON such as `{"3":[1]}` is still accepted. |
-| 15 | Apply EPRX Phase Select | WRITE HARDWARE | Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards. | Prompts for phases as JSON, e.g. `{"D3H1":4}` (phase 0..14). |
-| 16 | Plot BL/NW Results | READ ONLY | Plot current in-memory maps; full scans also show histograms. Close plot windows to return. | Needs BL/NW results in memory. |
-| 17 | Scan Trigger Delay | WRITE HARDWARE | Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks. |  |
-| 18 | Scan L1A Delay | WRITE HARDWARE | Requires prepared QInj. Scan pixel `L1Adelay` at the current FPGA `TRIG_DLY_SEL` (unchanged), sum the data words of each ETROC's E-links, and build a per-ETROC L1Adelay table (centre of the half-max window). Previous values are restored afterwards. | Prompts for the mode: Enter = scan and build the table (asks start/stop `L1Adelay`, default `--l1a-delay` ±6 inclusive, and whether to apply it); `c` = compensation test (section 7.1). Uses `--qinj-cnt`. Saves `pathfinder/results/l1a_delay/l1a_delay_<time>.json`; see section 7.1. |
-| 19 | Set Trigger Delay | WRITE HARDWARE | Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged. | Prompts for the FPGA delay (0..511). |
-| 20 | Scan FC Input Delay | WRITE HARDWARE | Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure. | Prompts for the target ETROC, e.g. `D5H1`. |
-| 21 | Set FC Input Delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Shows the current FC delay bits of all initialized ETROCs first, then prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10; shows the table again afterwards. |
-| 22 | Charge Injection Acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
-| 23 | Read ADC Monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
+| 2 | Uplinks Status | READ ONLY | Read READY and FEC counters now and once per second for 10 seconds; counters are not reset. |  |
+| 3 | Reset FEC Counters | WRITE HARDWARE | Clear historical FEC counts on both uplinks. |  |
+| 4 | Configure Optical Links | WRITE HARDWARE | Apply the tested Pathfinder lpGBT/VTRx+ profile (including EPRX `TRACKMODE=2`), clear FEC counts and verify for 10 seconds. | Only for `pathfinder_mapping.yaml`. Replaces a fixed phase set by menu 13 / `--phase-settings`. |
+| 5 | Read Receiver Masks | READ ONLY | Read DAQ/TRIG disable masks without changing them. |  |
+| 6 | Enable Selected Readout Links | WRITE HARDWARE | Apply masks for initialized selected ETROCs; other receivers remain disabled. |  |
+| 7 | Rerun Bitslip and Check Links | WRITE HARDWARE | Rerun shared bitslip; report selected link status. Does not change masks. | Shared bitslip may realign other channels. |
+| 8 | Retry Direct I2C Reads | READ ONLY | Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration. | Prompts for an I2C selection JSON, e.g. `{"5":"all"}`, and the number of read repetitions (default 3). |
+| 9 | Compare Links | READ ONLY | Compare initialized ETROCs side by side; no resets or configuration writes. | Prompts for ETROC IDs (Enter = all) and whether to show only differences. |
+| 10 | Check Link Rate | READ ONLY | Compare configured FPGA/lpGBT/ETROC rates. |  |
+| 11 | Set Link Rate | WRITE HARDWARE | Set FPGA, lpGBT receiver and ETROC link rate (320/640), then rerun bitslip. EPRX tracking mode is not changed here. Trigger delay may need to be found again. | Prompts for the link rate: 320 or 640. |
+| 12 | Scan EPRX Phase Select | WRITE HARDWARE | Stop acquisition first. Scan selected D/H; restore phases, group modes and readout masks. Shared bitslip may realign other channels. | Prompts for ETROC IDs, e.g. `D3H1, D3H2` (Enter = all initialized). A selection JSON such as `{"3":[1]}` is still accepted. |
+| 13 | Apply EPRX Phase Select | WRITE HARDWARE | Apply explicit phases to selected D/H and retain fixed group mode; restore readout masks afterwards. | Prompts for phases as JSON, e.g. `{"D3H1":4}` (phase 0..14). |
+| 14 | Plot BL/NW Results | READ ONLY | Plot current in-memory maps; full scans also show histograms. Close plot windows to return. | Needs BL/NW results in memory. |
+| 15 | Scan Trigger Delay | WRITE HARDWARE | Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks. |  |
+| 16 | Set Trigger Delay | WRITE HARDWARE | Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged. | Prompts for the FPGA delay (0..511). |
+| 17 | Scan L1A Delay | WRITE HARDWARE | Requires prepared QInj. Like Scan Trigger Delay, but the FPGA `TRIG_DLY_SEL` stays unchanged and the pixel `L1Adelay` is scanned. One line per value (headers / data / trailers), then per ETROC the peak, the half-max window with its width, and the chosen `L1Adelay` (window centre). Previous values are restored afterwards. | Prompts for start/stop `L1Adelay` (default 491..511, inclusive) and whether to apply the table now. Uses `--qinj-cnt`. Saves `pathfinder/results/l1a_delay/l1a_delay_<time>.json`; see section 7.1. |
+| 18 | Set L1A Delay | WRITE HARDWARE | Requires prepared QInj. Show the current pixel `L1Adelay` of every ETROC (marked `(table)` if it comes from the table), then set and verify it on explicit ETROCs; the values are kept for later scans. | Prompts for ETROC IDs (Enter = all initialized) and one `L1Adelay` (0..511). Applies to the scanned pixels. |
+| 19 | Scan FC Input Delay | WRITE HARDWARE | Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure. | Prompts for the target ETROC, e.g. `D5H1`. |
+| 20 | Set FC Input Delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Shows the current FC delay bits of all initialized ETROCs first, then prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10; shows the table again afterwards. |
+| 21 | Charge Injection Acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
+| 22 | Read ADC Monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
 
-Menus 17, 18, 20 and 22 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
+Menus 15, 17, 18, 19 and 21 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
 They enable the selected links temporarily, so they also work after Step 12 has masked the links.
 
 ## 7. Per-slot settings in `pathfinder_mapping.yaml`
 
-EPRX phase mode: the lpGBT initialization (Step 4.1 / menu 6) sets every used EPRX group to automatic phase tracking
+EPRX phase mode: the lpGBT initialization (Step 4.1 / menu 4) sets every used EPRX group to automatic phase tracking
 (`TRACKMODE=2`, continuous tracking). Nothing changes it afterwards, including a link-rate change.
-Only a fixed phase (menu 15 or `--phase-settings`; menu 14 restores the previous mode after the scan) switches the affected groups to `TRACKMODE=0`.
-`TRACKMODE` is shared by four EPRX inputs. To return to auto after a fixed phase, rerun menu 6 (or the script from the start).
+Only a fixed phase (menu 13 or `--phase-settings`; menu 12 restores the previous mode after the scan) switches the affected groups to `TRACKMODE=0`.
+`TRACKMODE` is shared by four EPRX inputs. To return to auto after a fixed phase, rerun menu 4 (or the script from the start).
 
 Settings are rate- and slot-specific. At 640 Mbps expect to need a different `TRIG_DLY_SEL` (one global value for the whole board, found per setup) and per-hybrid lpGBT `PHASESELECT`;
 320 Mbps worked with the defaults. A hybrid that needs the FC data delay (found on D2H0 at 640 Mbps) is listed in the mapping:
@@ -224,13 +223,13 @@ This needs the `configure_fc_delay` function in `pathfinder_control.py`.
 `TRIG_DLY_SEL` is one global FPGA value, so ETROCs whose trigger or FC path differs by a few BX need their own pixel `L1Adelay`.
 The script finds and applies these values in three steps:
 
-1. Set the global `--trigger-delay`, then run menu 18 (Scan L1A Delay). It keeps `TRIG_DLY_SEL` fixed, scans `L1Adelay`, and prints per ETROC the peak, the half-max window and the chosen value (window centre). The result is saved to `pathfinder/results/l1a_delay/l1a_delay_<time>.json` together with the `TRIG_DLY_SEL` it was built at.
+1. Set the global `--trigger-delay`, then run menu 17 (Scan L1A Delay). It keeps `TRIG_DLY_SEL` fixed, scans `L1Adelay`, prints one line per value, and then per ETROC the peak, the half-max window with its width, and the chosen value (window centre). The result is saved to `pathfinder/results/l1a_delay/l1a_delay_<time>.json` together with the `TRIG_DLY_SEL` it was built at.
 2. Answer `y` to apply it right away, or leave it and apply later.
 3. Start later runs with `--l1a-table <file>` (or `latest`): Step 8 writes each ETROC's value instead of `--l1a-delay`. A warning is printed if the table was built at a different `TRIG_DLY_SEL` than the current `--trigger-delay`. An ETROC without data in the scan is left out of the table.
 
-The table depends on `TRIG_DLY_SEL` and on the link rate, so rescan after changing either. Menu 17 (Scan Trigger Delay) scans with the single `--l1a-delay` for all ETROCs and writes the table back afterwards.
+The table depends on `TRIG_DLY_SEL` and on the link rate, so rescan after changing either. Menu 15 (Scan Trigger Delay) scans with the single `--l1a-delay` for all ETROCs and writes the table back afterwards.
 
-**Compensation test (menu 18, mode `c`).** Checks whether `L1Adelay` really compensates a shifted `TRIG_DLY_SEL`. The current `TRIG_DLY_SEL` is the reference and must give data at `--l1a-delay`. For each offset (default `-6,-3,0,3,6`, must include 0) it sets `TRIG_DLY_SEL = reference + offset`, scans `L1Adelay` over `--l1a-delay` ± (largest offset + 8), and prints per ETROC how far the `L1Adelay` window centre moved relative to offset 0. If both delays act on the same timing, the shift equals the offset (slope close to 1). `TRIG_DLY_SEL` and the pixel `L1Adelay` are restored afterwards; the result is saved as `l1a_comp_<time>.json`. If a shifted window runs into the end of the scanned range, the centre is wrong; use smaller offsets.
+**Compensation test (notebook section 11.6 only).** Checks whether `L1Adelay` really compensates a shifted `TRIG_DLY_SEL`. The current `TRIG_DLY_SEL` is the reference and must give data at `--l1a-delay`. For each offset (default `-6,-3,0,3,6`, must include 0) it sets `TRIG_DLY_SEL = reference + offset`, scans `L1Adelay` over `--l1a-delay` ± (largest offset + 8), and prints per ETROC how far the `L1Adelay` window centre moved relative to offset 0. If both delays act on the same timing, the shift equals the offset (slope close to 1). `TRIG_DLY_SEL` and the pixel `L1Adelay` are restored afterwards; the result is saved as `l1a_comp_<time>.json`. If a shifted window runs into the end of the scanned range, the centre is wrong; use smaller offsets.
 
 ## 8. If something goes wrong
 
@@ -240,21 +239,21 @@ Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 
 | Symptom | What to check / do |
 |---|---|
-| `InitializationError` during **FC termination** | The FC termination step needs all four ETROCs of a daughter card to answer on I2C. Check the others (menu 10). |
-| I2C read of a hybrid fails (menu 10; register 0 should read `0x2C` = 44) | The four hybrids of a daughter share one I2C bus (addresses 0x60-0x63), so one bad chip can break the others. Check the ETROC power supply, reseat the daughter card, power cycle. |
+| `InitializationError` during **FC termination** | The FC termination step needs all four ETROCs of a daughter card to answer on I2C. Check the others (menu 8). |
+| I2C read of a hybrid fails (menu 8; register 0 should read `0x2C` = 44) | The four hybrids of a daughter share one I2C bus (addresses 0x60-0x63), so one bad chip can break the others. Check the ETROC power supply, reseat the daughter card, power cycle. |
 | I2C read fails on a daughter card powered **separately** (not through the motherboard), e.g. D6 with a longer FFC | The I2C lines need pull-ups, and the pull-up resistors are on the motherboard. When the ETROC supply goes motherboard → FFC → daughter, the pull-ups are powered through that path and I2C works. When the supply goes straight to the daughter card, the motherboard pull-ups are not powered and I2C reads fail, even though the chip is fine and other slots work. Fix: provide the pull-up supply (tested and confirmed on D6); do not assume a bad chip or a longer FFC is the cause. |
-| One hybrid does not lock at 640 Mbps (Step 6 / menu 11) | Rate-specific. Scan EPRX phase select (menu 14) and apply the result (menu 15 or `--phase-settings`); the lpGBT EQ setting (`EPRX{e}EQ`) can also help. EPRX termination is enabled in the lpGBT init. |
-| Links lock but one chip is missing or has too few events | Read the per-E-link table. Event E-link number = 28 x bank + lpGBT E-link (TRIG E4/E6/E8/E10 = 32/34/36/38). No headers: link or trigger path. Headers present but the L1 counter is far below the pulse count: L1A/FC not received, try menu 20/21 (`fcDataDelayEn`). Wrong or empty BCID window: scan the trigger delay (menu 17/19), scan the per-ETROC L1Adelay (menu 18) or change `--l1a-delay`. |
-| `invalidFCCount` constant but L1As are lost | It only counts malformed FC commands. Judge by the received L1A count and try the FC delay bits (menu 20/21). |
+| One hybrid does not lock at 640 Mbps (Step 6 / menu 9) | Rate-specific. Scan EPRX phase select (menu 12) and apply the result (menu 13 or `--phase-settings`); the lpGBT EQ setting (`EPRX{e}EQ`) can also help. EPRX termination is enabled in the lpGBT init. |
+| Links lock but one chip is missing or has too few events | Read the per-E-link table. Event E-link number = 28 x bank + lpGBT E-link (TRIG E4/E6/E8/E10 = 32/34/36/38). No headers: link or trigger path. Headers present but the L1 counter is far below the pulse count: L1A/FC not received, try menu 19/20 (`fcDataDelayEn`). Wrong or empty BCID window: scan the trigger delay (menu 15/16), scan the per-ETROC L1Adelay (menu 17) or change `--l1a-delay`. |
+| `invalidFCCount` constant but L1As are lost | It only counts malformed FC commands. Judge by the received L1A count and try the FC delay bits (menu 19/20). |
 | `controllerState` is not 11 (`ETROC.is_good()` fails) | Check the ETROC supply. Seen once as 7 on one hybrid; cause not understood. |
 | Trigger does not reach all chips | Trigger mask bit = 14 x bank + E-link/2; TRIG E4..E10 are bits 16-19 (`0xF0000`). Check `--trigger-selection`. |
-| "Link lock lost during QInj preparation" | The script refuses to send the burst. Rerun bitslip (menu 9), check links (menu 11), then retry (r). |
+| "Link lock lost during QInj preparation" | The script refuses to send the burst. Rerun bitslip (menu 7), check links (menu 9), then retry (r). |
 | `--blnw-load`: "No usable saved BL/NW result" | The file is incomplete, was a `sample` scan while `all` is requested, or lacks one of the selected ETROCs. Rescan once without `--blnw-load`. |
 | KCU does not answer / uhal errors | Check `--ip` (default 192.168.0.10), power and the Ethernet link. |
 | Start over | Press r for the failed step. For a clean start rerun the script from the beginning (exiting does not reset the hardware). |
 
 ## 9. Notes
 
-- Menu 22 and `--print-records` print the full header/data/trailer records per E-link (the notebook-style output).
+- Menu 21 and `--print-records` print the full header/data/trailer records per E-link (the notebook-style output).
 - Nothing touches hardware unless `--stage` is `motherboard` or later.
 - Output files: BL/NW pickles in `pathfinder/results/blnw/`, diagnostic JSON files in `pathfinder/results/trigger_delay/`, `qinj/`, `fc_delay/`, `phase_scan/` (or `--scan-output` if given).
