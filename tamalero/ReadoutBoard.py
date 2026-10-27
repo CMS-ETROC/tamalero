@@ -56,6 +56,8 @@ class ReadoutBoard:
             self.kcu = kcu
             self.kcu.readout_boards.append(self)
             self.DAQ_LPGBT.configure()
+            # Same pattern as sca_hard_reset: after the lpGBT is configured, before the VTRx+ is used
+            self.vtrx_hard_reset()
             # self.DAQ_LPGBT.configure_eprx()
             # self.DAQ_LPGBT.power_up_init()
             # If version is undetermined or older than 3, get version from LPGBT and try to connect SCA to KCU
@@ -417,6 +419,17 @@ class ReadoutBoard:
         #    self.DAQ_LPGBT.reset_trigger_mgts() 
 
         #sleep(0.5)
+
+    def vtrx_hard_reset(self):
+        # Same idea as sca_hard_reset: pulse the active-low VTRx+ RSTB pin low and release it.
+        # RSTB is wired to DAQ lpGBT GPIO8 on the new motherboard; the VTRx+ only
+        # answers on I2C after this reset.
+        bit = 8
+        self.DAQ_LPGBT.set_gpio_direction(bit, 1)
+        self.DAQ_LPGBT.set_gpio(bit, 0)
+        sleep(0.2)
+        self.DAQ_LPGBT.set_gpio(bit, 1)
+        sleep(0.5)
 
     def reset_link(self, trigger=False):
         '''
