@@ -39,9 +39,12 @@ class ReadoutBoard:
         self.config = config
 
         self.trigger = trigger
-        # print('############################ReadoutBoard LPGBT Instantiation############################')
+        print('#####################ReadoutBoard DAQ_LPGBT Instantiation#####################')
         self.DAQ_LPGBT = LPGBT(rb=rb, flavor=flavor, kcu=kcu, config=self.config, poke=poke, rbver=self.ver)
-        # print('############################ReadoutBoard VTRX Instantiation############################')
+        # print('#####################Hard Reset VTRX before its Instantiation#####################')
+        # Same pattern as sca_hard_reset: after the lpGBT is configured, before the VTRx+ is used
+        self.vtrx_hard_reset()
+        print('########################ReadoutBoard VTRX Instantiation########################')
         self.VTRX = VTRX(self.DAQ_LPGBT)
         # This is not yet recommended:
         #for adr in [0x06, 0x0A, 0x0E, 0x12]:
@@ -56,8 +59,6 @@ class ReadoutBoard:
             self.kcu = kcu
             self.kcu.readout_boards.append(self)
             self.DAQ_LPGBT.configure()
-            # Same pattern as sca_hard_reset: after the lpGBT is configured, before the VTRx+ is used
-            self.vtrx_hard_reset()
             # self.DAQ_LPGBT.configure_eprx()
             # self.DAQ_LPGBT.power_up_init()
             # If version is undetermined or older than 3, get version from LPGBT and try to connect SCA to KCU
@@ -147,6 +148,7 @@ class ReadoutBoard:
                 print ("Trigger lpGBT was found, but will not be configured.")
 
         if self.trigger:
+            print('########################ReadoutBoard TRIG_LPGBT Instantiation########################')
             self.TRIG_LPGBT = LPGBT(rb=self.rb, flavor=self.flavor, trigger=True, master=self.DAQ_LPGBT, kcu=self.kcu, config=self.config, poke=poke, rbver=self.ver)
 
 
