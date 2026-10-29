@@ -1159,6 +1159,211 @@ def configure_adc_mapping(rb, mapping):
     return grouped
 
 
+def read_adc_statistics(rb, reads=100):
+    """Read the 8 external ADC pins of DAQ (and TRIG) `reads` times each.
+
+    Returns {bank: {pin: {mean, std, min, max}}} in raw 10-bit codes. Only
+    calls calibrate_adc() and read_adc(); no other hardware writes.
+    """
+    import statistics
+    stats = {}
+    for bank, lp in (("daq", rb.DAQ_LPGBT), ("trig", getattr(rb, "TRIG_LPGBT", None))):
+        if lp is None:
+            continue
+        try:
+            lp.calibrate_adc()
+        except Exception as exc:
+            print(f"WARNING: {bank} calibrate_adc failed: {exc}")
+        samples = {pin: [] for pin in range(8)}
+        for _ in range(reads):
+            for pin in range(8):
+                samples[pin].append(int(lp.read_adc(pin)))
+        stats[bank] = {pin: {"mean": statistics.fmean(v), "std": statistics.pstdev(v), "min": min(v), "max": max(v)}
+                       for pin, v in samples.items()}
+    return stats
+
+
+def adc_board_channels(mapping, board):
+    """Mapped ADC channels of one daughter card, e.g. D0_VREF, D0H1_VTEMP, D0_1V2_CURRENT."""
+    entries = mapping["adc_monitoring"]["adc"]
+    return {name: entry for name, entry in entries.items()
+            if name.startswith(board + "_") or name.startswith(board + "H")}
+
+
+def evaluate_adc_board(mapping, board, off, on, supply_current=None, vtemp_to_celsius=None, full_scale=1023.0):
+    """Compare ADC statistics taken with the board powered off and on.
+
+    Pure calculation. Per channel: raw mean/std, converted value, limit check, and
+    whether its pins changed by more than 5 sigma (min 3 codes) when the board was powered.
+    Pins outside this board that changed are reported as unexpected (wiring/mapping issue).
+    """
+    channels = adc_board_channels(mapping, board)
+    if not channels:
+        raise ValueError(f"No ADC channels mapped for {board}")
+    rows, own = [], {"daq": set(), "trig": set()}
+    for name, entry in channels.items():
+        bank = "trig" if entry["lpgbt"] in ("trig", "trigger") else "daq"
+        pins = [entry["pin_pos"], entry["pin_neg"]] if entry.get("differential", False) else [entry["pin"]]
+        own[bank].update(pins)
+
+        def code(stats, pin):
+            return stats[bank][pin]["mean"]
+
+        def value(stats):
+            frac = [code(stats, p) / full_scale for p in pins]
+            return (frac[0] - frac[1] if len(frac) == 2 else frac[0]) * entry["conv"]
+
+        changed = {}
+        for pin in pins:
+            sigma = max(off[bank][pin]["std"], on[bank][pin]["std"])
+            delta = on[bank][pin]["mean"] - off[bank][pin]["mean"]
+            changed[pin] = abs(delta) > max(5 * sigma, 3.0)
+        v_on = value(on)
+        row = {"channel": name, "bank": bank, "pins": pins,
+               "raw_off": [off[bank][p]["mean"] for p in pins], "raw_on": [on[bank][p]["mean"] for p in pins],
+               "std_on": [on[bank][p]["std"] for p in pins], "conv": entry["conv"],
+               "value_off": value(off), "value_on": v_on,
+               "min": entry.get("min"), "max": entry.get("max"),
+               "in_limits": None if entry.get("min") is None else entry["min"] <= v_on <= entry["max"],
+               "changed": all(changed.values()) if len(pins) == 1 else any(changed.values())}
+        if name.endswith("VTEMP") and vtemp_to_celsius is not None:
+            row["temperature_c"] = vtemp_to_celsius(v_on)
+        if name.endswith("CURRENT") and supply_current:
+            row["supply_current"] = supply_current
+            row["ratio_to_supply"] = v_on / supply_current
+        rows.append(row)
+    unexpected = []
+    for bank, pins in off.items():
+        for pin in pins:
+            if pin in own.get(bank, set()):
+                continue
+            sigma = max(off[bank][pin]["std"], on[bank][pin]["std"])
+            if abs(on[bank][pin]["mean"] - off[bank][pin]["mean"]) > max(5 * sigma, 3.0):
+                unexpected.append({"bank": bank, "pin": pin, "delta": on[bank][pin]["mean"] - off[bank][pin]["mean"]})
+    return {"board": board, "channels": rows, "unexpected_pin_changes": unexpected}
+
+
+def print_adc_board_report(report):
+    print(f"ADC verification for {report['board']}")
+    print(f"{'channel':<16}{'bank':<6}{'pins':<7}{'off(code)':>10}{'on(code)':>10}{'std':>6}{'value':>9}  changed  limits  extra")
+    for r in report["channels"]:
+        extra = ""
+        if "temperature_c" in r:
+            extra = f"T={r['temperature_c']:.1f}C"
+        if "ratio_to_supply" in r:
+            extra = f"adc/supply={r['ratio_to_supply']:.2f}"
+        lim = "n/a" if r["in_limits"] is None else ("ok" if r["in_limits"] else "OUT")
+        pins = "/".join(map(str, r["pins"]))
+        print(f"{r['channel']:<16}{r['bank']:<6}{pins:<7}{r['raw_off'][0]:>10.1f}{r['raw_on'][0]:>10.1f}{r['std_on'][0]:>6.2f}"
+              f"{r['value_on']:>9.3f}  {'yes' if r['changed'] else 'NO':<7}  {lim:<6}  {extra}")
+    if report["unexpected_pin_changes"]:
+        print("WARNING: pins outside this board changed when it was powered (mapping/wiring?): "
+              + ", ".join(f"{u['bank']} pin {u['pin']} ({u['delta']:+.1f} codes)" for u in report["unexpected_pin_changes"]))
+    else:
+        print("No other ADC pin changed when this board was powered.")
+
+
+_ADC_INTERNAL = ((9, "VDDIO", None), (10, "VDDTX", (1.08, 1.32)), (11, "VDDRX", (1.08, 1.32)),
+                 (12, "VDD", (1.08, 1.32)), (13, "VDDA", (1.08, 1.32)))
+
+
+def adc_volts(code, gain, offset):
+    """Input voltage (V, 1 V reference) from a raw single-ended code (INN = VREF/2).
+
+    lpGBT: code = (Vin - 0.5) / Vref * gain * 512 + offset.
+    """
+    return 0.5 + (code - offset) / (gain * 512.0)
+
+
+def adc_reference_check(rb, reads=20):
+    """Check the lpGBT ADC against its internal references and cross-check differential reads.
+
+    Per lpGBT (DAQ, TRIG), no external connections needed:
+      - gain/offset: stored calibration vs a fresh measurement (VREF/2 and internal ground)
+      - internal supply monitors (x0.42 dividers) converted to volts
+      - temperature sensor channel in volts (no conversion)
+      - systematic difference between the driver conversion (calibrated code / 1023)
+        and the gain/offset formula, at several input voltages
+      - on TRIG: hardware differential reads (pins 0-1, 2-3, 4-5, 6-7) vs subtraction of
+        two single-ended reads, which is what read_adcs() uses for the current channels
+    VDDMONENA is switched temporarily for the ground reading and restored.
+    """
+    import statistics
+
+    def stats(values):
+        return {"mean": statistics.fmean(values), "std": statistics.pstdev(values)}
+
+    report = {}
+    for bank, lp in (("daq", rb.DAQ_LPGBT), ("trig", getattr(rb, "TRIG_LPGBT", None))):
+        if lp is None:
+            continue
+        lp.calibrate_adc()
+        stored_gain, stored_offset = lp.cal_gain, lp.cal_offset
+        lp.init_adc()  # as read_adcs() does: dividers enabled
+        item = {"stored_gain": stored_gain, "stored_offset": stored_offset}
+
+        item["offset_now"] = stats([lp.read_adc_raw(0xF) for _ in range(reads)])
+        monitor = lp.rd_reg("LPGBT.RW.ADC.VDDMONENA")
+        try:
+            lp.wr_reg("LPGBT.RW.ADC.VDDMONENA", 0x0)
+            ground = [lp.read_adc_raw(0xC) for _ in range(reads)]
+        finally:
+            lp.wr_reg("LPGBT.RW.ADC.VDDMONENA", monitor)
+        item["ground_raw"] = stats(ground)
+        item["gain_now"] = 2 * abs(item["ground_raw"]["mean"] - item["offset_now"]["mean"]) / 512
+        gain, offset = stored_gain, stored_offset
+
+        item["supplies"] = {}
+        for channel, name, limits in _ADC_INTERNAL:
+            raw = stats([lp.read_adc_raw(channel) for _ in range(reads)])
+            supply = adc_volts(raw["mean"], gain, offset) / 0.42
+            item["supplies"][name] = {"raw": raw, "supply_v": supply,
+                                      "ok": None if limits is None else limits[0] <= supply <= limits[1]}
+        temp = stats([lp.read_adc_raw(14) for _ in range(reads)])
+        item["temperature_sensor"] = {"raw": temp, "volts": adc_volts(temp["mean"], gain, offset)}
+
+        item["driver_vs_formula"] = []
+        for volts in (0.1, 0.3, 0.5, 0.8, 0.95):
+            raw = offset + (volts - 0.5) * gain * 512
+            calibrated = lp.apply_adc_calibration(raw)
+            driver = calibrated / (2**10 - 1)
+            item["driver_vs_formula"].append({"input_v": volts, "driver_v": driver, "difference_v": driver - volts})
+
+        if bank == "trig":
+            item["differential"] = []
+            for pos in (0, 2, 4, 6):
+                neg = pos + 1
+                hard = [lp.read_differential_adc_raw(pos, neg) for _ in range(reads)]
+                p = [lp.read_adc_raw(pos) for _ in range(reads)]
+                n = [lp.read_adc_raw(neg) for _ in range(reads)]
+                hard_v = (statistics.fmean(hard) - offset) / (gain * 512.0)
+                soft_v = adc_volts(statistics.fmean(p), gain, offset) - adc_volts(statistics.fmean(n), gain, offset)
+                driver_v = (lp.apply_adc_calibration(statistics.fmean(p)) - lp.apply_adc_calibration(statistics.fmean(n))) / (2**10 - 1)
+                item["differential"].append({"pins": [pos, neg], "hardware_v": hard_v, "subtraction_v": soft_v,
+                                             "read_adcs_v": driver_v, "hardware_std_code": statistics.pstdev(hard)})
+        report[bank] = item
+    return report
+
+
+def print_adc_reference_check(report):
+    for bank, item in report.items():
+        print(f"\n{bank.upper()} lpGBT ADC")
+        print(f"  calibration: stored gain {item['stored_gain']:.3f} offset {item['stored_offset']:.1f}; "
+              f"now gain {item['gain_now']:.3f} offset {item['offset_now']['mean']:.1f} (std {item['offset_now']['std']:.2f})")
+        for name, s in item["supplies"].items():
+            flag = "" if s["ok"] is None else ("  ok" if s["ok"] else "  OUT OF RANGE")
+            print(f"  {name:<6} raw {s['raw']['mean']:7.1f} (std {s['raw']['std']:.2f}) -> {s['supply_v']:.3f} V{flag}")
+        t = item["temperature_sensor"]
+        print(f"  temperature sensor: raw {t['raw']['mean']:.1f} -> {t['volts']:.3f} V (not converted to degrees)")
+        print("  driver conversion (calibrated code/1023) vs gain/offset formula:")
+        for row in item["driver_vs_formula"]:
+            print(f"    input {row['input_v']:.2f} V -> driver {row['driver_v']:.3f} V ({row['difference_v']*1000:+.0f} mV)")
+        for d in item.get("differential", []):
+            ratio = d["read_adcs_v"] / d["hardware_v"] if abs(d["hardware_v"]) > 1e-4 else float("nan")
+            print(f"  pins {d['pins'][0]}-{d['pins'][1]}: hardware diff {d['hardware_v']*1000:+.1f} mV, "
+                  f"subtraction {d['subtraction_v']*1000:+.1f} mV, read_adcs {d['read_adcs_v']*1000:+.1f} mV (read_adcs/hardware {ratio:.3f})")
+
+
 # E-link configuration and diagnostics. Acquisition must be stopped for writes.
 _LINK_RATES = {320: (2, 1), 640: (3, 2)}
 
