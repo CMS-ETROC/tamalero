@@ -28,7 +28,7 @@ def build_parser():
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--mapping", default="pathfinder_mapping.yaml",
                         help="Absolute path or filename relative to repo/pathfinder")
-    parser.add_argument("--stage", choices=["preview", "motherboard", "links", "phase-scan", "blnw", "qinj", "fc-scan"], default="preview",
+    parser.add_argument("--stage", choices=["preview", "motherboard", "etroc-init", "etroc-power", "links", "phase-scan", "blnw", "qinj", "fc-scan"], default="preview",
                         help="Run all prerequisite sections through this stage")
     parser.add_argument("--selection", type=selection, default={0: "all"},
                         help='JSON, e.g. {"1":"all","3":[1]}')
@@ -53,6 +53,8 @@ def build_parser():
     parser.add_argument("--interactive", action="store_true",
                         help="Open repeatable diagnostics after a hardware stage")
     parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
+    parser.add_argument("--skip-high-power", action="store_true",
+                        help="Do not set or verify ETROC high power mode (Step 5.2); ETROCs keep their current power mode")
     parser.add_argument("--trigger-bits", type=int, choices=[0, 1, 2], default=1)
     parser.add_argument("--l1a-table", default=None, help="Per-ETROC L1Adelay table from menu 17: a JSON path or 'latest'; ETROCs not in it use --l1a-delay")
     parser.add_argument("--l1a-delay", type=int, default=501, help="ETROC pixel L1Adelay; distinct from FPGA trigger delay and FC input delay bits")
@@ -94,6 +96,11 @@ def show_run_plan(args):
         print("Offline preview only. No hardware initialization will run.")
     elif args.stage == "motherboard":
         print("Hardware configuration will run. Stop point: before ETROC initialization.")
+    elif args.stage == "etroc-init":
+        print("Hardware configuration will run. Stop point: right after ETROC initialization (Step 5).")
+    elif args.stage == "etroc-power":
+        print("Hardware configuration will run. Stop point: after ETROC communication/register checks and the high power mode step"
+              + (" (high power mode skipped)." if args.skip_high_power else "."))
     else:
         print("Hardware configuration will run. Selected ETROC daughter boards must be connected.")
     if args.stage == "qinj":
@@ -107,7 +114,7 @@ def show_run_plan(args):
 MENU_GROUPS = (
     ("Links", tuple(range(1, 14))),
     ("Trigger and Data", tuple(range(14, 22))),
-    ("Monitoring", (22,)),
+    ("Monitoring", (22, 23)),
 )
 
 
@@ -167,6 +174,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         actions["19"] = ("Scan FC Input Delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
         actions["22"] = ("Read ADC Monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
+        actions["23"] = ("Check ADC Against Internal References", "READ ONLY", "Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored.")
         actions["8"] = ("Retry Direct I2C Reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
         actions["5"] = ("Read Receiver Masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
@@ -428,6 +436,14 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         lp.calibrate_adc()
                         lp.read_adcs(check=True, strict_limits=False)
                     print("ADC read complete; review individual values and limits.")
+            elif choice == "23":
+                from pathfinder_control import adc_reference_check, print_adc_reference_check
+                reads = int(input("Reads per channel [20]: ").strip() or "20")
+                if not 5 <= reads <= 500:
+                    raise ValueError("Reads must be 5..500")
+                report = adc_reference_check(rb, reads)
+                print_adc_reference_check(report)
+                save_diagnostic(results_path("adc", output_dir), "adc_reference", report)
             elif choice == "20":
                 show_fc_settings(chips)
                 names = [i.strip().strip("\"'") for i in input('ETROC IDs, e.g. "D0H0", "D0H1": ').split(",") if i.strip().strip("\"'")]
@@ -1156,6 +1172,11 @@ def main(args):
             if action != "continue":
                 return
         break
+    if args.stage == 'etroc-init':
+        print('ETROC initialization stage complete. ETROC communication/register checks (Step 5.1) and power mode have not run.', flush=True)
+        if args.interactive:
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == 'pathfinder_mapping.yaml', mapping=mapping, chips=chips, ids=ids, blnw_results=locals().get("blnw_results"))
+        return
     while True:
         try:
             announce('5.1. ETROC communication and register checks', 'Check I2C communication with the initialized chips, then read the key registers.', 'A failed I2C check names the ETROC and the error; register readings are printed per chip.')
@@ -1208,7 +1229,7 @@ def main(args):
         break
     while True:
         try:
-            announce('5.2. Power mode, rate and merge configuration', 'Apply high power mode, link rate and merged trigger data (ETROC and FPGA trigger bits).', 'Power-mode, merge and TRIG_DATA_SIZE readbacks must pass; subsequent link retries preserve these settings.')
+            announce('5.2. High power mode', 'Apply ETROC high power mode and verify it (skipped with --skip-high-power).', 'Power-mode readback must report high at the sampled pixel.')
             basic_checks_passed = False
             etroc_power_checks_done = False
             blnw_scan_passed = False
@@ -1217,22 +1238,54 @@ def main(args):
             if not etroc_register_checks_done:
                 raise RuntimeError("Complete the ETROC register configuration cell first")
             etroc_power_results = {}
-            for identity, etroc in chips.items():
-                try:
-                    etroc.set_power_mode(mode="high", row=0, col=0, broadcast=True)
-                except Exception as exc:
-                    raise RuntimeError(f"High power configuration failed for {identity}") from exc
+            if args.skip_high_power:
+                show_status("High power mode skipped (--skip-high-power); ETROCs keep their current power mode", "warning")
+            else:
+                for identity, etroc in chips.items():
+                    try:
+                        etroc.set_power_mode(mode="high", row=0, col=0, broadcast=True)
+                    except Exception as exc:
+                        raise RuntimeError(f"High power configuration failed for {identity}") from exc
 
-            for identity, etroc in chips.items():
-                try:
-                    mode = etroc.get_power_mode(row=8, col=8)
-                    etroc_power_results[identity] = mode
-                    print(f"{identity}: power mode at pixel (8, 8) = {mode}")
-                    if mode != "high":
-                        raise RuntimeError(f"Expected high power mode, received {mode!r}")
-                except Exception as exc:
-                    raise RuntimeError(f"Power mode verification failed for {identity}") from exc
-            show_status("High power mode configured; sampled pixel readbacks passed", "success")
+                for identity, etroc in chips.items():
+                    try:
+                        mode = etroc.get_power_mode(row=8, col=8)
+                        etroc_power_results[identity] = mode
+                        print(f"{identity}: power mode at pixel (8, 8) = {mode}")
+                        if mode != "high":
+                            raise RuntimeError(f"Expected high power mode, received {mode!r}")
+                    except Exception as exc:
+                        raise RuntimeError(f"Power mode verification failed for {identity}") from exc
+                show_status("High power mode configured; sampled pixel readbacks passed", "success")
+        except Exception as exc:
+            if not args.interactive:
+                raise
+            print(f"[FAILED] {CURRENT_STEP}: {type(exc).__name__}: {exc}")
+            if workflow_menu(locals(), args, failed=True) == "retry":
+                continue
+            return
+        if args.step:
+            action = workflow_menu(locals(), args)
+            if action == "retry":
+                continue
+            if action != "continue":
+                return
+        break
+    if args.stage == 'etroc-power':
+        print('ETROC power stage complete' + (' (high power mode skipped).' if args.skip_high_power else '.') + ' Link rate and merge configuration (Step 5.3) has not run.', flush=True)
+        if args.interactive:
+            interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == 'pathfinder_mapping.yaml', mapping=mapping, chips=chips, ids=ids, blnw_results=locals().get("blnw_results"))
+        return
+    while True:
+        try:
+            announce('5.3. Link rate and merge configuration', 'Apply merged trigger data (ETROC and FPGA trigger bits) and the link rate.', 'Merge, TRIG_DATA_SIZE and rate readbacks must pass; subsequent link retries preserve these settings.')
+            basic_checks_passed = False
+            etroc_power_checks_done = False
+            blnw_scan_passed = False
+            if tuple(ids) != initialized_ids or list(chips) != ids:
+                raise RuntimeError("Selection changed or initialization is incomplete")
+            if not etroc_register_checks_done:
+                raise RuntimeError("Complete the ETROC register configuration cell first")
 
             import time
 

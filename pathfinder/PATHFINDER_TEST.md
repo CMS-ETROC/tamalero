@@ -67,6 +67,8 @@ Each stage runs all earlier ones first.
 |---|---|
 | `preview` (default) | Prints the run plan only. No hardware access. |
 | `motherboard` | Configures KCU/lpGBT/clocks and checks the motherboard. Stops before ETROC initialization. |
+| `etroc-init` | Runs everything up to and including ETROC initialization (Step 5), then stops. Steps 5.1 and later do not run. |
+| `etroc-power` | Adds ETROC communication/register checks (5.1) and high power mode (5.2, skippable), then stops before link rate/merge configuration (5.3). |
 | `links` | Initializes ETROCs, sets rate/merge options and runs the E-link lock check (Step 6). |
 | `phase-scan` | `links` plus an lpGBT phase-select scan on `--scan-selection` (default: `--selection`). |
 | `blnw` | Through the BL/NW baseline / noise-width scan (Step 7); stops after the figures. |
@@ -85,7 +87,8 @@ Each stage runs all earlier ones first.
 | `--ip`, `--rb-id` | `192.168.0.10`, `0` | KCU IP address and readout-board id. |
 | `--board-config` | `default` | Board configuration name. |
 | `--rate` | `640` | ETROC link rate, 320 or 640 Mbps. Settings (phase select, trigger delay) are rate-specific. |
-| `--trigger-bits` | `1` | Merged trigger bits (0, 1, 2). Written to every selected ETROC (merge on, trigger granularity) and to the FPGA `TRIG_DATA_SIZE` in Step 5.2, and read back. |
+| `--skip-high-power` | off | Skip setting and verifying ETROC high power mode (Step 5.2); the ETROCs keep their current power mode. |
+| `--trigger-bits` | `1` | Merged trigger bits (0, 1, 2). Written to every selected ETROC (merge on, trigger granularity) and to the FPGA `TRIG_DATA_SIZE` in Step 5.3, and read back. |
 | `--trigger-delay` | `469` | FPGA `TRIG_DLY_SEL` (one global delay line). |
 | `--l1a-delay` | `501` | Pixel `L1Adelay` (BX) written to every selected ETROC. Different from the FPGA delay and from the FC input delay bits. |
 | `--l1a-table` | none | Per-ETROC `L1Adelay` table from menu 17: a JSON path or `latest`. ETROCs not in the table use `--l1a-delay`. Applied in Step 8 (section 7.1). |
@@ -122,7 +125,8 @@ BL/NW results are saved to `pathfinder/results/blnw/blnw_<timestamp>.pkl`.
 | 4.1 | Optical-link configuration and checks | Configure optical links (EPRX enable/invert, and EPRX phase tracking set to auto, `TRACKMODE=2`), verify readback and monitor uplinks, then check lpGBT status. | For Pathfinder, both READY flags must stay 1 and FEC counters stay 0 at the sampled times. |
 | 5 | ETROC initialization | Create the selected ETROC objects. | Selected chips must be connected; motherboard-only runs stop before this step. |
 | 5.1 | ETROC communication and register checks | Check I2C communication with the initialized chips, then read the key registers. | A failed I2C check names the ETROC and the error; register readings are printed per chip. |
-| 5.2 | Power mode, rate and merge configuration | Apply high power mode, link rate and merged trigger data (ETROC and FPGA trigger bits). | Power-mode, merge and TRIG_DATA_SIZE readbacks must pass; subsequent link retries preserve these settings. |
+| 5.2 | High power mode | Apply ETROC high power mode and verify it (skipped with `--skip-high-power`). | Power-mode readback must report high at the sampled pixel. |
+| 5.3 | Link rate and merge configuration | Apply merged trigger data (ETROC and FPGA trigger bits) and the link rate. | Merge, TRIG_DATA_SIZE and rate readbacks must pass; subsequent link retries preserve these settings. |
 | 6 | E-link lock check | Check selected E-link locks before pixel calibration. | On failure use compare, masks, phase scan/apply, then retry this check. |
 | 6.1 | Link diagnostics | Read settings, masks, controllerState and lock status. | Check optical link, rate/merge, ENABLE/INVERT/TERM and masks before scanning phase. |
 | 7 | BL/NW scan settings | Apply pixel coverage and BL/NW save options. | sample scans 4 pixels per chip; all scans 256 pixels per chip. |
@@ -193,9 +197,19 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 20 | Set FC Input Delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Shows the current FC delay bits of all initialized ETROCs first, then prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10; shows the table again afterwards. |
 | 21 | Charge Injection Acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
 | 22 | Read ADC Monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
+| 23 | Check ADC Against Internal References | READ ONLY | Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored. |  |
 
 Menus 15, 17, 18, 19 and 21 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
 They enable the selected links temporarily, so they also work after Step 12 has masked the links.
+
+### 6.1. ADC check against internal references (menu 23)
+
+No external connections and no daughter card needed; runs on both lpGBTs. It reports the stored vs freshly measured calibration (gain should be 1.65-2, offset about 512), the internal supply monitors (VDD, VDDTX, VDDRX, VDDA should read about 1.2 V; VDDIO depends on the board), the temperature-sensor channel in volts, and two checks of the conversion used by `read_adcs()`:
+
+- The driver converts `calibrated code / 1023`. The lpGBT formula is `Vin = 0.5 + (code - offset) / (gain * 512)`. The report shows the difference between the two at several input voltages (it is zero at 0.5 V and grows towards 0 V and 1 V, tens of mV at the ends).
+- The current channels are computed as the difference of two single-ended reads. On TRIG the report compares this with the hardware differential read of the same pin pair, and shows the `read_adcs/hardware` ratio.
+
+Use these to decide whether the legacy `conv` factors should be corrected before checking the board channels. Results go to `pathfinder/results/adc/`.
 
 ## 7. Per-slot settings in `pathfinder_mapping.yaml`
 
@@ -242,6 +256,7 @@ Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 | `InitializationError` during **FC termination** | The FC termination step needs all four ETROCs of a daughter card to answer on I2C. Check the others (menu 8). |
 | I2C read of a hybrid fails (menu 8; register 0 should read `0x2C` = 44) | The four hybrids of a daughter share one I2C bus (addresses 0x60-0x63), so one bad chip can break the others. Check the ETROC power supply, reseat the daughter card, power cycle. |
 | I2C read fails on a daughter card powered **separately** (not through the motherboard), e.g. D6 with a longer FFC | The I2C lines need pull-ups, and the pull-up resistors are on the motherboard. When the ETROC supply goes motherboard → FFC → daughter, the pull-ups are powered through that path and I2C works. When the supply goes straight to the daughter card, the motherboard pull-ups are not powered and I2C reads fail, even though the chip is fine and other slots work. Fix: provide the pull-up supply (tested and confirmed on D6); do not assume a bad chip or a longer FFC is the cause. |
+| VTRx+ does not answer on I2C after power-up and only works after its reset pin is pulled low (seen on a new motherboard) | The VTRx+ RSTB pin (active low) is wired to DAQ lpGBT GPIO8. `ReadoutBoard.vtrx_hard_reset()` pulses GPIO8 low (0.2 s) and releases it when the `ReadoutBoard` is created, before the VTRx+ is initialized, so no setting is needed. It can also be called by hand to reset the VTRx+ again. |
 | One hybrid does not lock at 640 Mbps (Step 6 / menu 9) | Rate-specific. Scan EPRX phase select (menu 12) and apply the result (menu 13 or `--phase-settings`); the lpGBT EQ setting (`EPRX{e}EQ`) can also help. EPRX termination is enabled in the lpGBT init. |
 | Links lock but one chip is missing or has too few events | Read the per-E-link table. Event E-link number = 28 x bank + lpGBT E-link (TRIG E4/E6/E8/E10 = 32/34/36/38). No headers: link or trigger path. Headers present but the L1 counter is far below the pulse count: L1A/FC not received, try menu 19/20 (`fcDataDelayEn`). Wrong or empty BCID window: scan the trigger delay (menu 15/16), scan the per-ETROC L1Adelay (menu 17) or change `--l1a-delay`. |
 | `invalidFCCount` constant but L1As are lost | It only counts malformed FC commands. Judge by the received L1A count and try the FC delay bits (menu 19/20). |
