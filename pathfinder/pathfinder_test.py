@@ -13,8 +13,59 @@ import sys
 from pathlib import Path
 
 
+def parse_shorthand(text):
+    """'0:1,2,3;2:all' / '0' / 'all' -> selection dict; ';' or '/' separates boards."""
+    text = text.strip()
+    if text.lower() == "all":
+        return {module: "all" for module in range(7)}
+    obj = {}
+    for part in filter(None, (p.strip() for p in text.replace("/", ";").split(";"))):
+        module, _, hybrids = part.partition(":")
+        hybrids = hybrids.strip().lower()
+        if hybrids in ("", "all"):
+            obj[int(module)] = "all"
+        else:
+            obj[int(module)] = [int(h) for h in hybrids.split(",")]
+    if not obj:
+        raise ValueError("empty selection")
+    return obj
+
+
+def drop_from_run(args, mapping, rb, ids, chips, trigger_ids, bad_ids):
+    """Remove ETROCs from this run: chips, ids, trigger sources, CLI selections and receiver masks.
+    Returns (ids, trigger_ids). Only affects the current run."""
+    from pathfinder_control import expand_selection, configure_readout_links
+    bad_ids = list(bad_ids)
+    for identity in bad_ids:
+        chips.pop(identity, None)
+    ids = [i for i in ids if i not in bad_ids]
+    if not ids:
+        raise RuntimeError("All selected ETROCs were dropped")
+    trigger_ids = [i for i in trigger_ids if i not in bad_ids]
+    if not trigger_ids:
+        raise RuntimeError("All trigger ETROCs were dropped")
+
+    def selection_from_ids(id_list):
+        sel = {}
+        for item in id_list:
+            d, h = map(int, re.fullmatch(r"D(\d+)H(\d+)", item).groups())
+            sel.setdefault(d, []).append(h)
+        return sel
+
+    args.selection = selection_from_ids(ids)
+    if args.trigger_selection is not None:
+        args.trigger_selection = selection_from_ids(trigger_ids)
+    if args.scan_selection:
+        kept = [i for i in expand_selection(mapping, args.scan_selection) if i in ids]
+        args.scan_selection = selection_from_ids(kept) if kept else None
+    configure_readout_links(rb, mapping, ids)
+    return ids, trigger_ids
+
+
 def selection(value):
     try:
+        if not value.lstrip().startswith("{"):
+            return parse_shorthand(value)
         obj = json.loads(value)
         if not isinstance(obj, dict) or not obj:
             raise ValueError("selection must be a nonempty JSON object")
@@ -53,6 +104,10 @@ def build_parser():
     parser.add_argument("--interactive", action="store_true",
                         help="Open repeatable diagnostics after a hardware stage")
     parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
+    parser.add_argument("--drop-bad-state", action="store_true",
+                        help="In Step 5.1, drop ETROCs whose controllerState is not 11 (link will not lock) from the run and continue with the rest")
+    parser.add_argument("--drop-unlocked", action="store_true",
+                        help="In Step 6, drop ETROCs whose E-links are not locked from the run and continue with the rest")
     parser.add_argument("--skip-high-power", action="store_true",
                         help="Do not set or verify ETROC high power mode (Step 5.2); ETROCs keep their current power mode")
     parser.add_argument("--trigger-bits", type=int, choices=[0, 1, 2], default=1)
@@ -1194,6 +1249,7 @@ def main(args):
                 raise RuntimeError("I2C check failed for " + "; ".join(f"{identity}: {error}" for identity, error in failed_i2c.items()))
 
             etroc_register_results = {}
+            bad_state_ids = []
             for identity, etroc in chips.items():
                 values = {}
                 etroc_register_results[identity] = values
@@ -1207,9 +1263,17 @@ def main(args):
                         show_status(f"{identity}: disScrambler differs from the legacy expected value 1", "warning")
                     if values["controllerState"] != 11:
                         show_status(f"{identity}: controllerState differs from the legacy expected value 11", "warning")
+                        bad_state_ids.append(identity)
                 except Exception as exc:
                     values["error"] = str(exc)
                     raise RuntimeError(f"ETROC register check failed for {identity}: {exc}") from exc
+            if bad_state_ids and args.drop_bad_state:
+                dropped_etrocs = dict(locals().get("dropped_etrocs", {}))
+                for identity in bad_state_ids:
+                    dropped_etrocs[identity] = etroc_register_results[identity]["controllerState"]
+                ids, trigger_ids = drop_from_run(args, mapping, rb, ids, chips, trigger_ids, bad_state_ids)
+                initialized_ids = tuple(ids)
+                show_status(f"Dropped from this run (controllerState != 11): {dropped_etrocs}. Continuing with {ids}", "warning")
             etroc_register_checks_done = True
 
             # Notebook code cells 24 and 26
@@ -1371,7 +1435,15 @@ def main(args):
                 locked_count = sum(bool(link["locked"]) for result in current_links.values() for link in result["links"])
                 link_count = sum(len(result["links"]) for result in current_links.values())
                 print(f"E-link lock: {locked_count}/{link_count}")
-                if not all(item["all_locked"] for item in current_links.values()):
+                unlocked_ids = [i for i, item in current_links.items() if not item["all_locked"]]
+                if unlocked_ids and args.drop_unlocked:
+                    dropped_unlocked = dict(locals().get("dropped_unlocked", {}))
+                    for identity in unlocked_ids:
+                        dropped_unlocked[identity] = [l["elink"] for l in current_links[identity]["links"] if not l["locked"]]
+                    ids, trigger_ids = drop_from_run(args, mapping, rb, ids, chips, trigger_ids, unlocked_ids)
+                    initialized_ids = tuple(ids)
+                    show_status(f"Dropped from this run (E-link not locked): {dropped_unlocked}. Continuing with {ids}", "warning")
+                elif unlocked_ids:
                     raise RuntimeError("E-link check failed before calibration")
                 basic_checks_passed = True
             if args.stage in ("links", "phase-scan"):

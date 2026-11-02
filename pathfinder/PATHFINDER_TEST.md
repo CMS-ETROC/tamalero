@@ -81,12 +81,14 @@ Each stage runs all earlier ones first.
 |---|---|---|
 | `--repo-root` | parent of `pathfinder/` | Repository root (where the tamalero drivers are found). |
 | `--mapping` | `pathfinder_mapping.yaml` | Mapping file (absolute path, or name relative to `pathfinder/`). |
-| `--selection` | `{"0":"all"}` | Daughters/hybrids to read out. |
+| `--selection` | `{"0":"all"}` | Daughters/hybrids to read out. JSON or shorthand: `0:1,2,3` (D0 H1-3), `0:1,2,3;2:all` (`;` or `/` separates boards), `0` (D0, all hybrids), `all` (D0-D6, all hybrids). Also accepted by `--trigger-selection` and `--scan-selection`. |
 | `--trigger-selection` | = selection | Daughters/hybrids that contribute to the trigger. |
 | `--trigger-logic` | `or` | Combine trigger inputs with `or` / `and`. |
 | `--ip`, `--rb-id` | `192.168.0.10`, `0` | KCU IP address and readout-board id. |
 | `--board-config` | `default` | Board configuration name. |
 | `--rate` | `640` | ETROC link rate, 320 or 640 Mbps. Settings (phase select, trigger delay) are rate-specific. |
+| `--drop-bad-state` | off | In Step 5.1, ETROCs whose `controllerState` is not 11 (their link will not lock) are dropped from the run (selection, trigger sources, receiver masks) and the remaining ETROCs continue. Without it, only a warning is printed. I2C failures still stop the run. |
+| `--drop-unlocked` | off | In Step 6, ETROCs whose E-links are not locked are dropped from the run (selection, trigger sources, receiver masks) and the remaining ETROCs continue. Without it, an unlocked link stops the run. |
 | `--skip-high-power` | off | Skip setting and verifying ETROC high power mode (Step 5.2); the ETROCs keep their current power mode. |
 | `--trigger-bits` | `1` | Merged trigger bits (0, 1, 2). Written to every selected ETROC (merge on, trigger granularity) and to the FPGA `TRIG_DATA_SIZE` in Step 5.3, and read back. |
 | `--trigger-delay` | `469` | FPGA `TRIG_DLY_SEL` (one global delay line). |
