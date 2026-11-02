@@ -108,6 +108,8 @@ def build_parser():
                         help="In Step 5.1, drop ETROCs whose controllerState is not 11 (link will not lock) from the run and continue with the rest")
     parser.add_argument("--drop-unlocked", action="store_true",
                         help="In Step 6, drop ETROCs whose E-links are not locked from the run and continue with the rest")
+    parser.add_argument("--skip-vtrx", action="store_true",
+                        help="Still hard-reset the VTRx+ (DAQ GPIO8) but skip all VTRx+ I2C access, including its configuration in the optical-link step")
     parser.add_argument("--skip-high-power", action="store_true",
                         help="Do not set or verify ETROC high power mode (Step 5.2); ETROCs keep their current power mode")
     parser.add_argument("--trigger-bits", type=int, choices=[0, 1, 2], default=1)
@@ -1102,7 +1104,7 @@ def main(args):
             blnw_scan_passed = False
             rb = ReadoutBoard(
                 rb=READOUTBOARD_ID, kcu=kcu, config=READOUTBOARD_CONFIG,
-                trigger=USE_TRIG, verbose=True,
+                trigger=USE_TRIG, verbose=True, skip_vtrx=args.skip_vtrx,
             )
             if USE_TRIG and (not rb.trigger or getattr(rb, "TRIG_LPGBT", None) is None):
                 raise RuntimeError("TRIG lpGBT was not initialized")

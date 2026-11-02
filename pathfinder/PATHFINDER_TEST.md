@@ -89,6 +89,7 @@ Each stage runs all earlier ones first.
 | `--rate` | `640` | ETROC link rate, 320 or 640 Mbps. Settings (phase select, trigger delay) are rate-specific. |
 | `--drop-bad-state` | off | In Step 5.1, ETROCs whose `controllerState` is not 11 (their link will not lock) are dropped from the run (selection, trigger sources, receiver masks) and the remaining ETROCs continue. Without it, only a warning is printed. I2C failures still stop the run. |
 | `--drop-unlocked` | off | In Step 6, ETROCs whose E-links are not locked are dropped from the run (selection, trigger sources, receiver masks) and the remaining ETROCs continue. Without it, an unlocked link stops the run. |
+| `--skip-vtrx` | off | Hard-reset the VTRx+ (DAQ GPIO8) as usual but skip all VTRx+ I2C access, including its TX1/TX2 configuration in the optical-link step. The VTRx+ stays at its reset defaults, so check that READY=1 and FEC=0 still pass. |
 | `--skip-high-power` | off | Skip setting and verifying ETROC high power mode (Step 5.2); the ETROCs keep their current power mode. |
 | `--trigger-bits` | `1` | Merged trigger bits (0, 1, 2). Written to every selected ETROC (merge on, trigger granularity) and to the FPGA `TRIG_DATA_SIZE` in Step 5.3, and read back. |
 | `--trigger-delay` | `469` | FPGA `TRIG_DLY_SEL` (one global delay line). |

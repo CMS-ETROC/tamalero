@@ -739,19 +739,23 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
         for field in lpgbt_settings:
             chip.rd_reg(field)
 
-    for field in vtrx_settings:
+    skip_vtrx = getattr(rb, "VTRX", None) is None
+    if skip_vtrx:
+        print("VTRx+ I2C access skipped (skip_vtrx): VTRx+ is left at its reset defaults")
+
+    for field in ([] if skip_vtrx else vtrx_settings):
         if field not in rb.VTRX.regs:
             raise RuntimeError(
                 f"VTRx+ register table does not support {field}"
             )
 
     # Prototype-only enables: configure only if supported.
-    for field in ("CHxLAEN", "CHxBEN"):
+    for field in (() if skip_vtrx else ("CHxLAEN", "CHxBEN")):
         if field in rb.VTRX.regs:
             vtrx_settings[field] = 1
 
     def snapshot():
-        return {
+        result = {
             "lpGBT": {
                 name: {
                     field: chip.rd_reg(field)
@@ -759,14 +763,16 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
                 }
                 for name, chip in chips.items()
             },
-            "VTRx+": {
+        }
+        if not skip_vtrx:
+            result["VTRx+"] = {
                 name: {
                     field: rb.VTRX.rd_reg_ch(field, ch)
                     for field in vtrx_settings
                 }
                 for ch, name in [(0, "TX1"), (1, "TX2")]
-            },
-        }
+            }
+        return result
 
     print("1. Checking lpGBT modes")
     expected_modes = {"DAQ": 0xB, "TRIG": 0x9}
@@ -799,9 +805,12 @@ def initialize_pathfinder_links(rb, monitor_seconds=10):
                 )
 
     print("\n3. Configuring VTRx+ TX1 and TX2")
-    print(f"VTRx+ version: {getattr(rb.VTRX, 'ver', 'unknown')}")
+    if skip_vtrx:
+        print("Skipped (skip_vtrx)")
+    else:
+        print(f"VTRx+ version: {getattr(rb.VTRX, 'ver', 'unknown')}")
 
-    for ch in (0, 1):
+    for ch in (() if skip_vtrx else (0, 1)):
         for field, value in vtrx_settings.items():
             rb.VTRX.wr_reg_ch(field, ch, value)
             actual = rb.VTRX.rd_reg_ch(field, ch)
@@ -1115,6 +1124,212 @@ def run_ws_test(rb, mapping, chips, target_ids, *, samples=1, hold_seconds=0.1,
     print(f"WS complete. Results: {output.resolve()}")
     return output
 
+
+
+def _edge_crossing(t, y, level, start, step):
+    """Time where y crosses `level` walking from index `start` in direction `step` (+1/-1); NaN if never."""
+    i = start
+    while 0 <= i + step < len(y):
+        if y[i + step] < level <= y[i]:
+            frac = (y[i] - level) / (y[i] - y[i + step])
+            return float(t[i] + frac * (t[i + step] - t[i]))
+        i += step
+    return float("nan")
+
+
+def ws_pulse_metrics(df, pedestal_window=(40.0, 80.0), locate_points=3, search_window_ns=(100.0, 190.0)):
+    """Amplitude, peak time, edge times and noise of the largest pulse in one WS capture (pure calculation).
+
+    Each of the 8 interleaved channels is aligned to its own pedestal mean in the window
+    (default 40-80 ns, as in the offline DSP). The samples are sorted by time and the largest
+    |value| inside `search_window_ns` (located on a short moving average, value taken from the
+    unfiltered samples next to it) is the pulse, of either polarity. The window selects the response
+    to the RISING edge of the charge-injection pulse (about 150 ns with the current firmware
+    sequence) and excludes the opposite-polarity response to its falling edge, about 50 ns later,
+    which is reported separately as opposite_amplitude / opposite_ns. Edge times use the unfiltered samples and linear
+    interpolation: leading-edge rise 20-80 %, recovery 80-20 %, and the full width at half maximum.
+    Noise is the standard deviation of the aligned pedestal; edges are only meaningful when the
+    pulse is well above it.
+    """
+    import numpy as np
+    t = df["Time_ns"].to_numpy(dtype=float)
+    d = df["Dout"].to_numpy(dtype=float)
+    ch = df["Channel"].to_numpy()
+    adj = d.copy()
+    quiet_all = (t > pedestal_window[0]) & (t < pedestal_window[1])
+    for c in np.unique(ch):
+        m = ch == c
+        q = m & quiet_all
+        adj[m] = d[m] - (d[q].mean() if q.any() else d[m].mean())
+    order = np.argsort(t)
+    t, adj, quiet_all = t[order], adj[order], quiet_all[order]
+    smooth = np.convolve(adj, np.ones(locate_points) / locate_points, mode="same")
+    in_window = (t >= search_window_ns[0]) & (t <= search_window_ns[1])
+    i = int(np.argmax(np.where(in_window, np.abs(smooth), -np.inf)))
+    lo, hi = max(0, i - 2), min(len(adj), i + 3)
+    j = lo + int(np.argmax(np.abs(adj[lo:hi])))
+    amplitude = float(adj[j])
+    y = adj * (1.0 if amplitude >= 0 else -1.0)
+    peak = abs(amplitude)
+    out = {"amplitude": amplitude, "peak_ns": float(t[j]),
+           "noise": float(adj[quiet_all].std()) if quiet_all.any() else float("nan")}
+    t20b, t80b = _edge_crossing(t, y, 0.2 * peak, j, -1), _edge_crossing(t, y, 0.8 * peak, j, -1)
+    t80a, t20a = _edge_crossing(t, y, 0.8 * peak, j, +1), _edge_crossing(t, y, 0.2 * peak, j, +1)
+    t50b, t50a = _edge_crossing(t, y, 0.5 * peak, j, -1), _edge_crossing(t, y, 0.5 * peak, j, +1)
+    out["rise_20_80_ns"] = t80b - t20b
+    out["fall_80_20_ns"] = t20a - t80a
+    out["fwhm_ns"] = t50a - t50b
+    later = t > t[j] + 20.0
+    if later.any():
+        opposite = np.where(later, -np.sign(amplitude) * smooth, -np.inf)
+        k = int(np.argmax(opposite))
+        out["opposite_amplitude"], out["opposite_ns"] = float(smooth[k]), float(t[k])
+    else:
+        out["opposite_amplitude"] = out["opposite_ns"] = float("nan")
+    return out
+
+
+def fit_ws_linearity(charges, amplitudes):
+    """Least-squares line amplitude = slope * charge + intercept, with R^2 and worst residual."""
+    import numpy as np
+    x, y = np.asarray(charges, dtype=float), np.asarray(amplitudes, dtype=float)
+    if len(x) < 2 or len(set(x)) < 2:
+        return {"slope": float("nan"), "intercept": float("nan"), "r2": float("nan"), "max_residual": float("nan")}
+    slope, intercept = np.polyfit(x, y, 1)
+    resid = y - (slope * x + intercept)
+    ss_tot = float(((y - y.mean()) ** 2).sum())
+    return {"slope": float(slope), "intercept": float(intercept),
+            "r2": float(1 - (resid ** 2).sum() / ss_tot) if ss_tot > 0 else float("nan"),
+            "max_residual": float(np.abs(resid).max())}
+
+
+def run_ws_charge_scan(rb, mapping, chips, target_ids, charges, *, samples=3, hold_seconds=0.1,
+                       pixel=(0, 14), offset=10, output_dir="ws_charge_scan", plots=True):
+    """Scan the injected charge and measure the WS pulse amplitude of each target.
+
+    Per charge (1..32 fC, QSel = charge - 1) and per sample: arm all targets, one
+    WS_STOP_PULSE (firmware sequence START/QInj/STOP), read every target. Saves each raw
+    capture, a summary (JSON + CSV) and, per ETROC, the amplitude-vs-charge fit.
+    QSel is restored to 0x1E and the WS closed afterwards, also on failure.
+    """
+    import json
+    import math
+    from datetime import datetime
+    import pandas as pd
+
+    charges = list(charges)
+    if not target_ids or len(set(target_ids)) != len(target_ids):
+        raise ValueError("WS targets must be nonempty and unique")
+    if not charges or any(type(c) is not int or not 1 <= c <= 32 for c in charges) or len(set(charges)) != len(charges):
+        raise ValueError("Charges must be unique integers from 1 to 32 fC")
+    if samples < 1 or not math.isfinite(hold_seconds) or hold_seconds <= 0:
+        raise ValueError("WS samples and hold time must be positive")
+    row, col = pixel
+    samplers, routes = {}, set()
+    for identity in target_ids:
+        if identity not in chips:
+            raise ValueError(f"{identity}: ETROC must be selected and initialized")
+        bus = mapping["etrocs"][identity]["i2c"]
+        addr, channel, bank = bus["ws_address"], bus["channel"], bus["lpgbt"]
+        if type(addr) is not int or not 0 <= addr <= 127:
+            raise ValueError(f"{identity}: invalid WS address")
+        if type(channel) is not int or channel not in (0, 1, 2):
+            raise ValueError(f"{identity}: invalid I2C master channel")
+        if bank not in ("daq", "trig"):
+            raise ValueError(f"{identity}: invalid lpGBT")
+        if bank == "trig" and not getattr(rb, "trigger", False):
+            raise RuntimeError("TRIG lpGBT is not initialized")
+        if (bank, channel, addr) in routes:
+            raise ValueError(f"Duplicate WS route: {(bank, channel, addr)}")
+        routes.add((bank, channel, addr))
+        lpgbt = rb.DAQ_LPGBT if bank == "daq" else rb.TRIG_LPGBT
+        samplers[identity] = TamaleroWaveformSampler(rb, lpgbt, addr, channel)
+        print(f"WS {identity}: {bank.upper()} / M{channel} / 0x{addr:02X}")
+
+    output = Path(output_dir) / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    output.mkdir(parents=True, exist_ok=False)
+    for identity, ws in samplers.items():
+        val = ws.i2c_read(0)
+        if isinstance(val, list):
+            val = val[0] if val else None
+        if val is None:
+            raise RuntimeError(f"{identity}: WS probe failed")
+        ws.init_ws()
+    records = []
+    try:
+        for identity in target_ids:
+            etroc = chips[identity]
+            baseline, nw = etroc.auto_threshold_scan(row=row, col=col, broadcast=False, offset=1023, use=False, verbose=False)
+            print(f"  {identity} ({row},{col}): baseline={baseline}, NW={nw}")
+            etroc.wr_reg("workMode", 0, row=row, col=col, broadcast=False)
+            etroc.wr_reg("enable_TDC", 1, row=row, col=col, broadcast=False)
+            etroc.wr_reg("disDataReadout", 0, row=row, col=col, broadcast=False)
+            etroc.wr_reg("disTrigPath", 0, row=row, col=col, broadcast=False)
+            etroc.wr_reg("DAC", baseline + offset, row=row, col=col, broadcast=False)
+            etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
+            etroc.wr_reg("RfSel", 0x00, row=row, col=col, broadcast=False)
+        for charge in charges:
+            for identity in target_ids:
+                chips[identity].wr_reg("QSel", charge - 1, row=row, col=col, broadcast=False)
+            for sample in range(samples):
+                capture_ws_all(samplers, rb, hold_seconds)
+                for index, identity in enumerate(target_ids):
+                    df = samplers[identity].read_data()
+                    if len(df) != 1024:
+                        raise RuntimeError(f"{identity}: incomplete capture ({len(df)} words)")
+                    df["etroc_id"], df["charge_fc"], df["sample_idx"] = identity, charge, sample
+                    stem = output / f"ws_{index:02d}_q{charge:02d}_sample_{sample:03d}"
+                    df.to_csv(stem.with_suffix(".csv"), index=False)
+                    metrics = ws_pulse_metrics(df)
+                    records.append({"etroc_id": identity, "charge_fc": charge, "sample": sample, **metrics})
+                    print(f"  {identity} {charge:2d} fC #{sample}: amplitude {metrics['amplitude']:+.2f}, "
+                          f"peak {metrics['peak_ns']:.0f} ns, rise {metrics['rise_20_80_ns']:.1f} ns, "
+                          f"fall {metrics['fall_80_20_ns']:.1f} ns, FWHM {metrics['fwhm_ns']:.1f} ns, noise {metrics['noise']:.2f}")
+    finally:
+        for identity, ws in samplers.items():
+            try:
+                chips[identity].wr_reg("QSel", 0x1E, row=row, col=col, broadcast=False)
+            except Exception as exc:
+                print(f"WARNING: QSel restore failed for {identity}: {exc}")
+            try:
+                ws.stop_and_close_ws()
+            except Exception as exc:
+                print(f"WARNING: WS cleanup failed for {identity}: {exc}")
+
+    table = pd.DataFrame(records)
+    summary = {}
+    for identity in target_ids:
+        sub = table[table["etroc_id"] == identity]
+        grouped = sub.groupby("charge_fc")["amplitude"].agg(["mean", "std"]).reset_index()
+        fit = fit_ws_linearity(grouped["charge_fc"], grouped["mean"])
+        summary[identity] = {"fit": fit, "points": grouped.rename(columns={"mean": "amplitude_mean", "std": "amplitude_std"}).to_dict("records"),
+                             "mean_noise": float(sub["noise"].mean()), "mean_peak_ns": float(sub["peak_ns"].mean()),
+                             "mean_rise_20_80_ns": float(sub["rise_20_80_ns"].mean()),
+                             "mean_fall_80_20_ns": float(sub["fall_80_20_ns"].mean()),
+                             "mean_fwhm_ns": float(sub["fwhm_ns"].mean())}
+        print(f"{identity}: amplitude = {fit['slope']:.3f} * Q + {fit['intercept']:.2f} "
+              f"(R^2 {fit['r2']:.4f}, max residual {fit['max_residual']:.2f}), noise {summary[identity]['mean_noise']:.2f}, "
+              f"peak at {summary[identity]['mean_peak_ns']:.0f} ns, rise {summary[identity]['mean_rise_20_80_ns']:.1f} ns, "
+              f"fall {summary[identity]['mean_fall_80_20_ns']:.1f} ns, FWHM {summary[identity]['mean_fwhm_ns']:.1f} ns")
+    table.to_csv(output / "summary.csv", index=False)
+    (output / "summary.json").write_text(json.dumps({"pixel": list(pixel), "charges": charges, "samples": samples,
+                                                      "summary": summary}, indent=2, default=str) + "\n", encoding="utf-8")
+    if plots:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(7, 5))
+        for identity in target_ids:
+            pts = pd.DataFrame(summary[identity]["points"])
+            ax.errorbar(pts["charge_fc"], pts["amplitude_mean"], yerr=pts["amplitude_std"].fillna(0), marker="o", capsize=3, label=identity)
+            fit = summary[identity]["fit"]
+            ax.plot(pts["charge_fc"], fit["slope"] * pts["charge_fc"] + fit["intercept"], "--", alpha=0.5)
+        ax.set(xlabel="Injected charge [fC]", ylabel="Pulse amplitude [Dout]", title="WS amplitude vs charge")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(output / "amplitude_vs_charge.png", dpi=150)
+        plt.show()
+    print(f"WS charge scan complete. Results: {output.resolve()}")
+    return {"output": output, "table": table, "summary": summary}
 
 
 def configure_adc_mapping(rb, mapping):
