@@ -201,6 +201,7 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 21 | Charge Injection Acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
 | 22 | Read ADC Monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
 | 23 | Check ADC Against Internal References | READ ONLY | Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored. |  |
+| 24 | Compare Pixel Settings and BL/NW | READ ONLY | Read back QInjEn/QSel/TDC/readout/DAC/L1Adelay of selected pixels (default: the BL/NW pixels, i.e. the four corners) and show the BL/NW baseline and noise width next to them. Rows that differ from the others or have no baseline are flagged. Use it to compare an ETROC with no data against a working one. |  |
 
 Menus 15, 17, 18, 19 and 21 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
 They enable the selected links temporarily, so they also work after Step 12 has masked the links.

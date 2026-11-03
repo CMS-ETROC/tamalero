@@ -171,7 +171,7 @@ def show_run_plan(args):
 MENU_GROUPS = (
     ("Links", tuple(range(1, 14))),
     ("Trigger and Data", tuple(range(14, 22))),
-    ("Monitoring", (22, 23)),
+    ("Monitoring", (22, 23, 24)),
 )
 
 
@@ -232,6 +232,8 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
     if mapping is not None and rb is not None:
         actions["22"] = ("Read ADC Monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
         actions["23"] = ("Check ADC Against Internal References", "READ ONLY", "Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored.")
+        if chips:
+            actions["24"] = ("Compare Pixel Settings and BL/NW", "READ ONLY", "Read back QInjEn/QSel/TDC/readout/DAC/L1Adelay of selected pixels and show the BL/NW baseline and noise next to them. Rows that differ from the others or have no baseline are flagged.")
         actions["8"] = ("Retry Direct I2C Reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
         actions["5"] = ("Read Receiver Masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
@@ -387,14 +389,30 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     apply_l1a_table(chips, pixels, L1A_TABLE, default)   # back to the values in use before the scan
                 per_etroc = summarize_l1a_scan(scan, mapping, chips)
                 table = {i: v["best"] for i, v in per_etroc.items() if v["best"] is not None}
-                print(f"\n{'ETROC':<8}{'peak':>6}  {'half-max window':<16}{'width':>6}{'L1Adelay':>10}")
+                print(f"\n{'ETROC':<8}{'peak':>6}  {'half-max window':<16}{'width':>6}{'L1Adelay':>10}{'headers':>9}{'trailers':>10}")
                 for identity, v in per_etroc.items():
                     window = f"{v['window'][0]}..{v['window'][1]}" if v["window"] else "-"
                     width = v["window"][1] - v["window"][0] + 1 if v["window"] else "-"
-                    print(f"{identity:<8}{v['peak']:>6}  {window:<16}{width:>6}{(v['best'] if v['best'] is not None else 'no data'):>10}")
+                    print(f"{identity:<8}{v['peak']:>6}  {window:<16}{width:>6}{(v['best'] if v['best'] is not None else 'no data'):>10}{v['headers']:>9}{v['trailers']:>10}")
+                by_daughter = {}
+                for identity, v in per_etroc.items():
+                    d = identity.split("H")[0]
+                    g = by_daughter.setdefault(d, {"etrocs": 0, "with_data": 0, "peak": 0, "headers": 0, "trailers": 0})
+                    g["etrocs"] += 1
+                    g["with_data"] += v["best"] is not None
+                    g["peak"] += v["peak"]
+                    g["headers"] += v["headers"]
+                    g["trailers"] += v["trailers"]
+                print(f"\n{'Daughter':<10}{'ETROCs':>7}{'with data':>11}{'peak data':>11}{'headers':>9}{'trailers':>10}")
+                for d, g in by_daughter.items():
+                    print(f"{d:<10}{g['etrocs']:>7}{g['with_data']:>11}{g['peak']:>11}{g['headers']:>9}{g['trailers']:>10}")
                 missing = [i for i in chips if i not in table]
                 if missing:
                     print(f"[WARNING] No data from: {', '.join(missing)}; they are left out of the table.")
+                    for i in missing:
+                        h = per_etroc[i]["headers"]
+                        print(f"  {i}: {h} headers over the whole scan -> "
+                              + ("packets arrive, but no data words (check QInj/pixel setup)" if h else "no packets at all (check L1A/FC delivery and link lock)"))
                 report = {"trig_dly_sel": trig_dly, "qinj_count": count, "range": [start, stop], "l1a_default": default,
                           "table": table, "per_etroc": per_etroc, "scan": scan}
                 path = save_diagnostic(results_path("l1a_delay", output_dir), "l1a_delay", report)
@@ -493,6 +511,19 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         lp.calibrate_adc()
                         lp.read_adcs(check=True, strict_limits=False)
                     print("ADC read complete; review individual values and limits.")
+            elif choice == "24":
+                from pathfinder_control import compare_pixel_settings, print_pixel_settings
+                available = [i for i in (ids if ids is not None else chips) if i in chips]
+                print("Initialized ETROCs:", ", ".join(available))
+                names = [i.strip().strip("\"'") for i in input("ETROC IDs [all, or e.g. D0H1,D0H3]: ").split(",") if i.strip().strip("\"'")] or available
+                if any(i not in chips for i in names):
+                    raise ValueError("Use initialized ETROC IDs")
+                default_pixels = list(blnw_results["pixels"]) if blnw_results and blnw_results.get("pixels") else [(r, c) for r in (0, 15) for c in (0, 15)]
+                raw = input(f"Pixels as row,col;row,col [default {default_pixels}]: ").strip()
+                pixels = [tuple(int(x) for x in part.split(",")) for part in raw.split(";") if part.strip()] if raw else default_pixels
+                if blnw_results is None:
+                    print("[INFO] No BL/NW result in memory; baseline and NW columns are left empty.")
+                print_pixel_settings(compare_pixel_settings(chips, names, pixels, blnw_results))
             elif choice == "23":
                 from pathfinder_control import adc_reference_check, print_adc_reference_check
                 reads = int(input("Reads per channel [20]: ").strip() or "20")

@@ -2768,11 +2768,78 @@ def scan_l1a_delay(rb, chips, mapping, scan_pixels, delays=range(480, 512),
     return summary
 
 
+PIXEL_SETTING_REGS = ("QInjEn", "QSel", "enable_TDC", "disDataReadout", "disTrigPath", "DAC", "L1Adelay")
+_PIXEL_FLAG_REGS = ("QInjEn", "enable_TDC", "disDataReadout", "disTrigPath")
+
+
+def compare_pixel_settings(chips, identities, pixels, blnw_results=None):
+    """Read back the injection/readout registers of selected pixels and join them with
+    the BL/NW results. Read-only. Returns a list of row dicts (one per ETROC and pixel).
+
+    Each row has the register values (or "ERR"), baseline, NW, offset (DAC - baseline),
+    failed (pixel is in the BL/NW failed list or has no baseline) and the list of
+    registers that differ from the most common value among the compared rows.
+    """
+    rows = []
+    for identity in identities:
+        etroc = chips[identity]
+        for row, col in pixels:
+            values = {}
+            for reg in PIXEL_SETTING_REGS:
+                try:
+                    values[reg] = etroc.rd_reg(reg, row=row, col=col)
+                except Exception as exc:
+                    values[reg] = "ERR"
+                    values.setdefault("_errors", []).append(f"{reg}: {type(exc).__name__}: {exc}")
+            baseline = noise = None
+            failed = False
+            if blnw_results is not None:
+                baseline = blnw_results.get("baseline", {}).get(identity, {}).get((row, col))
+                noise = blnw_results.get("NW", {}).get(identity, {}).get((row, col))
+                failed = (row, col) in blnw_results.get("failed_pixels", {}).get(identity, []) or baseline is None
+            offset = values["DAC"] - baseline if isinstance(values["DAC"], int) and baseline is not None else None
+            rows.append({"etroc": identity, "pixel": (row, col), "values": values, "baseline": baseline,
+                         "NW": noise, "offset": offset, "failed": failed, "differs": []})
+    for reg in _PIXEL_FLAG_REGS + ("QSel", "L1Adelay"):
+        found = [r["values"][reg] for r in rows]
+        if len(rows) > 2:
+            common = max(set(found), key=found.count)
+            for r in rows:
+                if r["values"][reg] != common:
+                    r["differs"].append(reg)
+    return rows
+
+
+def print_pixel_settings(rows):
+    header = (f"{'ETROC':<7}{'pixel':<9}{'QInjEn':>7}{'QSel':>5}{'TDC':>4}{'disDat':>7}{'disTrg':>7}"
+              f"{'DAC':>5}{'L1A':>5}{'base':>6}{'NW':>5}{'DAC-base':>9}  note")
+    print(header)
+    for r in rows:
+        v = r["values"]
+        notes = []
+        if r["failed"]:
+            notes.append("BL/NW failed or missing")
+        if r["differs"]:
+            notes.append("differs from most rows: " + ",".join(r["differs"]))
+        if v.get("_errors"):
+            notes.append("read error")
+        shown = lambda x: "-" if x is None else x
+        print(f"{r['etroc']:<7}{str(r['pixel']):<9}{v['QInjEn']:>7}{v['QSel']:>5}{v['enable_TDC']:>4}{v['disDataReadout']:>7}"
+              f"{v['disTrigPath']:>7}{v['DAC']:>5}{v['L1Adelay']:>5}{shown(r['baseline']):>6}{shown(r['NW']):>5}"
+              f"{shown(r['offset']):>9}  {'; '.join(notes)}")
+    for r in rows:
+        for message in r["values"].get("_errors", []):
+            print(f"  {r['etroc']} {r['pixel']}: {message}")
+    print("Expected for a working injected pixel: QInjEn=1, TDC=1, disDat=0, disTrg=0, DAC-base = your --offset.")
+
+
 def summarize_l1a_scan(scan, mapping, chips, fraction=0.5):
     """Per-ETROC result of scan_l1a_delay().
 
     Sums the data words of each ETROC's E-links at every scanned L1Adelay and
-    returns {identity: {"peak", "window", "centre", "best"}}: the half-max
+    returns {identity: {"peak", "window", "centre", "best", "headers", "trailers"}}:
+    "headers"/"trailers" are the totals over the whole scan (0 = no packet reached the
+    FIFO from that ETROC's E-links, so L1A/link problem rather than a missing QInj). The half-max
     window (data >= fraction * peak), its centre and the rounded L1Adelay to
     use ("best"). An ETROC without data gets None for window/centre/best.
     """
@@ -2782,13 +2849,17 @@ def summarize_l1a_scan(scan, mapping, chips, fraction=0.5):
         hits = {d: sum(r["per_elink"].get(k, {}).get("data", 0) for k in keys)
                 for d, r in scan["results"].items()}
         peak = max(hits.values()) if hits else 0
+        headers = sum(r["per_elink"].get(k, {}).get("header", 0) for r in scan["results"].values() for k in keys)
+        trailers = sum(r["per_elink"].get(k, {}).get("trailer", 0) for r in scan["results"].values() for k in keys)
         if not peak:
-            summary[identity] = {"peak": 0, "window": None, "centre": None, "best": None}
+            summary[identity] = {"peak": 0, "window": None, "centre": None, "best": None,
+                                 "headers": headers, "trailers": trailers}
             continue
         window = [d for d, h in hits.items() if h >= fraction * peak]
         centre = (min(window) + max(window)) / 2
         summary[identity] = {"peak": peak, "window": (min(window), max(window)),
-                             "centre": centre, "best": int(centre + 0.5)}
+                             "centre": centre, "best": int(centre + 0.5),
+                             "headers": headers, "trailers": trailers}
     return summary
 
 
