@@ -104,6 +104,8 @@ def build_parser():
     parser.add_argument("--interactive", action="store_true",
                         help="Open repeatable diagnostics after a hardware stage")
     parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
+    parser.add_argument("--softboot-retries", type=int, default=2,
+                        help="After ETROC initialization, pulse softBoot (up to N times) on ETROCs whose controllerState is not 11 and re-read it; 0 disables (default: 2)")
     parser.add_argument("--drop-bad-state", action="store_true",
                         help="In Step 5.1, drop ETROCs whose controllerState is not 11 (link will not lock) from the run and continue with the rest")
     parser.add_argument("--drop-unlocked", action="store_true",
@@ -1244,6 +1246,11 @@ def main(args):
                 raise
             initialized_ids = tuple(ids)
             show_status(f"Initialized {len(chips)} ETROCs: {list(chips)}", "success")
+            if args.softboot_retries > 0:
+                from pathfinder_control import softboot_unready_etrocs
+                softboot_report = softboot_unready_etrocs(chips, retries=args.softboot_retries)
+                if softboot_report:
+                    show_status(f"softBoot applied to {list(softboot_report)}", "warning")
 
             # Notebook code cell 22
         except Exception as exc:

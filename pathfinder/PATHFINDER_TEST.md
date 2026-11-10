@@ -87,6 +87,7 @@ Each stage runs all earlier ones first.
 | `--ip`, `--rb-id` | `192.168.0.10`, `0` | KCU IP address and readout-board id. |
 | `--board-config` | `default` | Board configuration name. |
 | `--rate` | `640` | ETROC link rate, 320 or 640 Mbps. Settings (phase select, trigger delay) are rate-specific. |
+| `--softboot-retries` | 2 | After ETROC initialization (Step 5), ETROCs whose `controllerState` is not 11 (usually 7) get `softBoot` pulsed 1 then 0, up to N times, and the state is re-read. 0 disables. `disPowerSequence` is not changed. ETROCs that stay not ready are then handled by `--drop-bad-state` in Step 5.1. |
 | `--drop-bad-state` | off | In Step 5.1, ETROCs whose `controllerState` is not 11 (their link will not lock) are dropped from the run (selection, trigger sources, receiver masks) and the remaining ETROCs continue. Without it, only a warning is printed. I2C failures still stop the run. |
 | `--drop-unlocked` | off | In Step 6, ETROCs whose E-links are not locked are dropped from the run (selection, trigger sources, receiver masks) and the remaining ETROCs continue. Without it, an unlocked link stops the run. |
 | `--skip-vtrx` | off | Hard-reset the VTRx+ (DAQ GPIO8) as usual but skip all VTRx+ I2C access, including its TX1/TX2 configuration in the optical-link step. The VTRx+ stays at its reset defaults, so check that READY=1 and FEC=0 still pass. |

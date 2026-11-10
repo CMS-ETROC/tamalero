@@ -2768,6 +2768,46 @@ def scan_l1a_delay(rb, chips, mapping, scan_pixels, delays=range(480, 512),
     return summary
 
 
+def softboot_unready_etrocs(chips, expected=11, retries=2, wait=1.0, poll=0.1, verbose=True):
+    """Restart the power-up sequencer of ETROCs whose controllerState is not `expected`.
+
+    The state is usually 7 when the automatic power-up sequence did not finish. For each such
+    chip, softBoot is pulsed (1 then 0, the same pattern as PS_CapRst) and controllerState is
+    polled for up to `wait` seconds; this is repeated up to `retries` times. disPowerSequence
+    is left alone, so the sequence stays enabled. Chips already at `expected` are not touched.
+    Returns {identity: {"before", "after", "attempts"}} for the chips that needed it.
+    """
+    report = {}
+    for identity, etroc in chips.items():
+        try:
+            state = etroc.rd_reg("controllerState")
+        except Exception as exc:
+            if verbose:
+                print(f"{identity}: could not read controllerState ({type(exc).__name__}: {exc}); softBoot skipped")
+            continue
+        if state == expected:
+            continue
+        entry = {"before": state, "after": state, "attempts": 0}
+        for attempt in range(1, retries + 1):
+            entry["attempts"] = attempt
+            etroc.wr_reg("softBoot", 1)
+            etroc.wr_reg("softBoot", 0)
+            deadline = time.time() + wait
+            while True:
+                time.sleep(poll)
+                entry["after"] = etroc.rd_reg("controllerState")
+                if entry["after"] == expected or time.time() >= deadline:
+                    break
+            if entry["after"] == expected:
+                break
+        report[identity] = entry
+        if verbose:
+            verdict = "recovered" if entry["after"] == expected else "still not ready"
+            print(f"{identity}: controllerState {entry['before']} -> {entry['after']} after "
+                  f"{entry['attempts']} softBoot attempt(s): {verdict}")
+    return report
+
+
 PIXEL_SETTING_REGS = ("QInjEn", "QSel", "enable_TDC", "disDataReadout", "disTrigPath", "DAC", "L1Adelay")
 _PIXEL_FLAG_REGS = ("QInjEn", "enable_TDC", "disDataReadout", "disTrigPath")
 
