@@ -70,7 +70,7 @@ Each stage runs all earlier ones first.
 | `etroc-init` | Runs everything up to and including ETROC initialization (Step 5), then stops. Steps 5.1 and later do not run. |
 | `etroc-power` | Adds ETROC communication/register checks (5.1) and high power mode (5.2, skippable), then stops before link rate/merge configuration (5.3). |
 | `links` | Initializes ETROCs, sets rate/merge options and runs the E-link lock check (Step 6). |
-| `phase-scan` | `links` plus an lpGBT phase-select scan on `--scan-selection` (default: `--selection`). |
+| `eprx-phase-scan` | `links` plus an lpGBT EPRX phase-select scan on `--scan-selection` (default: `--selection`). The EPRX groups are switched to fixed phase (TRACKMODE 0) for the scan and restored afterwards. The old name `phase-scan` still works. |
 | `blnw` | Through the BL/NW baseline / noise-width scan (Step 7); stops after the figures. |
 | `qinj` | Everything: thresholds, self-trigger, QInj preparation, **sends the injection burst**, reads the FIFO, saves results, then masks the links (Step 12). |
 | `fc-scan` | Like `qinj`, but Step 11 scans the FC input delay on `--fc-target` (required). |
@@ -88,6 +88,9 @@ Each stage runs all earlier ones first.
 | `--board-config` | `default` | Board configuration name. |
 | `--rate` | `640` | ETROC link rate, 320 or 640 Mbps. Settings (phase select, trigger delay) are rate-specific. |
 | `--softboot-retries` | 2 | After ETROC initialization (Step 5), ETROCs whose `controllerState` is not 11 (usually 7) get `softBoot` pulsed 1 then 0, up to N times, and the state is re-read. 0 disables. `disPowerSequence` is not changed. ETROCs that stay not ready are then handled by `--drop-bad-state` in Step 5.1. |
+| `--lock-retries` | 3 | Step 6: ETROCs with unlocked E-links are first diagnosed (`controllerState`, `pllUnlockCount`, `disScrambler`), get `softBoot` if `controllerState` is not 11, and automatic bit alignment is retried up to N times. Only after that are they dropped (`--drop-unlocked`) or the run stops. 0 disables. Automatic alignment runs on the selected links briefly, so already-locked links may re-align too. |
+| `--no-lock-scan` | off | Step 6: by default, E-links still unlocked after recovery get an automatic EPRX phase scan (the EPRX groups are switched to fixed phase for the scan and restored). The scan prints the 5/5 lock window and a suggested phase per ETROC; nothing is applied. This option turns the scan off. |
+| `--apply-phase` | off | Step 6: also apply the suggested phase (middle of the longest 5/5 lock run) to the scanned ETROCs, align once and recheck all links. The EPRX groups stay in fixed-phase mode, and the other E-links of those groups lose automatic tracking, so check their lock afterwards. |
 | `--drop-bad-state` | off | In Step 5.1, ETROCs whose `controllerState` is not 11 (their link will not lock) are dropped from the run (selection, trigger sources, receiver masks) and the remaining ETROCs continue. Without it, only a warning is printed. I2C failures still stop the run. |
 | `--drop-unlocked` | off | In Step 6, ETROCs whose E-links are not locked are dropped from the run (selection, trigger sources, receiver masks) and the remaining ETROCs continue. Without it, an unlocked link stops the run. |
 | `--skip-vtrx` | off | Hard-reset the VTRx+ (DAQ GPIO8) as usual but skip all VTRx+ I2C access, including its TX1/TX2 configuration in the optical-link step. The VTRx+ stays at its reset defaults, so check that READY=1 and FEC=0 still pass. |
@@ -96,7 +99,7 @@ Each stage runs all earlier ones first.
 | `--trigger-delay` | `469` | FPGA `TRIG_DLY_SEL` (one global delay line). |
 | `--l1a-delay` | `501` | Pixel `L1Adelay` (BX) written to every selected ETROC. Different from the FPGA delay and from the FC input delay bits. |
 | `--l1a-table` | none | Per-ETROC `L1Adelay` table from menu 17: a JSON path or `latest`. ETROCs not in the table use `--l1a-delay`. Applied in Step 8 (section 7.1). |
-| `--scan-selection` | = selection | Subset to phase-scan. |
+| `--scan-selection` | = selection | Subset to scan with `eprx-phase-scan`. |
 | `--phase-settings` | `{}` | Fixed phases applied after initialization, e.g. `'{"D3H1":4}'`. Sets fixed phase mode for the affected groups (see section 7). |
 | `--blnw` / `--pixels` | `sample` | BL/NW coverage: `sample` = 4 pixels/chip (corners), `all` = 256 pixels/chip. |
 | `--blnw-load` | off | Skip the BL/NW scan and load saved results: a `.pkl` path or `latest` (section 5). |

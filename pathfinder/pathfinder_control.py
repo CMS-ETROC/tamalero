@@ -1763,6 +1763,34 @@ def ensure_locked(rb, mapping, ids, retries=3, wait=0.5, verbose=True):
     return result
 
 
+def recover_unlocked_links(rb, mapping, chips, ids, retries=3, wait=0.5, verbose=True):
+    """Try to bring unlocked ETROC links back, touching only the ETROCs in `ids`.
+
+    1. Print controllerState, pllUnlockCount and disScrambler of each ETROC.
+    2. Pulse softBoot on those whose controllerState is not 11 (see softboot_unready_etrocs).
+    3. Retry automatic bit alignment up to `retries` times (see ensure_locked).
+    Returns (check_links result for `ids`, {identity: register readings}).
+    """
+    ids = list(ids)
+    diagnostics = {}
+    for identity in ids:
+        values = {}
+        for register in ("controllerState", "pllUnlockCount", "disScrambler"):
+            try:
+                values[register] = chips[identity].rd_reg(register)
+            except Exception as exc:
+                values[register] = f"ERR {type(exc).__name__}"
+        diagnostics[identity] = values
+        if verbose:
+            print(f"{identity}: {values}")
+    not_ready = {i: chips[i] for i in ids if diagnostics[i]["controllerState"] != 11
+                 and isinstance(diagnostics[i]["controllerState"], int)}
+    if not_ready:
+        softboot_unready_etrocs(not_ready, verbose=verbose)
+    result = ensure_locked(rb, mapping, ids, retries=retries, wait=wait, verbose=verbose)
+    return result, diagnostics
+
+
 def _phase_target(rb, mapping, chips, identity):
     """Resolve one initialized ETROC's single data link without writes."""
     if identity not in chips:

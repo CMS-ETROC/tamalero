@@ -79,7 +79,8 @@ def build_parser():
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--mapping", default="pathfinder_mapping.yaml",
                         help="Absolute path or filename relative to repo/pathfinder")
-    parser.add_argument("--stage", choices=["preview", "motherboard", "etroc-init", "etroc-power", "links", "phase-scan", "blnw", "qinj", "fc-scan"], default="preview",
+    parser.add_argument("--stage", type=lambda value: "eprx-phase-scan" if value == "phase-scan" else value,   # "phase-scan" is the old name
+                        choices=["preview", "motherboard", "etroc-init", "etroc-power", "links", "eprx-phase-scan", "blnw", "qinj", "fc-scan"], default="preview",
                         help="Run all prerequisite sections through this stage")
     parser.add_argument("--selection", type=selection, default={0: "all"},
                         help='JSON, e.g. {"1":"all","3":[1]}')
@@ -106,6 +107,12 @@ def build_parser():
     parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
     parser.add_argument("--softboot-retries", type=int, default=2,
                         help="After ETROC initialization, pulse softBoot (up to N times) on ETROCs whose controllerState is not 11 and re-read it; 0 disables (default: 2)")
+    parser.add_argument("--lock-retries", type=int, default=3,
+                        help="Step 6: for ETROCs whose E-links are not locked, softBoot those with controllerState != 11 and retry automatic bit alignment up to N times before giving up or dropping; 0 disables (default: 3)")
+    parser.add_argument("--no-lock-scan", action="store_true",
+                        help="Step 6: do not run an automatic EPRX phase scan on E-links that are still unlocked after recovery")
+    parser.add_argument("--apply-phase", action="store_true",
+                        help="Step 6: also apply the suggested phase (middle of the 5/5 lock window) to the scanned ETROCs and recheck all links; the EPRX groups stay in fixed-phase mode")
     parser.add_argument("--drop-bad-state", action="store_true",
                         help="In Step 5.1, drop ETROCs whose controllerState is not 11 (link will not lock) from the run and continue with the rest")
     parser.add_argument("--drop-unlocked", action="store_true",
@@ -616,6 +623,63 @@ def temporary_readout_selection(rb, mapping, targets):
                 errors.append(f"{node}: {exc}")
         if errors:
             raise RuntimeError("; ".join(errors))
+
+
+def suggest_phase(rows):
+    """Middle of the longest run of consecutive phases that locked 5/5. Returns (phase, run) or (None, [])."""
+    good = [r["phase"] for r in rows if r["locked_samples"] == len(r["samples"]) and r["samples"]]
+    runs, run = [], []
+    for phase in sorted(good):
+        if run and phase == run[-1] + 1:
+            run.append(phase)
+        else:
+            run = [phase]
+            runs.append(run)
+    if not runs:
+        return None, []
+    best = max(runs, key=len)
+    return best[len(best) // 2], best
+
+
+def auto_phase_recover(rb, mapping, chips, ids, apply=False, output_dir=None):
+    """EPRX phase scan of the given (unlocked) ETROCs, suggesting the middle of the longest 5/5 lock run.
+
+    The EPRX groups are switched to fixed phase for the scan. With apply=False they are restored
+    afterwards and nothing else changes. With apply=True the suggested phases are written and the
+    groups stay in fixed-phase mode (all four E-links of a group share TRACKMODE, so the other
+    E-links in those groups lose automatic tracking: recheck all links afterwards).
+    Returns {identity: {"candidates", "run", "suggested", "applied"}}.
+    """
+    from pathfinder_control import scan_etroc_phases, apply_etroc_phases
+    selection_dict = {}
+    for identity in ids:
+        d, h = map(int, re.fullmatch(r"D(\d+)H(\d+)", identity).groups())
+        selection_dict.setdefault(d, []).append(h)
+    saved = set_fixed_phase_groups(rb, mapping, ids)
+    keep_fixed = False
+    try:
+        report = scan_etroc_phases(rb, mapping, chips, selection_dict, output_dir=output_dir)
+        summary = {}
+        for identity in ids:
+            item = report["results"].get(identity, {})
+            phase, run = suggest_phase(item.get("rows", []))
+            summary[identity] = {"candidates": item.get("candidates", []), "run": run,
+                                 "suggested": phase, "applied": False}
+            if phase is None:
+                print(f"{identity}: no phase locked 5/5")
+            else:
+                note = "" if len(run) >= 3 else " (narrow window, treat with care)"
+                print(f"{identity}: lock window {run[0]}..{run[-1]} ({len(run)} phases), suggested phase {phase}{note}")
+        chosen = {i: v["suggested"] for i, v in summary.items() if v["suggested"] is not None}
+        if apply and chosen:
+            keep_fixed = True
+            apply_etroc_phases(rb, mapping, chips, chosen)
+            for identity in chosen:
+                summary[identity]["applied"] = True
+    finally:
+        if not keep_fixed:
+            restore_phase_groups(saved)
+    return summary
 
 
 def restore_phase_groups(saved):
@@ -1464,7 +1528,7 @@ def main(args):
     while True:
         try:
             announce("6. E-link lock check", "Check selected E-link locks before pixel calibration.", "On failure use compare, masks, phase scan/apply, then retry this check.")
-            if args.stage != "phase-scan":
+            if args.stage != "eprx-phase-scan":
                 configure_readout_links(rb, mapping, ids)
                 rb.rerun_bitslip()
                 current_links = check_links(rb, mapping, ids)
@@ -1476,6 +1540,32 @@ def main(args):
                 link_count = sum(len(result["links"]) for result in current_links.values())
                 print(f"E-link lock: {locked_count}/{link_count}")
                 unlocked_ids = [i for i, item in current_links.items() if not item["all_locked"]]
+                if unlocked_ids and args.lock_retries > 0:
+                    from pathfinder_control import recover_unlocked_links
+                    print(f"Trying to recover {len(unlocked_ids)} unlocked ETROC(s): {unlocked_ids}")
+                    recovered_links, _ = recover_unlocked_links(rb, mapping, chips, unlocked_ids, retries=args.lock_retries)
+                    current_links.update(recovered_links)
+                    for identity in unlocked_ids:
+                        for link in current_links[identity]["links"]:
+                            print(f"{identity}: {link['lpgbt'].upper()} E-link {link['elink']}, "
+                                  f"locked={link['locked']}, error={link['error']}")
+                    locked_count = sum(bool(link["locked"]) for result in current_links.values() for link in result["links"])
+                    print(f"E-link lock after recovery: {locked_count}/{link_count}")
+                    unlocked_ids = [i for i, item in current_links.items() if not item["all_locked"]]
+                if unlocked_ids and not args.no_lock_scan:
+                    print(f"Automatic EPRX phase scan for still-unlocked ETROC(s): {unlocked_ids}")
+                    phase_summary = auto_phase_recover(rb, mapping, chips, unlocked_ids, apply=args.apply_phase,
+                                                       output_dir=results_path("phase_scan", args.scan_output))
+                    if any(v["applied"] for v in phase_summary.values()):
+                        current_links = check_links(rb, mapping, ids)
+                        for identity, result in current_links.items():
+                            for link in result["links"]:
+                                if identity in phase_summary or not link["locked"]:
+                                    print(f"{identity}: {link['lpgbt'].upper()} E-link {link['elink']}, "
+                                          f"locked={link['locked']}, error={link['error']}")
+                        locked_count = sum(bool(link["locked"]) for result in current_links.values() for link in result["links"])
+                        print(f"E-link lock after phase apply: {locked_count}/{link_count}")
+                        unlocked_ids = [i for i, item in current_links.items() if not item["all_locked"]]
                 if unlocked_ids and args.drop_unlocked:
                     dropped_unlocked = dict(locals().get("dropped_unlocked", {}))
                     for identity in unlocked_ids:
@@ -1486,10 +1576,10 @@ def main(args):
                 elif unlocked_ids:
                     raise RuntimeError("E-link check failed before calibration")
                 basic_checks_passed = True
-            if args.stage in ("links", "phase-scan"):
+            if args.stage in ("links", "eprx-phase-scan"):
                 announce("6.1. Link diagnostics", "Read settings, masks, controllerState and lock status.",
                          "Check optical link, rate/merge, ENABLE/INVERT/TERM and masks before scanning phase.")
-                if args.stage == "phase-scan":
+                if args.stage == "eprx-phase-scan":
                     from pathfinder_control import scan_etroc_phases
                     scan_ids = expand_selection(mapping, args.scan_selection or args.selection)
                     saved_groups = set_fixed_phase_groups(rb, mapping, scan_ids)
