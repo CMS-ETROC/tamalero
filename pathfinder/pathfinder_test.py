@@ -37,7 +37,9 @@ def drop_from_run(args, mapping, rb, ids, chips, trigger_ids, bad_ids):
     from pathfinder_control import expand_selection, configure_readout_links
     bad_ids = list(bad_ids)
     for identity in bad_ids:
-        chips.pop(identity, None)
+        dropped = chips.pop(identity, None)
+        if dropped is not None:
+            DROPPED_CHIPS[identity] = dropped
     ids = [i for i in ids if i not in bad_ids]
     if not ids:
         raise RuntimeError("All selected ETROCs were dropped")
@@ -307,15 +309,20 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 print("[PASS] Optical configuration and verification completed.")
             elif choice == "9":
                 from pathfinder_control import compare_etroc_links
+                diag_chips = {**DROPPED_CHIPS, **chips}
                 available = [i for i in (ids if ids is not None else chips) if i in chips]
+                dropped_ids = [i for i in DROPPED_CHIPS if i not in chips]
+                available_all = available + dropped_ids
                 print("Initialized ETROCs:", ", ".join(available))
+                if dropped_ids:
+                    print("Dropped from this run (diagnostics still possible):", ", ".join(dropped_ids))
                 raw = input("ETROC IDs separated by commas (Enter = all): ").strip()
-                targets = list(dict.fromkeys(i.strip() for i in raw.split(",") if i.strip())) if raw else available
-                if not targets or any(i not in available for i in targets):
-                    print("[SKIPPED] Select only initialized IDs listed above.")
+                targets = list(dict.fromkeys(i.strip() for i in raw.split(",") if i.strip())) if raw else available_all
+                if not targets or any(i not in available_all for i in targets):
+                    print("[SKIPPED] Select only the IDs listed above.")
                     continue
                 differences = input("Only differences? [y/N]: ").strip().lower() in ("y", "yes")
-                compare_etroc_links(rb, mapping, chips, targets, only_differences=differences)
+                compare_etroc_links(rb, mapping, diag_chips, targets, only_differences=differences)
             elif choice == "12":
                 from pathfinder_control import expand_selection, scan_etroc_phases
                 raw = input('ETROC IDs to scan, e.g. D3H1, D3H2 (Enter = all initialized; JSON such as {"3":[1]} also works): ').strip()
@@ -330,25 +337,31 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                             raise ValueError(f"Use IDs like D3H1, got {name!r}")
                         selected.setdefault(int(match.group(1)), []).append(int(match.group(2)))
                 targets = expand_selection(mapping, selected)
-                if any(i not in chips for i in targets):
+                diag_chips = {**DROPPED_CHIPS, **chips}
+                if any(i not in diag_chips for i in targets):
                     raise ValueError("All scan targets must already be initialized")
-                with temporary_readout_selection(rb, mapping, list(chips)):
+                extra = [i for i in targets if i not in chips]
+                if extra:
+                    print(f"[INFO] Dropped ETROCs {extra}: their receivers are enabled only for this scan.")
+                with temporary_readout_selection(rb, mapping, list(chips) + extra):
                     saved = set_fixed_phase_groups(rb, mapping, targets)
                     try:
-                        scan_etroc_phases(rb, mapping, chips, selected, output_dir=results_path("phase_scan", output_dir))
+                        scan_etroc_phases(rb, mapping, diag_chips, selected, output_dir=results_path("phase_scan", output_dir))
                     finally:
                         restore_phase_groups(saved)
             elif choice == "13":
                 from pathfinder_control import apply_etroc_phases
                 settings = json.loads(input('Phase settings JSON, e.g. {"D3H1":4,"D2H3":5}: ').strip())
+                diag_chips = {**DROPPED_CHIPS, **chips}
                 if not isinstance(settings, dict) or not settings or any(
-                    i not in chips or type(p) is not int or not 0 <= p <= 14 for i, p in settings.items()
+                    i not in diag_chips or type(p) is not int or not 0 <= p <= 14 for i, p in settings.items()
                 ):
                     raise ValueError("Use initialized IDs with integer phases 0..14")
-                with temporary_readout_selection(rb, mapping, list(chips)):
+                extra = [i for i in settings if i not in chips]
+                with temporary_readout_selection(rb, mapping, list(chips) + extra):
                     saved = set_fixed_phase_groups(rb, mapping, list(settings))
                     try:
-                        result = apply_etroc_phases(rb, mapping, chips, settings)
+                        result = apply_etroc_phases(rb, mapping, diag_chips, settings)
                         print(result)
                     except BaseException:
                         restore_phase_groups(saved)
@@ -718,6 +731,7 @@ def set_fixed_phase_groups(rb, mapping, ids):
 
 
 RESULTS_ROOT = None   # set in main: <repo>/pathfinder/results
+DROPPED_CHIPS = {}    # ETROC id -> ETROC object dropped from this run (kept only for interactive diagnostics)
 L1A_TABLE = {}        # ETROC id -> pixel L1Adelay (from --l1a-table or an applied L1A scan); others use --l1a-delay
 
 
