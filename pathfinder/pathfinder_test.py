@@ -109,8 +109,8 @@ def build_parser():
     parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
     parser.add_argument("--softboot-retries", type=int, default=2,
                         help="After ETROC initialization, pulse softBoot (up to N times) on ETROCs whose controllerState is not 11 and re-read it; 0 disables (default: 2)")
-    parser.add_argument("--lock-retries", type=int, default=3,
-                        help="Step 6: for ETROCs whose E-links are not locked, softBoot those with controllerState != 11 and retry automatic bit alignment up to N times before giving up or dropping; 0 disables (default: 3)")
+    parser.add_argument("--lock-retries", type=int, nargs="?", const=1, default=0, metavar="N",
+                        help="Step 6: for ETROCs whose E-links are not locked, softBoot those with controllerState != 11 and retry automatic bit alignment. Off by default; the bare flag retries once, --lock-retries N retries N times")
     parser.add_argument("--no-lock-scan", action="store_true",
                         help="Step 6: do not run an automatic EPRX phase scan on E-links that are still unlocked after recovery")
     parser.add_argument("--apply-phase", action="store_true",
