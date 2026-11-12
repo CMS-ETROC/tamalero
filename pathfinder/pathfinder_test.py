@@ -918,7 +918,8 @@ def show_blnw_plots(blnw_results):
                 matrix = build_blnw_matrix(results[key][identity])
                 cmap = plt.get_cmap('viridis').copy()
                 cmap.set_bad('white')
-                view = ax.imshow(np.ma.masked_invalid(matrix), origin='lower', cmap=cmap, interpolation='nearest')
+                limits = dict(vmin=0, vmax=15) if key == 'NW' else {}
+                view = ax.imshow(np.ma.masked_invalid(matrix), origin='lower', cmap=cmap, interpolation='nearest', **limits)
                 ax.text(0.01, 1.0, 'CMS', transform=ax.transAxes, fontsize=13, fontweight='bold', va='bottom')
                 ax.text(0.11, 1.0, 'ETL ETROC', transform=ax.transAxes, fontsize=10, style='italic', va='bottom')
                 ax.text(1.0, 1.025, f'{identity}-{title} 2D', transform=ax.transAxes, fontsize=9, ha='right', va='bottom')
