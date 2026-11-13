@@ -259,7 +259,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         actions["15"] = ("Scan Trigger Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
         actions["17"] = ("Scan L1A Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan pixel L1Adelay at the current FPGA trigger delay: per-value table, window width and a per-ETROC L1Adelay table; previous values are restored.")
         actions["16"] = ("Set Trigger Delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
-        actions["22"] = ("Charge Injection Acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
+        actions["22"] = ("Charge Injection Acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Use the current charge and offset (set them with menu 21) and the pulse count from the command line, acquire and save per-link records.")
         actions["18"] = ("Set L1A Delay", "WRITE HARDWARE", "Requires prepared QInj. Show the current pixel L1Adelay of every ETROC, then set and verify it on explicit ETROCs; the values are kept for later scans.")
         actions["21"] = ("Set QInj Charge and Threshold Offset", "WRITE HARDWARE", "Requires prepared QInj. Change the injected charge (QSel) and/or the threshold offset (DAC = baseline + offset) on the scanned pixels and read them back. No injection is sent.")
         actions["19"] = ("Scan FC Input Delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
@@ -526,15 +526,12 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     if target not in chips:
                         raise ValueError("FC target must already be initialized")
                 count = qinj_context["qinj_count"]       # set with --qinj-cnt on the command line
-                charge, offset = ask_qinj_settings(qinj_context)
-                print(f"QInj charge={charge} fC, threshold offset={offset}, pulses={count}")
+                charge, offset = qinj_context["charge_fc"], qinj_context["offset"]   # change them with menu 21
+                print(f"QInj charge={charge} fC, threshold offset={offset}, pulses={count} (current values; change with menu 21)")
                 reads = int(input("FIFO read passes [3]: ").strip() or "3")
                 records = input("Print complete records by E-link? [y/N]: ").strip().lower() in ("y", "yes")
                 if count < 1 or reads < 1:
                     raise ValueError("Pulse count and read passes must be positive")
-                if offset != qinj_context["offset"]:
-                    qinj_context["set_offset"](offset)
-                    remember_qinj(qinj_context, offset=offset)
                 def acquire():
                     return qinj_context["acquire"](charge, count, reads, records)
                 with temporary_readout_selection(rb, mapping, list(chips)):
@@ -543,7 +540,6 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         save_diagnostic(results_path("qinj", output_dir), "interactive_qinj", report)
                     else:
                         run_fc_scan(chips, target, acquire, output_dir)
-                remember_qinj(qinj_context, charge=charge)
             elif choice == "21":
                 if qinj_context is None or qinj_context.get("set_offset") is None:
                     print("[SKIPPED] Use --stage qinj --step --interactive to prepare thresholds, self-trigger and QInj first.")
