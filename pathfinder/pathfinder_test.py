@@ -106,7 +106,7 @@ def build_parser():
     parser.add_argument("--offset", type=int, default=50, help="Threshold DAC offset above measured baseline (default: 50)")
     parser.add_argument("--interactive", action="store_true",
                         help="Open repeatable diagnostics after a hardware stage")
-    parser.add_argument("--rate", type=int, choices=[320, 640], default=640)
+    parser.add_argument("--rate", type=int, choices=[320, 640], default=320)
     parser.add_argument("--softboot-retries", type=int, default=2,
                         help="After ETROC initialization, pulse softBoot (up to N times) on ETROCs whose controllerState is not 11 and re-read it; 0 disables (default: 2)")
     parser.add_argument("--lock-retries", type=int, nargs="?", const=1, default=0, metavar="N",
