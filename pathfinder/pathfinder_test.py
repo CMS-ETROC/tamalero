@@ -135,8 +135,6 @@ def build_parser():
                         help="Step 6: do not run an automatic EPRX phase scan on E-links that are still unlocked after recovery")
     parser.add_argument("--apply-phase", action="store_true",
                         help="Step 6: also apply the suggested phase (middle of the 5/5 lock window) to the scanned ETROCs and recheck all links; the EPRX groups stay in fixed-phase mode")
-    parser.add_argument("--drop-bad-state", action="store_true",
-                        help="In Step 5.1, drop ETROCs whose controllerState is not 11 (link will not lock) from the run and continue with the rest")
     parser.add_argument("--drop-unlocked", action="store_true",
                         help="In Step 6, drop ETROCs whose E-links are not locked from the run and continue with the rest")
     parser.add_argument("--skip-vtrx", action="store_true",
@@ -1526,7 +1524,6 @@ def main(args):
                 raise RuntimeError("I2C check failed for " + "; ".join(f"{identity}: {error}" for identity, error in failed_i2c.items()))
 
             etroc_register_results = {}
-            bad_state_ids = []
             for identity, etroc in chips.items():
                 values = {}
                 etroc_register_results[identity] = values
@@ -1540,17 +1537,9 @@ def main(args):
                         show_status(f"{identity}: disScrambler differs from the legacy expected value 1", "warning")
                     if values["controllerState"] != 11:
                         show_status(f"{identity}: controllerState differs from the legacy expected value 11", "warning")
-                        bad_state_ids.append(identity)
                 except Exception as exc:
                     values["error"] = str(exc)
                     raise RuntimeError(f"ETROC register check failed for {identity}: {exc}") from exc
-            if bad_state_ids and args.drop_bad_state:
-                dropped_etrocs = dict(locals().get("dropped_etrocs", {}))
-                for identity in bad_state_ids:
-                    dropped_etrocs[identity] = etroc_register_results[identity]["controllerState"]
-                ids, trigger_ids = drop_from_run(args, mapping, rb, ids, chips, trigger_ids, bad_state_ids)
-                initialized_ids = tuple(ids)
-                show_status(f"Dropped from this run (controllerState != 11): {dropped_etrocs}. Continuing with {ids}", "warning")
             etroc_register_checks_done = True
 
             # Notebook code cells 24 and 26
