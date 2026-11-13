@@ -82,7 +82,7 @@ def build_parser():
     parser.add_argument("--mapping", default="pathfinder_mapping.yaml",
                         help="Absolute path or filename relative to repo/pathfinder")
     parser.add_argument("--stage", type=lambda value: "eprx-phase-scan" if value == "phase-scan" else value,   # "phase-scan" is the old name
-                        choices=["preview", "motherboard", "etroc-init", "etroc-power", "links", "eprx-phase-scan", "blnw", "qinj", "fc-scan"], default="preview",
+                        choices=["preview", "motherboard", "etroc-init", "etroc-power", "links", "eprx-phase-scan", "blnw", "qinj", "cosmics", "fc-scan"], default="preview",
                         help="Run all prerequisite sections through this stage")
     parser.add_argument("--selection", type=selection, default={0: "all"},
                         help='JSON, e.g. {"1":"all","3":[1]}')
@@ -93,6 +93,8 @@ def build_parser():
     parser.add_argument("--rb-id", type=int, default=0)
     parser.add_argument("--board-config", default="default")
     parser.add_argument("--monitor-seconds", type=int, default=3)
+    parser.add_argument("--duration", type=int, default=43200, metavar="SECONDS", help="cosmics stage: acquisition time in seconds (default: 43200 = 12 h)")
+    parser.add_argument("--chunk-seconds", type=int, default=300, metavar="SECONDS", help="cosmics stage: start a new data file every N seconds (default: 300)")
     parser.add_argument("--blnw", "--pixels", dest="pixels", choices=["sample", "all"], default="sample", help="BL/NW coverage: sample=4 pixels/chip; all=256 pixels/chip (default: sample)")
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
     parser.add_argument("--blnw-load", metavar="PKL|latest", default=None, help="Skip the BL/NW scan and load saved results (a .pkl path, or latest = newest valid file in the results folder)")
@@ -173,6 +175,9 @@ def show_run_plan(args):
         print("Hardware configuration will run. Selected ETROC daughter boards must be connected.")
     if args.stage == "qinj":
         print(f"Includes a fresh BL/NW scan, trigger setup and QInj: {args.charge_fc} fC, count={args.qinj_count}.")
+    if args.stage == "cosmics":
+        print("Cosmic run: the QInj stage is SKIPPED (no injection, QInjEn=0 on all pixels). All 256 pixels per chip get "
+              f"DAC = baseline + {args.offset} and self-trigger; acquisition runs {args.duration} s, new file every {args.chunk_seconds} s.")
     print(f"Rate: {args.rate} Mbps; merged trigger bits: {args.trigger_bits}; pixel L1Adelay: {args.l1a_delay}")
     print("Test stages run automatically; an interactive menu follows a hardware stage when --interactive is set.")
     print("On failure, the script stops. Partial hardware configuration may remain.", flush=True)
@@ -818,6 +823,107 @@ def save_diagnostic(folder, name, report):
     return path
 
 
+def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, output_dir, info,
+                           report_interval=10, lock_check_interval=60, read_interval=1.0, max_read_errors=50):
+    """Continuous self-triggered acquisition for a cosmic run (no charge injection).
+
+    Raw 32-bit FIFO words go to output_dir/file_<n>_CE.dat (little-endian, same layout as the
+    notebook), a new file every chunk_seconds. run_info.json records the configuration, the
+    start/end time, the words per file and why the run ended; it is rewritten at every file
+    change, so a crash still leaves a usable record. Ctrl+C stops cleanly and closes the files.
+    """
+    import struct
+    import time
+    from datetime import datetime, timezone
+    from tamalero.FIFO import FIFO
+    from pathfinder_control import configure_readout_links, check_links
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ids = list(chips)
+    fifo = FIFO(rb)
+    fifo.reset()
+    rb.reset_data_error_count()
+    configure_readout_links(rb, mapping, ids)
+    rb.rerun_bitslip()
+    if not all(item["all_locked"] for item in check_links(rb, mapping, ids).values()):
+        raise RuntimeError("Link lock lost before the cosmic run; trigger not enabled")
+    fifo.use_etroc_data()
+    time.sleep(1)
+    rb.enable_etroc_trigger()
+    time.sleep(1)
+
+    utc = lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
+    files, state = [], {"total_words": 0, "read_errors": 0, "lock_lost_checks": 0}
+    info = dict(info, duration_s=duration, chunk_seconds=chunk_seconds, start_utc=utc(), output_dir=str(output_dir))
+
+    def write_info(status):
+        record = dict(info, status=status, files=files, **state)
+        (output_dir / "run_info.json").write_text(json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8")
+
+    write_info("running")
+    print(f"Cosmic run started: {duration} s, new file every {chunk_seconds} s -> {output_dir}", flush=True)
+    handle, file_started, errors_in_a_row = None, 0.0, 0
+    start = last_report = last_lock = time.time()
+    status = "completed"
+    try:
+        while time.time() - start < duration:
+            if handle is None:
+                path = output_dir / f"file_{len(files)}_CE.dat"
+                handle = open(path, "wb")
+                file_started = time.time()
+                files.append({"name": path.name, "start_utc": utc(), "words": 0})
+                print(f"Opening new file: {path.name}", flush=True)
+            try:
+                raw = fifo.read(dispatch=True)
+                errors_in_a_row = 0
+            except Exception as exc:
+                errors_in_a_row += 1
+                state["read_errors"] += 1
+                print(f"[WARNING] FIFO read error ({errors_in_a_row} in a row): {exc}", flush=True)
+                if errors_in_a_row >= max_read_errors:
+                    raise RuntimeError(f"{max_read_errors} FIFO read errors in a row; run stopped")
+                time.sleep(1)
+                continue
+            if raw:
+                handle.write(struct.pack(f"<{len(raw)}I", *raw))
+                files[-1]["words"] += len(raw)
+                state["total_words"] += len(raw)
+            time.sleep(read_interval)     # slows the DAQ to avoid uhal UDP errors in the FIFO read
+            now = time.time()
+            if now - file_started >= chunk_seconds:
+                handle.close()
+                handle = None
+                files[-1]["end_utc"] = utc()
+                write_info("running")
+            if now - last_report >= report_interval:
+                last_report = now
+                print(f"[{int(now - start)} s] files={len(files)} words={state['total_words']} read_errors={state['read_errors']}", flush=True)
+            if now - last_lock >= lock_check_interval:
+                last_lock = now
+                try:
+                    if not all(item["all_locked"] for item in check_links(rb, mapping, ids).values()):
+                        state["lock_lost_checks"] += 1
+                        print("[WARNING] An E-link is not locked; data may be missing (run continues)", flush=True)
+                except Exception as exc:
+                    print(f"[WARNING] Link lock check failed: {exc}", flush=True)
+    except KeyboardInterrupt:
+        status = "stopped by user (Ctrl+C)"
+        print("\n[STOP] Ctrl+C: closing files", flush=True)
+    except Exception as exc:
+        status = f"failed: {exc}"
+        raise
+    finally:
+        if handle is not None and not handle.closed:
+            handle.close()
+            files[-1]["end_utc"] = utc()
+        info["end_utc"] = utc()
+        info["run_seconds"] = round(time.time() - start, 1)
+        write_info(status)
+    print(f"Cosmic run {status}: {state['total_words']} words in {len(files)} file(s), {info['run_seconds']} s -> {output_dir}", flush=True)
+    return output_dir
+
+
 def run_fc_scan(chips, identity, acquire, output_dir):
     """Scan FC clk/data delay bits 00/01/10/11. Restore exact original bits.
 
@@ -1064,6 +1170,8 @@ def main(args):
         raise ValueError("trigger-delay and l1a-delay must be in 0..511")
     if not 1 <= args.charge_fc <= 32:
         raise ValueError("charge-fc must be in 1..32")
+    if args.duration < 1 or args.chunk_seconds < 1:
+        raise ValueError("duration and chunk-seconds must be positive")
     if args.stage == "fc-scan" and not args.fc_target:
         raise ValueError("fc-scan requires --fc-target, e.g. D3H1")
 
@@ -1669,7 +1777,9 @@ def main(args):
             # Choose "sample" for 4 pixels or "all" for the full 16 x 16 matrix.
             # Change it on the command line with --blnw sample|all (default: sample).
             # The scanned pixels are also the ones given thresholds and QInj later.
-            BLNW_SCAN_MODE = args.pixels
+            BLNW_SCAN_MODE = "all" if args.stage == "cosmics" else args.pixels
+            if args.stage == "cosmics" and args.pixels != "all":
+                print("[INFO] cosmics stage: BL/NW coverage forced to all (256 pixels per chip)")
             BLNW_SAVE_RESULTS = not args.no_save
             BLNW_OUTPUT_DIR = TAMALERO_ROOT / "pathfinder" / "results" / "blnw" 
 
@@ -2087,7 +2197,10 @@ def main(args):
         break
     while True:
         try:
-            announce('10. QInj preparation', 'Enable injection on calibrated pixels.', 'No automatic trigger/FC delay tuning is performed.')
+            if args.stage == "cosmics":
+                announce('10. QInj preparation - SKIPPED (cosmics stage)', 'No charge injection: QInjEn stays 0 on every pixel.', 'The pixels trigger on real particles only.')
+            else:
+                announce('10. QInj preparation', 'Enable injection on calibrated pixels.', 'No automatic trigger/FC delay tuning is performed.')
             import time
             from datetime import datetime, timezone
             from tamalero.FIFO import FIFO
@@ -2140,7 +2253,11 @@ def main(args):
                 show_status("QInj disabled on scanned pixels", "info")
 
 
-            qinj_enabled_pixels = enable_qinj_pixels(chips, blnw_results, charge_fc=CHARGE_FC_DEFAULT)
+            if args.stage == "cosmics":
+                disable_qinj_pixels(chips, blnw_results)
+                qinj_enabled_pixels = {}
+            else:
+                qinj_enabled_pixels = enable_qinj_pixels(chips, blnw_results, charge_fc=CHARGE_FC_DEFAULT)
 
 
             def run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
@@ -2366,8 +2483,21 @@ def main(args):
         break
     while True:
         try:
-            announce("11. Data Acquisition", "Use current prepared settings.", "Errors return to debugging; retry resends an injection burst and resets FIFO.")
-            if args.stage == "fc-scan":
+            if args.stage == "cosmics":
+                announce("11. Cosmic data acquisition", f"Self-triggered, no injection, {args.duration} s, new file every {args.chunk_seconds} s.",
+                         "Ctrl+C stops cleanly and closes the files; retry starts a new run folder.")
+            else:
+                announce("11. Data Acquisition", "Use current prepared settings.", "Errors return to debugging; retry resends an injection burst and resets FIFO.")
+            if args.stage == "cosmics":
+                cosmic_dir = results_path("cosmics", args.scan_output) / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                run_cosmic_acquisition(
+                    rb, mapping, chips, duration=args.duration, chunk_seconds=args.chunk_seconds, output_dir=cosmic_dir,
+                    info={"stage": "cosmics", "etrocs": list(chips), "trigger_etrocs": list(trigger_ids),
+                          "trigger_logic": args.trigger_logic, "trigger_bits": args.trigger_bits,
+                          "trigger_delay": args.trigger_delay, "l1a_delay": args.l1a_delay, "l1a_table": dict(L1A_TABLE),
+                          "threshold_offset": QINJ_LIVE.get("offset", THRESHOLD_OFFSET), "rate_mbps": args.rate,
+                          "pixels": "all", "blnw_load": args.blnw_load})
+            elif args.stage == "fc-scan":
                 announce("11.1. FC input delay scan", "Scan all four clk/data delay-bit combinations: 00, 01, 10, 11.",
                          "Original FC bits are restored, even on acquisition failure; other chips remain unchanged.")
                 run_fc_scan(chips, args.fc_target,

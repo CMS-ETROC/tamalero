@@ -73,6 +73,7 @@ Each stage runs all earlier ones first.
 | `eprx-phase-scan` | `links` plus an lpGBT EPRX phase-select scan on `--scan-selection` (default: `--selection`). The EPRX groups are switched to fixed phase (TRACKMODE 0) for the scan and restored afterwards. The old name `phase-scan` still works. |
 | `blnw` | Through the BL/NW baseline / noise-width scan (Step 7); stops after the figures. |
 | `qinj` | Everything: thresholds, self-trigger, QInj preparation, **sends the injection burst**, reads the FIFO, saves results, then masks the links (Step 12). |
+| `cosmics` | Like `qinj`, but the **QInj stage is skipped**: no injection (`QInjEn=0` on every pixel), BL/NW over all 256 pixels per chip (a new scan, or `--blnw-load`), thresholds `DAC = baseline + --offset`, self-trigger, then continuous acquisition for `--duration` seconds. Raw 32-bit FIFO words go to `results/cosmics/<UTC time>/file_<n>_CE.dat`, a new file every `--chunk-seconds`; `run_info.json` in the same folder records the configuration, file list and how the run ended. Ctrl+C stops cleanly. |
 | `fc-scan` | Like `qinj`, but Step 11 scans the FC input delay on `--fc-target` (required). |
 
 ## 3. Options
@@ -110,6 +111,8 @@ Each stage runs all earlier ones first.
 | `--qinj-cnt` / `--qinj-count` | `1` | Injection pulses per burst. |
 | `--fifo-reads` | `3` | FIFO read passes after one burst (no extra injections). |
 | `--print-records` | off | Also print full header/data/trailer records grouped by E-link. |
+| `--duration` | `43200` | `cosmics` only: acquisition time in seconds (12 h). |
+| `--chunk-seconds` | `300` | `cosmics` only: start a new data file every N seconds. |
 | `--fc-target` | none | ETROC for `--stage fc-scan`, e.g. `D3H1`. |
 | `--scan-output` | (none) | Override folder for diagnostic JSON files. Default: `pathfinder/results/<kind>/`. |
 | `--monitor-seconds` | `3` | Duration of the uplink monitor in the motherboard check. |
