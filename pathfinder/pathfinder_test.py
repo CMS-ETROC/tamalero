@@ -181,8 +181,8 @@ def show_run_plan(args):
 
 MENU_GROUPS = (
     ("Links", tuple(range(1, 14))),
-    ("Trigger and Data", tuple(range(14, 22))),
-    ("Monitoring", (22, 23, 24)),
+    ("Trigger and Data", tuple(range(14, 23))),   # 21 sets QInj charge/offset, 22 acquires
+    ("Monitoring", (23, 24, 25)),
 )
 
 
@@ -216,6 +216,28 @@ def render_menu(actions, notes, footer, title):
     return out
 
 
+def ask_qinj_settings(qinj_context):
+    """Ask for charge (fC) and threshold offset (DAC codes); Enter keeps the current value."""
+    charge, offset = qinj_context["charge_fc"], qinj_context["offset"]
+    raw = input(f"Injected charge in fC, 1..32 [{charge}]: ").strip()
+    new_charge = int(raw) if raw else charge
+    raw = input(f"Threshold offset above baseline, DAC codes [{offset}]: ").strip()
+    new_offset = int(raw) if raw else offset
+    if not 1 <= new_charge <= 32:
+        raise ValueError("Charge must be 1..32 fC")
+    if not 0 <= new_offset <= 1023:
+        raise ValueError("Offset must be 0..1023 DAC codes (the final DAC code must also stay within 0..1023)")
+    return new_charge, new_offset
+
+
+def remember_qinj(qinj_context, charge=None, offset=None):
+    """Keep the new values for this menu and for later menu entries."""
+    if charge is not None:
+        qinj_context["charge_fc"] = QINJ_LIVE["charge_fc"] = charge
+    if offset is not None:
+        qinj_context["offset"] = QINJ_LIVE["offset"] = offset
+
+
 def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips=None, ids=None, qinj_context=None, output_dir=None, recovery=False, failed=False, blnw_results=None): 
     """Repeat diagnostics without reconstructing KCU or ReadoutBoard."""
     from pathfinder_control import (
@@ -237,14 +259,15 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         actions["15"] = ("Scan Trigger Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan FPGA delay with fixed pixel L1Adelay; restore FPGA delay and readout masks.")
         actions["17"] = ("Scan L1A Delay", "WRITE HARDWARE", "Requires prepared QInj. Scan pixel L1Adelay at the current FPGA trigger delay: per-value table, window width and a per-ETROC L1Adelay table; previous values are restored.")
         actions["16"] = ("Set Trigger Delay", "WRITE HARDWARE", "Set and verify FPGA TRIG_DLY_SEL; pixel L1Adelay is unchanged.")
-        actions["21"] = ("Charge Injection Acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
+        actions["22"] = ("Charge Injection Acquisition", "WRITE HARDWARE", "Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records.")
         actions["18"] = ("Set L1A Delay", "WRITE HARDWARE", "Requires prepared QInj. Show the current pixel L1Adelay of every ETROC, then set and verify it on explicit ETROCs; the values are kept for later scans.")
+        actions["21"] = ("Set QInj Charge and Threshold Offset", "WRITE HARDWARE", "Requires prepared QInj. Change the injected charge (QSel) and/or the threshold offset (DAC = baseline + offset) on the scanned pixels and read them back. No injection is sent.")
         actions["19"] = ("Scan FC Input Delay", "WRITE HARDWARE", "Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure.")
     if mapping is not None and rb is not None:
-        actions["22"] = ("Read ADC Monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
-        actions["23"] = ("Check ADC Against Internal References", "READ ONLY", "Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored.")
+        actions["23"] = ("Read ADC Monitoring", "READ ONLY", "Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings.")
+        actions["24"] = ("Check ADC Against Internal References", "READ ONLY", "Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored.")
         if chips:
-            actions["24"] = ("Compare Pixel Settings and BL/NW", "READ ONLY", "Read back QInjEn/QSel/TDC/readout/DAC/L1Adelay of selected pixels and show the BL/NW baseline and noise next to them. Rows that differ from the others or have no baseline are flagged.")
+            actions["25"] = ("Compare Pixel Settings and BL/NW", "READ ONLY", "Read back QInjEn/QSel/TDC/readout/DAC/L1Adelay of selected pixels and show the BL/NW baseline and noise next to them. Rows that differ from the others or have no baseline are flagged.")
         actions["8"] = ("Retry Direct I2C Reads", "READ ONLY", "Read mapped ETROC register 0 repeatedly, including chips not initialized yet. No reset/default configuration.")
         actions["5"] = ("Read Receiver Masks", "READ ONLY", "Read DAQ/TRIG disable masks without changing them.")
     if chips:
@@ -261,7 +284,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
         for key in ("2", "3", "4"):
             actions.pop(key, None)
     if qinj_context is None:
-        for key in ("15", "17", "18", "19", "21"):
+        for key in ("15", "17", "18", "19", "21", "22"):
             actions.pop(key, None)
     while True:
         footer = []
@@ -492,7 +515,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         raise RuntimeError(f"{identity}: L1Adelay readback {got} != {value}")
                     L1A_TABLE[identity] = value
                 show_l1a_values()
-            elif choice in ("19", "21"):
+            elif choice in ("19", "22"):
                 if qinj_context is None or "acquire" not in qinj_context:
                     print("[SKIPPED] Use --stage qinj --step --interactive to prepare thresholds, self-trigger and QInj first.")
                     continue
@@ -502,25 +525,40 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                     target = input("FC scan target, e.g. D5H1: ").strip()
                     if target not in chips:
                         raise ValueError("FC target must already be initialized")
-                charge = qinj_context["charge_fc"]        # set with --qinj on the command line
                 count = qinj_context["qinj_count"]       # set with --qinj-cnt on the command line
-                print(f"QInj charge={charge} fC, pulses={count} (from the command line)")
+                charge, offset = ask_qinj_settings(qinj_context)
+                print(f"QInj charge={charge} fC, threshold offset={offset}, pulses={count}")
                 reads = int(input("FIFO read passes [3]: ").strip() or "3")
                 records = input("Print complete records by E-link? [y/N]: ").strip().lower() in ("y", "yes")
-                if not 1 <= charge <= 32 or count < 1 or reads < 1:
-                    raise ValueError("Charge must be 1..32 fC; pulse count and read passes must be positive")
+                if count < 1 or reads < 1:
+                    raise ValueError("Pulse count and read passes must be positive")
+                if offset != qinj_context["offset"]:
+                    qinj_context["set_offset"](offset)
+                    remember_qinj(qinj_context, offset=offset)
                 def acquire():
                     return qinj_context["acquire"](charge, count, reads, records)
                 with temporary_readout_selection(rb, mapping, list(chips)):
-                    if choice == "21":
+                    if choice == "22":
                         report = acquire()
                         save_diagnostic(results_path("qinj", output_dir), "interactive_qinj", report)
                     else:
                         run_fc_scan(chips, target, acquire, output_dir)
-                qinj_context["charge_fc"] = charge
+                remember_qinj(qinj_context, charge=charge)
+            elif choice == "21":
+                if qinj_context is None or qinj_context.get("set_offset") is None:
+                    print("[SKIPPED] Use --stage qinj --step --interactive to prepare thresholds, self-trigger and QInj first.")
+                    continue
+                charge, offset = ask_qinj_settings(qinj_context)
+                if offset != qinj_context["offset"]:
+                    qinj_context["set_offset"](offset)
+                    remember_qinj(qinj_context, offset=offset)
+                if charge != qinj_context["charge_fc"]:
+                    qinj_context["set_charge"](charge)
+                    remember_qinj(qinj_context, charge=charge)
+                print(f"QInj settings now: charge={qinj_context['charge_fc']} fC, threshold offset={qinj_context['offset']}. No injection sent.")
             elif choice == "14":
                 show_blnw_plots(blnw_results)
-            elif choice == "22":
+            elif choice == "23":
                 if "adc_monitoring" not in mapping:
                     print("No adc_monitoring section in this mapping.")
                 else:
@@ -533,7 +571,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                         lp.calibrate_adc()
                         lp.read_adcs(check=True, strict_limits=False)
                     print("ADC read complete; review individual values and limits.")
-            elif choice == "24":
+            elif choice == "25":
                 from pathfinder_control import compare_pixel_settings, print_pixel_settings
                 available = [i for i in (ids if ids is not None else chips) if i in chips]
                 print("Initialized ETROCs:", ", ".join(available))
@@ -546,7 +584,7 @@ def interactive_checks(kcu, rb, *, pathfinder_profile=False, mapping=None, chips
                 if blnw_results is None:
                     print("[INFO] No BL/NW result in memory; baseline and NW columns are left empty.")
                 print_pixel_settings(compare_pixel_settings(chips, names, pixels, blnw_results))
-            elif choice == "23":
+            elif choice == "24":
                 from pathfinder_control import adc_reference_check, print_adc_reference_check
                 reads = int(input("Reads per channel [20]: ").strip() or "20")
                 if not 5 <= reads <= 500:
@@ -732,6 +770,7 @@ def set_fixed_phase_groups(rb, mapping, ids):
 
 RESULTS_ROOT = None   # set in main: <repo>/pathfinder/results
 DROPPED_CHIPS = {}    # ETROC id -> ETROC object dropped from this run (kept only for interactive diagnostics)
+QINJ_LIVE = {}        # charge_fc / offset changed from the interactive menu (kept when the menu is re-entered)
 L1A_TABLE = {}        # ETROC id -> pixel L1Adelay (from --l1a-table or an applied L1A scan); others use --l1a-delay
 
 
@@ -881,8 +920,10 @@ def workflow_menu(state, args, failed=False):
     # A snapshot of references to live objects; no reconstruction of KCU/chips.
     context = None
     if "interactive_acquire" in state:
-        context = {"pixels": state["blnw_results"]["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
-                   "acquire": state["interactive_acquire"]}
+        context = {"pixels": state["blnw_results"]["pixels"], "charge_fc": QINJ_LIVE.get("charge_fc", args.charge_fc),
+                   "offset": QINJ_LIVE.get("offset", args.offset), "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
+                   "acquire": state["interactive_acquire"], "set_offset": state.get("apply_threshold_offset"),
+                   "set_charge": state.get("apply_qinj_charge")}
     print("Use r to retry the failed step; continuing requires a successful check." if failed else "Step complete. Debug now or continue.")
     return interactive_checks(state.get("kcu"), state.get("rb"),
                               pathfinder_profile=Path(args.mapping).name == "pathfinder_mapping.yaml",
@@ -2090,7 +2131,7 @@ def main(args):
                         etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
                         count += 1
                     enabled[identity] = count
-                    show_status(f"{identity}: QInj enabled on {count} pixels (offset={THRESHOLD_OFFSET}, charge={charge_fc}fC)", "info")
+                    show_status(f"{identity}: QInj enabled on {count} pixels (offset={QINJ_LIVE.get('offset', THRESHOLD_OFFSET)}, charge={charge_fc}fC)", "info")
                 return enabled
 
 
@@ -2274,8 +2315,44 @@ def main(args):
                 enable_qinj_pixels(chips, blnw_results, charge_fc=charge)
                 result = run_charge_injection_test(chips, qinj_count=count,
                                                    max_iterations=reads, print_records=records)
-                result["settings"] = {"charge_fc": charge, "qinj_count": count, "fifo_reads": reads}
+                result["settings"] = {"charge_fc": charge, "qinj_count": count, "fifo_reads": reads,
+                                      "offset": QINJ_LIVE.get("offset", THRESHOLD_OFFSET)}
                 return result
+
+
+            def apply_threshold_offset(offset):
+                """Set DAC = baseline + offset on the scanned pixels and read it back.
+
+                Only the DAC is written. Every final code is checked (0..1023) before the
+                first write, so a bad offset changes nothing.
+                """
+                if not 0 <= offset <= 1023:
+                    raise ValueError("offset must be 0..1023")
+                plan = []
+                for identity, etroc in chips.items():
+                    for row, col in blnw_results["pixels"]:
+                        baseline = blnw_results["baseline"][identity][(row, col)]
+                        if baseline is None:
+                            continue
+                        if not 0 <= baseline + offset <= 1023:
+                            raise ValueError(f"{identity} pixel ({row},{col}): baseline {baseline} + offset {offset} is outside 0..1023; nothing written")
+                        plan.append((identity, etroc, row, col, baseline + offset))
+                for identity, etroc, row, col, dac in plan:
+                    etroc.wr_reg("DAC", dac, row=row, col=col, broadcast=False)
+                bad = []
+                for identity, etroc, row, col, dac in plan:
+                    got = int(etroc.rd_reg("DAC", row=row, col=col))
+                    if got != dac:
+                        bad.append(f"{identity} ({row},{col}): wrote {dac}, read {got}")
+                if bad:
+                    raise RuntimeError("DAC readback mismatch: " + "; ".join(bad[:5]))
+                show_status(f"Threshold offset {offset}: DAC written and verified on {len(plan)} pixels", "success")
+                return len(plan)
+
+
+            def apply_qinj_charge(charge):
+                """Set QSel for the new charge on the scanned pixels (QInjEn stays as it is)."""
+                enable_qinj_pixels(chips, blnw_results, charge_fc=charge)
 
         except Exception as exc:
             if not args.interactive:
@@ -2336,8 +2413,10 @@ def main(args):
             if args.interactive:
                 interactive_checks(kcu, rb, pathfinder_profile=Path(MAPPING_PATH).name == "pathfinder_mapping.yaml",
                                        mapping=mapping, chips=chips, ids=ids,
-                                       qinj_context={"pixels": blnw_results["pixels"], "charge_fc": args.charge_fc, "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
-                                                     "acquire": interactive_acquire}, output_dir=args.scan_output, blnw_results=locals().get("blnw_results"))
+                                       qinj_context={"pixels": blnw_results["pixels"], "charge_fc": QINJ_LIVE.get("charge_fc", args.charge_fc),
+                                                     "offset": QINJ_LIVE.get("offset", args.offset), "qinj_count": args.qinj_count, "l1a_delay": args.l1a_delay,
+                                                     "acquire": interactive_acquire, "set_offset": apply_threshold_offset,
+                                                     "set_charge": apply_qinj_charge}, output_dir=args.scan_output, blnw_results=locals().get("blnw_results"))
         except Exception as exc:
             if not args.interactive:
                 raise

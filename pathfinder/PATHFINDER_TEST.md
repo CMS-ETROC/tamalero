@@ -86,7 +86,7 @@ Each stage runs all earlier ones first.
 | `--trigger-logic` | `or` | Combine trigger inputs with `or` / `and`. |
 | `--ip`, `--rb-id` | `192.168.0.10`, `0` | KCU IP address and readout-board id. |
 | `--board-config` | `default` | Board configuration name. |
-| `--rate` | `640` | ETROC link rate, 320 or 640 Mbps. Settings (phase select, trigger delay) are rate-specific. |
+| `--rate` | `320` | ETROC link rate, 320 or 640 Mbps. Settings (phase select, trigger delay) are rate-specific. |
 | `--softboot-retries` | 2 | After ETROC initialization (Step 5), ETROCs whose `controllerState` is not 11 (usually 7) get `softBoot` pulsed 1 then 0, up to N times, and the state is re-read. 0 disables. `disPowerSequence` is not changed. ETROCs that stay not ready are then handled by `--drop-bad-state` in Step 5.1. |
 | `--lock-retries [N]` | off (0) | Step 6: ETROCs with unlocked E-links are first diagnosed (`controllerState`, `pllUnlockCount`, `disScrambler`), get `softBoot` if `controllerState` is not 11, and automatic bit alignment is retried. Skipped by default; the bare flag retries once, `--lock-retries N` retries N times. Only after that are they scanned (`--no-lock-scan` to skip), dropped (`--drop-unlocked`) or the run stops. Automatic alignment runs on the selected links briefly, so already-locked links may re-align too. |
 | `--no-lock-scan` | off | Step 6: by default, E-links still unlocked after recovery get an automatic EPRX phase scan (the EPRX groups are switched to fixed phase for the scan and restored). The scan prints the 5/5 lock window and a suggested phase per ETROC; nothing is applied. This option turns the scan off. |
@@ -202,15 +202,16 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 18 | Set L1A Delay | WRITE HARDWARE | Requires prepared QInj. Show the current pixel `L1Adelay` of every ETROC (marked `(table)` if it comes from the table), then set and verify it on explicit ETROCs; the values are kept for later scans. | Prompts for ETROC IDs (Enter = all initialized) and one `L1Adelay` (0..511). Applies to the scanned pixels. |
 | 19 | Scan FC Input Delay | WRITE HARDWARE | Scan 00/01/10/11 on one initialized ETROC using QInj; restore original FC bits even on failure. | Prompts for the target ETROC, e.g. `D5H1`. |
 | 20 | Set FC Input Delay | WRITE HARDWARE | Set and verify fcClkDelayEn/fcDataDelayEn on explicit targets; keep the requested settings. | Shows the current FC delay bits of all initialized ETROCs first, then prompts for ETROC IDs, e.g. `"D0H0", "D0H1"`, and one value: 00, 01 or 10; shows the table again afterwards. |
-| 21 | Charge Injection Acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
-| 22 | Read ADC Monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
-| 23 | Check ADC Against Internal References | READ ONLY | Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored. |  |
-| 24 | Compare Pixel Settings and BL/NW | READ ONLY | Read back QInjEn/QSel/TDC/readout/DAC/L1Adelay of selected pixels (default: the BL/NW pixels, i.e. the four corners) and show the BL/NW baseline and noise width next to them. Rows that differ from the others or have no baseline are flagged. Use it to compare an ETROC with no data against a working one. |  |
+| 21 | Set QInj Charge and Threshold Offset | WRITE HARDWARE | Requires prepared QInj. Change the injected charge (QSel) and/or the threshold offset (DAC = baseline + offset) on the scanned pixels and read them back. No injection is sent. |
+| 22 | Charge Injection Acquisition | WRITE HARDWARE | Reuse prepared thresholds/self-trigger. Set charge and pulse count, acquire and save per-link records. | Uses `--qinj` / `--qinj-cnt`; prompts for FIFO read passes and whether to print full records. |
+| 23 | Read ADC Monitoring | READ ONLY | Configure mapped ADC channels, calibrate and read values. Missing daughter boards may show out-of-range readings. |  |
+| 24 | Check ADC Against Internal References | READ ONLY | Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored. |  |
+| 25 | Compare Pixel Settings and BL/NW | READ ONLY | Read back QInjEn/QSel/TDC/readout/DAC/L1Adelay of selected pixels (default: the BL/NW pixels, i.e. the four corners) and show the BL/NW baseline and noise width next to them. Rows that differ from the others or have no baseline are flagged. Use it to compare an ETROC with no data against a working one. |  |
 
-Menus 15, 17, 18, 19 and 21 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
+Menus 15, 17, 18, 19, 21 and 22 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
 They enable the selected links temporarily, so they also work after Step 12 has masked the links.
 
-### 6.1. ADC check against internal references (menu 23)
+### 6.1. ADC check against internal references (menu 24)
 
 No external connections and no daughter card needed; runs on both lpGBTs. It reports the stored vs freshly measured calibration (gain should be 1.65-2, offset about 512), the internal supply monitors (VDD, VDDTX, VDDRX, VDDA should read about 1.2 V; VDDIO depends on the board), the temperature-sensor channel in volts, and two checks of the conversion used by `read_adcs()`:
 
@@ -277,6 +278,6 @@ Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 
 ## 9. Notes
 
-- Menu 21 and `--print-records` print the full header/data/trailer records per E-link (the notebook-style output).
+- Menu 22 and `--print-records` print the full header/data/trailer records per E-link (the notebook-style output).
 - Nothing touches hardware unless `--stage` is `motherboard` or later.
 - Output files: BL/NW pickles in `pathfinder/results/blnw/`, diagnostic JSON files in `pathfinder/results/trigger_delay/`, `qinj/`, `fc_delay/`, `phase_scan/` (or `--scan-output` if given).
