@@ -14,18 +14,28 @@ from pathlib import Path
 
 
 def parse_shorthand(text):
-    """'0:1,2,3;2:all' / '0' / 'all' -> selection dict; ';' or '/' separates boards."""
+    """'0:1,2,3;2:all' / '2:all,3:all' / '0' / 'all' -> selection dict; ';', '/' or a comma before 'N:' separates boards."""
     text = text.strip()
     if text.lower() == "all":
         return {module: "all" for module in range(7)}
     obj = {}
-    for part in filter(None, (p.strip() for p in text.replace("/", ";").split(";"))):
-        module, _, hybrids = part.partition(":")
-        hybrids = hybrids.strip().lower()
-        if hybrids in ("", "all"):
-            obj[int(module)] = "all"
-        else:
-            obj[int(module)] = [int(h) for h in hybrids.split(",")]
+    for part in text.replace("/", ";").split(";"):
+        current = None          # hybrid list of the board being read; None = a bare number starts a new board
+        for token in (t.strip() for t in part.split(",")):
+            if not token:
+                continue
+            if ":" in token:    # "2:all" or "0:1": a new board
+                module, _, hybrids = token.partition(":")
+                hybrids = hybrids.strip().lower()
+                if hybrids in ("", "all"):
+                    obj[int(module)] = "all"
+                    current = None
+                else:
+                    current = obj[int(module)] = [int(hybrids)]
+            elif current is not None:   # "0:1,2,3": 2 and 3 are more hybrids of board 0
+                current.append(int(token))
+            else:                       # "0" or "0,2": whole boards
+                obj[int(token)] = "all"
     if not obj:
         raise ValueError("empty selection")
     return obj
@@ -81,11 +91,17 @@ def build_parser():
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--mapping", default="pathfinder_mapping.yaml",
                         help="Absolute path or filename relative to repo/pathfinder")
-    parser.add_argument("--stage", type=lambda value: "eprx-phase-scan" if value == "phase-scan" else value,   # "phase-scan" is the old name
-                        choices=["preview", "motherboard", "etroc-init", "etroc-power", "links", "eprx-phase-scan", "blnw", "qinj", "cosmics", "fc-scan"], default="preview",
-                        help="Run all prerequisite sections through this stage")
+    parser.add_argument("--stage",
+                        choices=["preview", "motherboard", "etroc-init", "etroc-power", "links", "eprx-phase-scan", "blnw", "qinj", "cosmics"], default="preview",
+                        help="Run all prerequisite sections through this stage and stop there. "
+                             "preview: run plan only, no hardware; motherboard: KCU/lpGBT setup; etroc-init: through ETROC initialization (Step 5); "
+                             "etroc-power: plus register checks and high power mode (5.1-5.2); links: plus rate/merge and E-link lock check (5.3-6); "
+                             "eprx-phase-scan: links plus an EPRX phase-select scan; blnw: through the BL/NW scan (Step 7); "
+                             "qinj: thresholds, self-trigger and a charge-injection acquisition; "
+                             "cosmics: like qinj but without injection, continuous self-triggered acquisition (see --duration, --chunk-seconds)")
     parser.add_argument("--selection", type=selection, default={0: "all"},
-                        help='JSON, e.g. {"1":"all","3":[1]}')
+                        help='Daughter cards and hybrids to use. Shorthand: "0:1,2,3;2:all" (D0 H1-H3 and all of D2), "2:all,3:all" (all of D2 and D3), "0" (all of D0), "all" (D0-D6); '
+                             'JSON also works, e.g. {"1":"all","3":[1]}. Default: D0, all hybrids')
     parser.add_argument("--trigger-selection", type=selection, default=None,
                         help="Defaults to the readout selection")
     parser.add_argument("--trigger-logic", choices=["or", "and"], default="or")
@@ -103,12 +119,14 @@ def build_parser():
     plot_options.add_argument("--no-plots", "--no-plot", dest="no_plots", action="store_true", help="Skip workflow plots (default); interactive menu 14 remains available")
     parser.set_defaults(no_plots=True)
     parser.add_argument("--trigger-delay", type=int, default=469)
-    parser.add_argument("--qinj", "--charge-fc", dest="charge_fc", type=int, default=15, help="Injected charge in fC (1..32; default: 15)")
-    parser.add_argument("--qinj-cnt", "--qinj-count", dest="qinj_count", type=int, default=1, help="Injection pulse count (default: 1)")
+    parser.add_argument("--qinj", "--charge-fc", dest="charge_fc", type=int, default=15, help="qinj stage: injected charge in fC (1..32; default: 15); can be changed later with menu 21")
+    parser.add_argument("--qinj-cnt", "--qinj-count", dest="qinj_count", type=int, default=1, help="qinj stage: injection pulse count (default: 1)")
     parser.add_argument("--offset", type=int, default=50, help="Threshold DAC offset above measured baseline (default: 50)")
     parser.add_argument("--interactive", action="store_true",
                         help="Open repeatable diagnostics after a hardware stage")
-    parser.add_argument("--rate", type=int, choices=[320, 640], default=320)
+    parser.add_argument("--rate", type=int, choices=[320, 640], default=320,
+                        help="ETROC link rate in Mbps (default: 320). Step 4 writes the FPGA ELINK_WIDTH for this rate and Step 5.3 sets the lpGBT receivers and ETROC serializers; "
+                             "phase select and trigger delay settings are rate-specific")
     parser.add_argument("--softboot-retries", type=int, default=2,
                         help="After ETROC initialization, pulse softBoot (up to N times) on ETROCs whose controllerState is not 11 and re-read it; 0 disables (default: 2)")
     parser.add_argument("--lock-retries", type=int, nargs="?", const=1, default=0, metavar="N",
@@ -130,10 +148,9 @@ def build_parser():
     parser.add_argument("--l1a-delay", type=int, default=501, help="ETROC pixel L1Adelay; distinct from FPGA trigger delay and FC input delay bits")
     parser.add_argument("--scan-selection", type=selection, help="Subset of initialized D/H to phase-scan; defaults to --selection")
     parser.add_argument("--phase-settings", type=json.loads, default={}, help='Explicit fixed phases, e.g. {"D3H1":4}; applied after initialization')
-    parser.add_argument("--fc-target", help="One initialized ETROC to scan FC input delay bits, e.g. D3H1")
     parser.add_argument("--scan-output", type=Path, default=None)
     parser.add_argument("--print-records", action="store_true", help="Print full header/data/trailer records grouped by E-link")
-    parser.add_argument("--fifo-reads", type=int, default=3, help="Read passes after one QInj burst; does not send extra injections")
+    parser.add_argument("--fifo-reads", type=int, default=3, help="qinj stage: FIFO read passes after one QInj burst; does not send extra injections")
     parser.add_argument("--wrap", action="store_true", help="Let long output lines wrap in the terminal (default: lines are cut at the window edge)")
     parser.add_argument("--step", action="store_true", help="Pause for debugging after each completed hardware step; retry failed steps in the same session")
     return parser
@@ -1172,8 +1189,6 @@ def main(args):
         raise ValueError("charge-fc must be in 1..32")
     if args.duration < 1 or args.chunk_seconds < 1:
         raise ValueError("duration and chunk-seconds must be positive")
-    if args.stage == "fc-scan" and not args.fc_target:
-        raise ValueError("fc-scan requires --fc-target, e.g. D3H1")
 
     # Notebook code cell 2
     announce('0. Repository setup', 'Set repository paths and locate drivers.', 'Repository and driver paths must match this test installation.')
@@ -1263,8 +1278,6 @@ def main(args):
         print(f"{identity}: I2C={bus['lpgbt']}/M{bus['channel']}/"
               f"0x{bus['address']:02X}, elinks={build_elinks(mapping, identity)}")
 
-    if args.fc_target and args.fc_target not in ids:
-        raise ValueError("fc-target must be in --selection")
     if args.scan_selection and not set(expand_selection(mapping, args.scan_selection)).issubset(ids):
         raise ValueError("scan-selection must be a subset of --selection")
     if not isinstance(args.phase_settings, dict) or any(
@@ -2497,13 +2510,6 @@ def main(args):
                           "trigger_delay": args.trigger_delay, "l1a_delay": args.l1a_delay, "l1a_table": dict(L1A_TABLE),
                           "threshold_offset": QINJ_LIVE.get("offset", THRESHOLD_OFFSET), "rate_mbps": args.rate,
                           "pixels": "all", "blnw_load": args.blnw_load})
-            elif args.stage == "fc-scan":
-                announce("11.1. FC input delay scan", "Scan all four clk/data delay-bit combinations: 00, 01, 10, 11.",
-                         "Original FC bits are restored, even on acquisition failure; other chips remain unchanged.")
-                run_fc_scan(chips, args.fc_target,
-                            lambda: run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
-                                                              max_iterations=args.fifo_reads, print_records=args.print_records),
-                            args.scan_output)
             else:
                 qinj_results = run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
                                                         max_iterations=args.fifo_reads, print_records=args.print_records)

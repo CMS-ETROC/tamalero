@@ -70,11 +70,10 @@ Each stage runs all earlier ones first.
 | `etroc-init` | Runs everything up to and including ETROC initialization (Step 5), then stops. Steps 5.1 and later do not run. |
 | `etroc-power` | Adds ETROC communication/register checks (5.1) and high power mode (5.2, skippable), then stops before link rate/merge configuration (5.3). |
 | `links` | Initializes ETROCs, sets rate/merge options and runs the E-link lock check (Step 6). |
-| `eprx-phase-scan` | `links` plus an lpGBT EPRX phase-select scan on `--scan-selection` (default: `--selection`). The EPRX groups are switched to fixed phase (TRACKMODE 0) for the scan and restored afterwards. The old name `phase-scan` still works. |
+| `eprx-phase-scan` | `links` plus an lpGBT EPRX phase-select scan on `--scan-selection` (default: `--selection`). The EPRX groups are switched to fixed phase (TRACKMODE 0) for the scan and restored afterwards. |
 | `blnw` | Through the BL/NW baseline / noise-width scan (Step 7); stops after the figures. |
 | `qinj` | Everything: thresholds, self-trigger, QInj preparation, **sends the injection burst**, reads the FIFO, saves results, then masks the links (Step 12). |
 | `cosmics` | Like `qinj`, but the **QInj stage is skipped**: no injection (`QInjEn=0` on every pixel), BL/NW over all 256 pixels per chip (a new scan, or `--blnw-load`), thresholds `DAC = baseline + --offset`, self-trigger, then continuous acquisition for `--duration` seconds. Raw 32-bit FIFO words go to `results/cosmics/<UTC time>/file_<n>_CE.dat`, a new file every `--chunk-seconds`; `run_info.json` in the same folder records the configuration, file list and how the run ended. Ctrl+C stops cleanly. |
-| `fc-scan` | Like `qinj`, but Step 11 scans the FC input delay on `--fc-target` (required). |
 
 ## 3. Options
 
@@ -82,7 +81,7 @@ Each stage runs all earlier ones first.
 |---|---|---|
 | `--repo-root` | parent of `pathfinder/` | Repository root (where the tamalero drivers are found). |
 | `--mapping` | `pathfinder_mapping.yaml` | Mapping file (absolute path, or name relative to `pathfinder/`). |
-| `--selection` | `{"0":"all"}` | Daughters/hybrids to read out. JSON or shorthand: `0:1,2,3` (D0 H1-3), `0:1,2,3;2:all` (`;` or `/` separates boards), `0` (D0, all hybrids), `all` (D0-D6, all hybrids). Also accepted by `--trigger-selection` and `--scan-selection`. |
+| `--selection` | `{"0":"all"}` | Daughters/hybrids to read out. JSON or shorthand: `0:1,2,3` (D0 H1-3), `0:1,2,3;2:all` (`;` or `/` separates boards), `2:all,3:all` (a comma before `N:` also starts a new board), `0` (D0, all hybrids), `all` (D0-D6, all hybrids). Also accepted by `--trigger-selection` and `--scan-selection`. |
 | `--trigger-selection` | = selection | Daughters/hybrids that contribute to the trigger. |
 | `--trigger-logic` | `or` | Combine trigger inputs with `or` / `and`. |
 | `--ip`, `--rb-id` | `192.168.0.10`, `0` | KCU IP address and readout-board id. |
@@ -113,7 +112,6 @@ Each stage runs all earlier ones first.
 | `--print-records` | off | Also print full header/data/trailer records grouped by E-link. |
 | `--duration` | `43200` | `cosmics` only: acquisition time in seconds (12 h). |
 | `--chunk-seconds` | `300` | `cosmics` only: start a new data file every N seconds. |
-| `--fc-target` | none | ETROC for `--stage fc-scan`, e.g. `D3H1`. |
 | `--scan-output` | (none) | Override folder for diagnostic JSON files. Default: `pathfinder/results/<kind>/`. |
 | `--monitor-seconds` | `3` | Duration of the uplink monitor in the motherboard check. |
 | `--wrap` | off | By default long output lines are not wrapped (cut at the terminal edge, so widen the window to see more); `--wrap` restores normal wrapping. Not applied when output is redirected. |
@@ -211,7 +209,7 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 | 24 | Check ADC Against Internal References | READ ONLY | Per lpGBT, no external connections: calibration gain/offset, internal supply monitors, driver conversion error, and TRIG hardware-differential vs subtraction. VDDMONENA is switched briefly and restored. |  |
 | 25 | Compare Pixel Settings and BL/NW | READ ONLY | Read back QInjEn/QSel/TDC/readout/DAC/L1Adelay of selected pixels (default: the BL/NW pixels, i.e. the four corners) and show the BL/NW baseline and noise width next to them. Rows that differ from the others or have no baseline are flagged. Use it to compare an ETROC with no data against a working one. |  |
 
-Menus 15, 17, 18, 19, 21 and 22 appear only after QInj preparation (`--stage qinj` / `fc-scan`).
+Menus 15, 17, 18, 19, 21 and 22 appear only after QInj preparation (`--stage qinj`).
 They enable the selected links temporarily, so they also work after Step 12 has masked the links.
 
 ### 6.1. ADC check against internal references (menu 24)
