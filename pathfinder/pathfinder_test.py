@@ -110,6 +110,8 @@ def build_parser():
     parser.add_argument("--board-config", default="default")
     parser.add_argument("--monitor-seconds", type=int, default=3)
     parser.add_argument("--duration", type=int, default=43200, metavar="SECONDS", help="cosmics stage: acquisition time in seconds (default: 43200 = 12 h)")
+    parser.add_argument("--note", default="", help="cosmics stage: free-text note (HV, temperature, setup...) stored in run_info.json")
+    parser.add_argument("--read-interval", type=float, default=0.1, metavar="SECONDS", help="cosmics stage: pause after each FIFO read (default: 0.1); too short can cause uhal UDP errors, too long can overflow the FIFO")
     parser.add_argument("--chunk-seconds", type=int, default=300, metavar="SECONDS", help="cosmics stage: start a new data file every N seconds (default: 300)")
     parser.add_argument("--blnw", "--pixels", dest="pixels", choices=["sample", "all"], default="sample", help="BL/NW coverage: sample=4 pixels/chip; all=256 pixels/chip (default: sample)")
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
@@ -838,8 +840,81 @@ def save_diagnostic(folder, name, report):
     return path
 
 
+def configure_pixels_broadcast(chips, blnw_results, *, offset, l1a_delay, l1a_table, toa_range, tot_range, cal_range, status=print):
+    """Configure all 256 pixels of every chip with chip-wide (broadcast) writes; only DAC is written per pixel.
+
+    Same registers and values as the per-pixel Step 8, written in a safe order per chip:
+      1. broadcast: all pixels off (enable_TDC=0, disDataReadout=1, disTrigPath=1)
+      2. per pixel: DAC = baseline + offset (pixels still off); every code is checked (0..1023) before the first write
+      3. broadcast: workMode, QInjEn=0, trigger/data windows, L1Adelay, then pixels on
+      4. per pixel with no baseline: switched off again
+      5. read back a few pixels (and one disabled pixel, if any); mismatch raises
+    Returns (applied, skipped) in the same shape as configure_thresholds.
+    """
+    scan_pixels = list(blnw_results["pixels"])
+    if len(set(scan_pixels)) != 256:
+        raise ValueError(f"Broadcast configuration needs BL/NW for all 256 pixels (got {len(set(scan_pixels))}); use --blnw all")
+    corners = [(0, 0), (0, 15), (15, 0), (15, 15)]
+    applied_all, skipped_all = {}, {}
+    for identity, etroc in chips.items():
+        plan, skipped = {}, []
+        for row, col in scan_pixels:
+            baseline = blnw_results["baseline"][identity][(row, col)]
+            if baseline is None:
+                skipped.append((row, col))
+                continue
+            dac = baseline + offset
+            if not 0 <= dac <= 1023:
+                raise ValueError(f"{identity} pixel ({row},{col}): baseline {baseline} + offset {offset} = {dac} is outside 0..1023; nothing written")
+            plan[(row, col)] = {"baseline": baseline, "dac": dac}
+        delay = l1a_table.get(identity, l1a_delay)
+
+        etroc.wr_reg("enable_TDC", 0, broadcast=True)
+        etroc.wr_reg("disDataReadout", 1, broadcast=True)
+        etroc.wr_reg("disTrigPath", 1, broadcast=True)
+        for (row, col), item in plan.items():
+            etroc.wr_reg("DAC", item["dac"], row=row, col=col, broadcast=False)
+        etroc.wr_reg("workMode", 0, broadcast=True)
+        etroc.wr_reg("QInjEn", 0, broadcast=True)
+        etroc.set_trigger_TH("TOA", lower=toa_range[0], upper=toa_range[1], broadcast=True)
+        etroc.set_trigger_TH("TOT", lower=tot_range[0], upper=tot_range[1], broadcast=True)
+        etroc.set_trigger_TH("Cal", lower=cal_range[0], upper=cal_range[1], broadcast=True)
+        etroc.set_data_TH("TOA", lower=toa_range[0], upper=toa_range[1], broadcast=True)
+        etroc.set_data_TH("TOT", lower=tot_range[0], upper=tot_range[1], broadcast=True)
+        etroc.set_data_TH("Cal", lower=cal_range[0], upper=cal_range[1], broadcast=True)
+        etroc.wr_reg("L1Adelay", delay, broadcast=True)
+        etroc.wr_reg("enable_TDC", 1, broadcast=True)
+        etroc.wr_reg("disDataReadout", 0, broadcast=True)
+        etroc.wr_reg("disTrigPath", 0, broadcast=True)
+        for row, col in skipped:
+            etroc.wr_reg("enable_TDC", 0, row=row, col=col, broadcast=False)
+            etroc.wr_reg("disDataReadout", 1, row=row, col=col, broadcast=False)
+            etroc.wr_reg("disTrigPath", 1, row=row, col=col, broadcast=False)
+
+        bad = []
+        checks = [px for px in corners if px in plan] or list(plan)[:4]
+        for row, col in checks:
+            expected = {"DAC": plan[(row, col)]["dac"], "enable_TDC": 1, "disDataReadout": 0, "disTrigPath": 0,
+                        "workMode": 0, "QInjEn": 0, "L1Adelay": delay}
+            for name, want in expected.items():
+                got = int(etroc.rd_reg(name, row=row, col=col))
+                if got != want:
+                    bad.append(f"({row},{col}) {name}: wrote {want}, read {got}")
+        for row, col in skipped[:1]:
+            for name, want in (("enable_TDC", 0), ("disDataReadout", 1), ("disTrigPath", 1)):
+                got = int(etroc.rd_reg(name, row=row, col=col))
+                if got != want:
+                    bad.append(f"({row},{col}) {name} (no baseline, must stay off): wrote {want}, read {got}")
+        if bad:
+            raise RuntimeError(f"{identity}: broadcast configuration readback mismatch: " + "; ".join(bad[:8]))
+        status(f"{identity}: broadcast configuration applied to {len(plan)} pixels "
+               f"(offset={offset}, L1Adelay={delay}), {len(skipped)} left off (no baseline); readback OK on {len(checks)} pixels", "warning" if skipped else "success")
+        applied_all[identity], skipped_all[identity] = plan, skipped
+    return applied_all, skipped_all
+
+
 def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, output_dir, info,
-                           report_interval=10, lock_check_interval=60, read_interval=1.0, max_read_errors=50):
+                           report_interval=10, lock_check_interval=60, read_interval=0.1, max_read_errors=50):
     """Continuous self-triggered acquisition for a cosmic run (no charge injection).
 
     Raw 32-bit FIFO words go to output_dir/file_<n>_CE.dat (little-endian, same layout as the
@@ -870,7 +945,7 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
 
     utc = lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
     files, state = [], {"total_words": 0, "read_errors": 0, "lock_lost_checks": 0}
-    info = dict(info, duration_s=duration, chunk_seconds=chunk_seconds, start_utc=utc(), output_dir=str(output_dir))
+    info = dict(info, duration_s=duration, chunk_seconds=chunk_seconds, read_interval_s=read_interval, start_utc=utc(), output_dir=str(output_dir))
 
     def write_info(status):
         record = dict(info, status=status, files=files, **state)
@@ -902,6 +977,7 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
                 continue
             if raw:
                 handle.write(struct.pack(f"<{len(raw)}I", *raw))
+                handle.flush()
                 files[-1]["words"] += len(raw)
                 state["total_words"] += len(raw)
             time.sleep(read_interval)     # slows the DAQ to avoid uhal UDP errors in the FIFO read
@@ -932,6 +1008,10 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
         if handle is not None and not handle.closed:
             handle.close()
             files[-1]["end_utc"] = utc()
+        try:
+            rb.disable_etroc_trigger()      # stop the ETROCs from triggering once the run is over
+        except Exception as exc:
+            print(f"[WARNING] Could not disable the ETROC trigger: {exc}", flush=True)
         info["end_utc"] = utc()
         info["run_seconds"] = round(time.time() - start, 1)
         write_info(status)
@@ -1187,6 +1267,8 @@ def main(args):
         raise ValueError("charge-fc must be in 1..32")
     if args.duration < 1 or args.chunk_seconds < 1:
         raise ValueError("duration and chunk-seconds must be positive")
+    if args.read_interval < 0:
+        raise ValueError("read-interval must not be negative")
 
     # Notebook code cell 2
     announce('0. Repository setup', 'Set repository paths and locate drivers.', 'Repository and driver paths must match this test installation.')
@@ -2090,7 +2172,13 @@ def main(args):
                 return threshold_results, skipped_pixels
 
 
-            threshold_results, threshold_skipped_pixels = configure_thresholds(chips, blnw_results)
+            if args.stage == "cosmics":
+                show_status("cosmics stage: chip-wide (broadcast) pixel configuration; only DAC is written per pixel", "info")
+                threshold_results, threshold_skipped_pixels = configure_pixels_broadcast(
+                    chips, blnw_results, offset=THRESHOLD_OFFSET, l1a_delay=L1A_DELAY_DEFAULT, l1a_table=L1A_TABLE,
+                    toa_range=TOA_RANGE, tot_range=TOT_RANGE, cal_range=CAL_RANGE, status=show_status)
+            else:
+                threshold_results, threshold_skipped_pixels = configure_thresholds(chips, blnw_results)
 
             # Notebook code cell 38
         except Exception as exc:
@@ -2256,8 +2344,7 @@ def main(args):
 
 
             if args.stage == "cosmics":
-                disable_qinj_pixels(chips, blnw_results)
-                qinj_enabled_pixels = {}
+                qinj_enabled_pixels = {}   # QInjEn=0 was already written to every pixel (broadcast) in Step 8
             else:
                 qinj_enabled_pixels = enable_qinj_pixels(chips, blnw_results, charge_fc=CHARGE_FC_DEFAULT)
 
@@ -2494,7 +2581,8 @@ def main(args):
                 cosmic_dir = results_path("cosmics", args.scan_output) / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
                 run_cosmic_acquisition(
                     rb, mapping, chips, duration=args.duration, chunk_seconds=args.chunk_seconds, output_dir=cosmic_dir,
-                    info={"stage": "cosmics", "etrocs": list(chips), "trigger_etrocs": list(trigger_ids),
+                    read_interval=args.read_interval,
+                    info={"stage": "cosmics", "note": args.note, "etrocs": list(chips), "trigger_etrocs": list(trigger_ids),
                           "trigger_logic": args.trigger_logic, "trigger_bits": args.trigger_bits,
                           "trigger_delay": args.trigger_delay, "l1a_delay": args.l1a_delay, "l1a_table": dict(L1A_TABLE),
                           "threshold_offset": QINJ_LIVE.get("offset", THRESHOLD_OFFSET), "rate_mbps": args.rate,
