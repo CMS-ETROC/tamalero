@@ -73,7 +73,7 @@ Each stage runs all earlier ones first.
 | `eprx-phase-scan` | `links` plus an lpGBT EPRX phase-select scan on `--scan-selection` (default: `--selection`). The EPRX groups are switched to fixed phase (TRACKMODE 0) for the scan and restored afterwards. |
 | `blnw` | Through the BL/NW baseline / noise-width scan (Step 7); stops after the figures. |
 | `qinj` | Everything: thresholds, self-trigger, QInj preparation, **sends the injection burst**, reads the FIFO, saves results, then masks the links (Step 12). |
-| `cosmics` | Like `qinj`, but the **QInj stage is skipped**: no injection (`QInjEn=0` on every pixel), BL/NW over all 256 pixels per chip (a new scan, or `--blnw-load`), thresholds `DAC = baseline + --offset` (pixels are configured with chip-wide broadcast writes; only `DAC` is written per pixel, then a few pixels are read back), self-trigger, then continuous acquisition for `--duration` seconds. Raw 32-bit FIFO words go to `results/cosmics/<UTC time>/file_<n>_CE.dat`, a new file every `--chunk-seconds`; `run_info.json` in the same folder records the configuration, file list and how the run ended. Ctrl+C stops cleanly. |
+| `cosmics` | Like `qinj`, but the **QInj stage is skipped**: no injection (`QInjEn=0` on every pixel), BL/NW over all 256 pixels per chip (a new scan, or `--blnw-load`), thresholds `DAC = baseline + --offset` (pixels are configured with chip-wide broadcast writes; only `DAC` is written per pixel, then a few pixels are read back), self-trigger, then continuous acquisition for `--duration` seconds. Raw 32-bit FIFO words go to `results/cosmics/<UTC time>/file_<n>_CE.dat`, a new file every `--chunk-seconds`; `run_info.json` in the same folder records the configuration, file list and how the run ended. Ctrl+C stops cleanly. See section 8. |
 
 ## 3. Options
 
@@ -256,7 +256,62 @@ The table depends on `TRIG_DLY_SEL` and on the link rate, so rescan after changi
 
 **Compensation test (notebook section 11.6 only).** Checks whether `L1Adelay` really compensates a shifted `TRIG_DLY_SEL`. The current `TRIG_DLY_SEL` is the reference and must give data at `--l1a-delay`. For each offset (default `-6,-3,0,3,6`, must include 0) it sets `TRIG_DLY_SEL = reference + offset`, scans `L1Adelay` over `--l1a-delay` ± (largest offset + 8), and prints per ETROC how far the `L1Adelay` window centre moved relative to offset 0. If both delays act on the same timing, the shift equals the offset (slope close to 1). `TRIG_DLY_SEL` and the pixel `L1Adelay` are restored afterwards; the result is saved as `l1a_comp_<time>.json`. If a shifted window runs into the end of the scanned range, the centre is wrong; use smaller offsets.
 
-## 8. If something goes wrong
+## 8. Cosmic run (`--stage cosmics`)
+
+Runs the normal start-up (init, links, BL/NW), configures all 256 pixels of every selected ETROC, turns on the self-trigger and reads the FIFO continuously. No charge injection. The raw 32-bit FIFO words are saved to disk; decoding is done offline.
+
+**Before you start**
+
+1. All ETROCs you want to measure lock and send data. Check with `--stage links` first (do not use `--drop-unlocked` for this, it hides the ETROCs that are missing).
+2. Write down the conditions the script cannot read: sensor HV, temperature, orientation. They go into `--note`.
+3. Know the trigger board: `--trigger-selection` (default: the first selected ETROC).
+
+**Short test run (always do this first)**
+
+```bash
+python pathfinder/pathfinder_test.py --stage cosmics --selection 0:all \
+    --trigger-selection D0H0 --offset 50 --duration 120 --chunk-seconds 30 --note "dry run"
+```
+
+Check:
+
+- Step 8: `broadcast configuration applied ... readback OK` for every ETROC (no `readback mismatch`).
+- Step 9: `TRIG_ENABLE_MASK` is the board you expect.
+- Step 10 says `SKIPPED (cosmics stage)`.
+- Step 11: a status line every 10 s with `read_errors=0`, `backlog_rounds`, `fifo_full` and `lost_words`. The word count may stay low or 0 without sensors.
+- At the end: `Cosmic run completed`, and the run folder has `file_*_CE.dat` and `run_info.json`.
+
+**Real run**
+
+```bash
+python pathfinder/pathfinder_test.py --stage cosmics --selection 0:all,1:all \
+    --trigger-selection D0H0 --offset 50 --blnw-load latest \
+    --duration 43200 --chunk-seconds 300 --note "HV 150 V, horizontal, lab"
+```
+
+- `--duration` is in seconds (43200 = 12 h). A new file is started every `--chunk-seconds`.
+- `--blnw-load latest` reuses the last BL/NW scan (it must cover all 256 pixels); leave it out to scan again.
+- Stop early with **Ctrl+C**: the files are closed and `run_info.json` says `stopped by user`.
+
+**Where the data is**: `results/cosmics/<UTC time>/`
+
+| File | Content |
+|---|---|
+| `file_<n>_CE.dat` | raw 32-bit little-endian FIFO words, one file per `--chunk-seconds` |
+| `run_info.json` | note, ETROCs, trigger board and logic, offset, delays, rate, start/end time, words per file, `backlog_rounds`, how the run ended |
+
+**During and after the run**
+
+- Every 10 s: elapsed time, number of files, words read, read errors, `backlog_rounds`, `fifo_full`, `lost_words`.
+- `[WARNING] FIFO not drained ...` means data arrive faster than they are read (for example a noisy ETROC or too low a threshold). The file rollover and the end time still work, but data can be lost (see `lost_words`). The plain `FIFO.read()` of tamalero loops until the FIFO is empty and would never return in this case, so the cosmic run reads for at most 1 s per round.
+- Every 60 s a link check; `[WARNING] An E-link is not locked` means data may be missing (the run continues).
+- 50 FIFO read errors in a row stop the run.
+- Pixels with no baseline stay off. Count them as "not measured", not as disconnected. List ETROCs that are not measured (not locking) in `--note`.
+- `status` in `run_info.json` should be `completed` (or `stopped by user`). Anything else, look at the terminal output.
+
+**Not covered**: no external trigger (the trigger comes from the ETROC pixels, self-trigger); no decoding or per-pixel hit counting (do that offline on the `.dat` files).
+
+## 9. If something goes wrong
 
 General: read the `[FAILED] <step>` line, fix the cause, press **r** to rerun the step.
 Use `--step --interactive` to stay in one session. Partial hardware configuration may remain after a failure.
@@ -275,10 +330,11 @@ Power cycling the ETROC supply resets settings such as `fcDataDelayEn` to 0.
 | Trigger does not reach all chips | Trigger mask bit = 14 x bank + E-link/2; TRIG E4..E10 are bits 16-19 (`0xF0000`). Check `--trigger-selection`. |
 | "Link lock lost during QInj preparation" | The script refuses to send the burst. Rerun bitslip (menu 7), check links (menu 9), then retry (r). |
 | `--blnw-load`: "No usable saved BL/NW result" | The file is incomplete, was a `sample` scan while `all` is requested, or lacks one of the selected ETROCs. Rescan once without `--blnw-load`. |
+| Cosmic run writes only `file_0`, stays at 0 bytes and does not end | Older versions called `FIFO.read()`, which never returns while data keep arriving. Use the current script: it reads for at most 1 s per round and prints `FIFO not drained`. If that warning appears, find which ETROC/pixel triggers continuously (raise `--offset`, select one ETROC) and check `lost_words`. |
 | KCU does not answer / uhal errors | Check `--ip` (default 192.168.0.10), power and the Ethernet link. |
 | Start over | Press r for the failed step. For a clean start rerun the script from the beginning (exiting does not reset the hardware). |
 
-## 9. Notes
+## 10. Notes
 
 - Menu 22 and `--print-records` print the full header/data/trailer records per E-link (the notebook-style output).
 - Nothing touches hardware unless `--stage` is `motherboard` or later.

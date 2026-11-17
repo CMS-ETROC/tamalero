@@ -914,7 +914,7 @@ def configure_pixels_broadcast(chips, blnw_results, *, offset, l1a_delay, l1a_ta
 
 
 def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, output_dir, info,
-                           report_interval=10, lock_check_interval=60, read_interval=0.1, max_read_errors=50):
+                           report_interval=10, lock_check_interval=60, read_interval=0.1, max_read_errors=50, read_timeout=10.0, read_budget=1.0):
     """Continuous self-triggered acquisition for a cosmic run (no charge injection).
 
     Raw 32-bit FIFO words go to output_dir/file_<n>_CE.dat (little-endian, same layout as the
@@ -922,7 +922,9 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
     start/end time, the words per file and why the run ended; it is rewritten at every file
     change, so a crash still leaves a usable record. Ctrl+C stops cleanly and closes the files.
     """
+    import signal
     import struct
+    import threading
     import time
     from datetime import datetime, timezone
     from tamalero.FIFO import FIFO
@@ -944,7 +946,7 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
     time.sleep(1)
 
     utc = lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
-    files, state = [], {"total_words": 0, "read_errors": 0, "lock_lost_checks": 0}
+    files, state = [], {"total_words": 0, "read_errors": 0, "lock_lost_checks": 0, "backlog_rounds": 0}
     info = dict(info, duration_s=duration, chunk_seconds=chunk_seconds, read_interval_s=read_interval, start_utc=utc(), output_dir=str(output_dir))
 
     def write_info(status):
@@ -956,6 +958,33 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
     handle, file_started, errors_in_a_row = None, 0.0, 0
     start = last_report = last_lock = time.time()
     status = "completed"
+
+    class ReadTimeout(Exception):
+        pass
+
+    def on_alarm(signum, frame):
+        raise ReadTimeout()
+
+    def read_bounded():
+        """Drain the FIFO like FIFO.read(), but give up after read_budget seconds.
+
+        FIFO.read() loops 'while occupancy > 0'. If data arrive as fast as they are read, it
+        never returns: no data are written, no new file is started and the run never ends.
+        Here the loop is cut off after read_budget seconds; the rest is read in the next round.
+        """
+        data, t0, occupancy = [], time.time(), 0
+        while True:
+            occupancy = fifo.get_occupancy()
+            if occupancy <= 0:
+                return data, False, 0
+            if time.time() - t0 >= read_budget:
+                return data, True, occupancy
+            data += fifo.read_block(250, dispatch=True).value()
+
+    # A FIFO call that never returns would stop the file rollover and the end of the run.
+    # SIGALRM interrupts it after read_timeout seconds (Linux/macOS, main thread only).
+    use_alarm = hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    old_handler = signal.signal(signal.SIGALRM, on_alarm) if use_alarm else None
     try:
         while time.time() - start < duration:
             if handle is None:
@@ -965,8 +994,21 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
                 files.append({"name": path.name, "start_utc": utc(), "words": 0})
                 print(f"Opening new file: {path.name}", flush=True)
             try:
-                raw = fifo.read(dispatch=True)
+                if use_alarm:
+                    signal.setitimer(signal.ITIMER_REAL, read_timeout)
+                try:
+                    raw, backlog, occupancy = read_bounded()
+                finally:
+                    if use_alarm:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
                 errors_in_a_row = 0
+            except ReadTimeout:
+                errors_in_a_row += 1
+                state["read_errors"] += 1
+                print(f"[WARNING] fifo.read() did not return within {read_timeout:g} s ({errors_in_a_row} in a row)", flush=True)
+                if errors_in_a_row >= max_read_errors:
+                    raise RuntimeError(f"{max_read_errors} FIFO read problems in a row; run stopped")
+                continue
             except Exception as exc:
                 errors_in_a_row += 1
                 state["read_errors"] += 1
@@ -975,6 +1017,11 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
                     raise RuntimeError(f"{max_read_errors} FIFO read errors in a row; run stopped")
                 time.sleep(1)
                 continue
+            if backlog:
+                state["backlog_rounds"] += 1
+                if state["backlog_rounds"] == 1 or state["backlog_rounds"] % 20 == 0:
+                    print(f"[WARNING] FIFO not drained after {read_budget:g} s (occupancy {occupancy}); "
+                          f"data arrive faster than they are read ({state['backlog_rounds']} rounds)", flush=True)
             if raw:
                 handle.write(struct.pack(f"<{len(raw)}I", *raw))
                 handle.flush()
@@ -989,7 +1036,12 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
                 write_info("running")
             if now - last_report >= report_interval:
                 last_report = now
-                print(f"[{int(now - start)} s] files={len(files)} words={state['total_words']} read_errors={state['read_errors']}", flush=True)
+                try:
+                    extra = f" fifo_full={fifo.is_full()} lost_words={fifo.get_lost_word_count()}"
+                except Exception:
+                    extra = ""
+                print(f"[{int(now - start)} s] files={len(files)} words={state['total_words']} "
+                      f"read_errors={state['read_errors']} backlog_rounds={state['backlog_rounds']}{extra}", flush=True)
             if now - last_lock >= lock_check_interval:
                 last_lock = now
                 try:
@@ -1005,6 +1057,9 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
         status = f"failed: {exc}"
         raise
     finally:
+        if use_alarm:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, old_handler)
         if handle is not None and not handle.closed:
             handle.close()
             files[-1]["end_utc"] = utc()
