@@ -100,7 +100,7 @@ Each stage runs all earlier ones first.
 | `--l1a-table` | none | Per-ETROC `L1Adelay` table from menu 17: a JSON path or `latest`. ETROCs not in the table use `--l1a-delay`. Applied in Step 8 (section 7.1). |
 | `--scan-selection` | = selection | Subset to scan with `eprx-phase-scan`. |
 | `--phase-settings` | `{}` | Fixed phases applied after initialization, e.g. `'{"D3H1":4}'`. Sets fixed phase mode for the affected groups (see section 7). |
-| `--blnw` / `--pixels` | `sample` | BL/NW coverage: `sample` = 4 pixels/chip (corners), `all` = 256 pixels/chip. |
+| `--blnw` / `--pixels` | `sample` | BL/NW coverage: `sample` = 4 pixels/chip (corners), `all` = 256 pixels/chip, `etroc` = the 64 pixels that spell ETROC (rows 1–14); all other pixels get no baseline and stay off. `cosmics` always uses `all`. |
 | `--blnw-load` | off | Skip the BL/NW scan and load saved results: a `.pkl` path or `latest` (section 5). |
 | `--no-save` | off | Do not save the BL/NW pickle. |
 | `--plot` (`--plots`) / `--no-plots` (`--no-plot`) | no plots | Show BL/NW figures in the workflow. Menu 14 always works. |
@@ -174,7 +174,7 @@ python3 pathfinder/pathfinder_test.py --stage qinj --blnw all --blnw-load latest
 
 - `latest` picks the newest usable file; unusable files are skipped with a printed reason.
 - A saved result must be **complete**, must cover **all selected ETROCs**, and must cover the requested `--blnw` pixels.
-  A `sample` (4 pixel) file cannot be used for `--blnw all`; an `all` file can serve `--blnw sample` (only the 4 corner pixels are used).
+  A `sample` (4 pixel) file cannot be used for `--blnw all`; an `all` file can serve `--blnw sample` or `--blnw etroc` (only the requested pixels are used).
 - Pixels whose scan failed (baseline `None`) are skipped when thresholds are set.
 - Step 7.2 / menu 14 plots the loaded data; nothing new is saved.
 - Baselines drift with temperature and supply. Rescan after changing the ETROC power supply, slot or conditions.

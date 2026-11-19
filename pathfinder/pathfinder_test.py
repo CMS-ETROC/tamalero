@@ -115,7 +115,7 @@ def build_parser():
     parser.add_argument("--chunk-seconds", type=int, default=300, metavar="SECONDS", help="cosmics stage: start a new data file every N seconds (default: 300)")
     parser.add_argument("--inject-count", type=int, default=0, metavar="N", help="cosmics stage: also send N single charge-injection pulses within --duration, charge --charge-fc (default: 0 = none; times are saved in injections.csv)")
     parser.add_argument("--inject-mode", choices=["random", "pattern"], default="random", help="cosmics stage with --inject-count: 'random' = random times on the 4 corner pixels of every ETROC (default); 'pattern' = evenly spaced pulses, each with a different pixel pattern (CMS, ETL, ETROC, FNAL, SMU, cross, X, diamond, ring, smiley)")
-    parser.add_argument("--blnw", "--pixels", dest="pixels", choices=["sample", "all"], default="sample", help="BL/NW coverage: sample=4 pixels/chip; all=256 pixels/chip (default: sample)")
+    parser.add_argument("--blnw", "--pixels", dest="pixels", choices=["sample", "all", "etroc"], default="sample", help="BL/NW coverage: sample=4 pixels/chip; all=256 pixels/chip; etroc=the 64 pixels that spell ETROC, all other pixels stay off (default: sample)")
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
     parser.add_argument("--blnw-load", metavar="PKL|latest", default=None, help="Skip the BL/NW scan and load saved results (a .pkl path, or latest = newest valid file in the results folder)")
     plot_options = parser.add_mutually_exclusive_group()
@@ -2057,7 +2057,7 @@ def main(args):
         break
     while True:
         try:
-            announce('7. BL/NW scan settings', 'Apply pixel coverage and BL/NW save options.', 'sample scans 4 pixels per chip; all scans 256 pixels per chip.')
+            announce('7. BL/NW scan settings', 'Apply pixel coverage and BL/NW save options.', 'sample scans 4 pixels per chip; all scans 256 pixels per chip; etroc scans the 64 pixels of the ETROC pattern.')
             # Choose "sample" for 4 pixels or "all" for the full 16 x 16 matrix.
             # Change it on the command line with --blnw sample|all (default: sample).
             # The scanned pixels are also the ones given thresholds and QInj later.
@@ -2104,7 +2104,10 @@ def main(args):
                     return [(row, col) for row in (0, 15) for col in (0, 15)]
                 if mode == "all":
                     return [(row, col) for row in range(16) for col in range(16)]
-                raise ValueError("BLNW_SCAN_MODE must be 'sample' or 'all'")
+                if mode == "etroc":
+                    # Only the pixels of the ETROC word; the others get no baseline and stay off.
+                    return sorted(next(pix for name, pix in make_inject_patterns() if name == "ETROC"))
+                raise ValueError("BLNW_SCAN_MODE must be 'sample', 'all' or 'etroc'")
 
 
             blnw_scan_passed = False
