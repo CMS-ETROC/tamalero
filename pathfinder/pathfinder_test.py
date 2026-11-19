@@ -1358,6 +1358,7 @@ def show_blnw_plots(blnw_results):
                 ax.text(1.0, 1.0, format_scan_time(results), transform=ax.transAxes, fontsize=9, ha='right', va='bottom')
                 ax.set_xlabel('Column')
                 ax.set_ylabel('Row')
+                ax.invert_xaxis()    # pixel (0,0) is the bottom-right corner, (15,15) the top-left
                 ax.set_xticks(range(16))
                 ax.set_yticks(range(16))
                 ax.set_xticks(np.arange(-0.5, 16, 1), minor=True)
