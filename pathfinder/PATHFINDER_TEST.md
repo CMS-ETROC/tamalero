@@ -82,7 +82,7 @@ Each stage runs all earlier ones first.
 | `--repo-root` | parent of `pathfinder/` | Repository root (where the tamalero drivers are found). |
 | `--mapping` | `pathfinder_mapping.yaml` | Mapping file (absolute path, or name relative to `pathfinder/`). |
 | `--selection` | `{"0":"all"}` | Daughters/hybrids to read out. JSON or shorthand: `0:1,2,3` (D0 H1-3), `0:1,2,3;2:all` (`;` or `/` separates boards), `2:all,3:all` (a comma before `N:` also starts a new board), `0` (D0, all hybrids), `all` (D0-D6, all hybrids). Also accepted by `--trigger-selection` and `--scan-selection`. |
-| `--trigger-selection` | = selection | Daughters/hybrids that contribute to the trigger. |
+| `--trigger-selection` | = selection | Daughters/hybrids that contribute to the trigger. Same format as `--selection` (`0:0` = D0H0); must be a subset of `--selection`, otherwise the script stops at Step 2.1. |
 | `--trigger-logic` | `or` | Combine trigger inputs with `or` / `and`. |
 | `--ip`, `--rb-id` | `192.168.0.10`, `0` | KCU IP address and readout-board id. |
 | `--board-config` | `default` | Board configuration name. |
@@ -266,13 +266,13 @@ Runs the normal start-up (init, links, BL/NW), configures all 256 pixels of ever
 
 1. All ETROCs you want to measure lock and send data. Check with `--stage links` first (do not use `--drop-unlocked` for this, it hides the ETROCs that are missing).
 2. Write down the conditions the script cannot read: sensor HV, temperature, orientation. They go into `--note`.
-3. Know the trigger board: `--trigger-selection` (default: the first selected ETROC).
+3. Know the trigger board: `--trigger-selection`, written like `--selection` (`0:0` = D0H0; default: the first selected ETROC).
 
 **Short test run (always do this first)**
 
 ```bash
 python pathfinder/pathfinder_test.py --stage cosmics --selection 0:all \
-    --trigger-selection D0H0 --offset 50 --duration 120 --chunk-seconds 30 --note "dry run"
+    --trigger-selection 0:0 --offset 50 --duration 120 --chunk-seconds 30 --note "dry run"
 ```
 
 Check:
@@ -287,7 +287,7 @@ Check:
 
 ```bash
 python pathfinder/pathfinder_test.py --stage cosmics --selection 0:all,1:all \
-    --trigger-selection D0H0 --offset 50 --blnw-load latest \
+    --trigger-selection 0:0 --offset 50 --blnw-load latest \
     --duration 43200 --chunk-seconds 300 --note "HV 150 V, horizontal, lab"
 ```
 
@@ -325,12 +325,12 @@ python pathfinder/pathfinder_test.py --stage cosmics --selection 0:all --inject-
 - The ETROC pixel numbering starts at the bottom right: (row 0, col 0) is the bottom-right pixel, (15, 15) the top-left one. The patterns are drawn for this orientation, so the text reads correctly when the pixels are shown with (15, 15) at the top-left; the console prints them that way.
 - The pixels without injection still self-trigger on noise, so hot pixels can still flood the FIFO.
 
-Suggested procedure for the pattern test (use an ETROC without always-firing pixels, for example `--selection 0:1 --trigger-selection D0H1`):
+Suggested procedure for the pattern test (use an ETROC without always-firing pixels, for example `--selection 0:1 --trigger-selection 0:1`):
 
 1. Short check, about 2 minutes:
 
    ```bash
-   python pathfinder/pathfinder_test.py --stage cosmics --selection 0:1 --trigger-selection D0H1 \
+   python pathfinder/pathfinder_test.py --stage cosmics --selection 0:1 --trigger-selection 0:1 \
        --offset 50 --duration 120 --chunk-seconds 60 \
        --inject-count 2 --inject-mode pattern --charge-fc 15 --note "inject dry run"
    ```
@@ -340,7 +340,7 @@ Suggested procedure for the pattern test (use an ETROC without always-firing pix
 2. Ten-minute run, one pattern per minute:
 
    ```bash
-   python pathfinder/pathfinder_test.py --stage cosmics --selection 0:1 --trigger-selection D0H1 \
+   python pathfinder/pathfinder_test.py --stage cosmics --selection 0:1 --trigger-selection 0:1 \
        --offset 50 --duration 600 --chunk-seconds 60 \
        --inject-count 10 --inject-mode pattern --charge-fc 15 --note "inject patterns"
    ```

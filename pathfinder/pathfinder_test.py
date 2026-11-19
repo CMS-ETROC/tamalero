@@ -1578,7 +1578,8 @@ def main(args):
     trigger_ids = expand_selection(mapping, TRIGGER_SELECTION)
 
     if not set(trigger_ids).issubset(set(ids)):
-        raise ValueError("Trigger sources must be included in ENABLE_SELECTION")
+        extra = [i for i in trigger_ids if i not in ids]
+        raise ValueError(f"--trigger-selection must be a subset of --selection; not in --selection: {extra}")
 
     preview_trigger_mask = build_trigger_mask(mapping, trigger_ids)
 
