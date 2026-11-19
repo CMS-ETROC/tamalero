@@ -325,6 +325,31 @@ python pathfinder/pathfinder_test.py --stage cosmics --selection 0:all --inject-
 - The ETROC pixel numbering starts at the bottom right: (row 0, col 0) is the bottom-right pixel, (15, 15) the top-left one. The patterns are drawn for this orientation, so the text reads correctly when the pixels are shown with (15, 15) at the top-left; the console prints them that way.
 - The pixels without injection still self-trigger on noise, so hot pixels can still flood the FIFO.
 
+Suggested procedure for the pattern test (use an ETROC without always-firing pixels, for example `--selection 0:1 --trigger-selection D0H1`):
+
+1. Short check, about 2 minutes:
+
+   ```bash
+   python pathfinder/pathfinder_test.py --stage cosmics --selection 0:1 --trigger-selection D0H1 \
+       --offset 50 --duration 120 --chunk-seconds 60 \
+       --inject-count 2 --inject-mode pattern --charge-fc 15 --note "inject dry run"
+   ```
+
+   Check: Step 10 prints the pattern preview with (15, 15) at the top-left; Step 11 prints `Injection 1: CMS set in ...` and `Injection 2: ETL set in ...`, and at the end `Injections sent: 2 of 2`; `injection_errors=0`; the run folder has `injections.csv` and `run_info.json` contains an `injection` entry.
+
+2. Ten-minute run, one pattern per minute:
+
+   ```bash
+   python pathfinder/pathfinder_test.py --stage cosmics --selection 0:1 --trigger-selection D0H1 \
+       --offset 50 --duration 600 --chunk-seconds 60 \
+       --inject-count 10 --inject-mode pattern --charge-fc 15 --note "inject patterns"
+   ```
+
+   The ten patterns are sent at 30 s, 90 s, ... 570 s.
+
+3. Cosmics always scans all 256 pixels. `--blnw-load latest` skips the scan only if a saved `all` result exists; a file from `--blnw etroc` (64 pixels) is skipped automatically.
+4. After the run, keep the terminal output, `injections.csv` and `run_info.json` together with the `.dat` files. Match each time in `injections.csv` to the events in the data to see whether the pattern appears and has the right orientation.
+
 **Not covered**: no external trigger (the trigger comes from the ETROC pixels, self-trigger); no decoding or per-pixel hit counting (do that offline on the `.dat` files).
 
 ## 9. If something goes wrong
