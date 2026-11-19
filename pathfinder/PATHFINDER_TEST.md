@@ -113,6 +113,8 @@ Each stage runs all earlier ones first.
 | `--note` | empty | `cosmics` only: free-text note (HV, temperature, setup) stored in `run_info.json`. |
 | `--read-interval` | `0.1` | `cosmics` only: pause in seconds after each FIFO read. |
 | `--chunk-seconds` | `300` | `cosmics` only: start a new data file every N seconds. |
+| `--inject-count` | `0` | `cosmics` only: also send N single charge-injection pulses at random times within `--duration`, on the 4 corner pixels of every ETROC, charge `--charge-fc`. `0` = no injection. Times go to `injections.csv`. |
+| `--inject-mode` | `random` | `cosmics` with `--inject-count`: `random` = random times on the 4 corner pixels; `pattern` = evenly spaced pulses (middle of each interval), each with a different 16×16 pixel pattern (the words CMS, ETL, ETROC, FNAL, SMU, then cross, X, diamond, ring, smiley; rows 0 and 15 stay off in ETROC and FNAL), repeated if N > 10. |
 | `--scan-output` | (none) | Override folder for diagnostic JSON files. Default: `pathfinder/results/<kind>/`. |
 | `--monitor-seconds` | `3` | Duration of the uplink monitor in the motherboard check. |
 | `--wrap` | off | By default long output lines are not wrapped (cut at the terminal edge, so widen the window to see more); `--wrap` restores normal wrapping. Not applied when output is redirected. |
@@ -308,6 +310,20 @@ python pathfinder/pathfinder_test.py --stage cosmics --selection 0:all,1:all \
 - 50 FIFO read errors in a row stop the run.
 - Pixels with no baseline stay off. Count them as "not measured", not as disconnected. List ETROCs that are not measured (not locking) in `--note`.
 - `status` in `run_info.json` should be `completed` (or `stopped by user`). Anything else, look at the terminal output.
+
+**Mimic a cosmic run with charge injection (optional)**
+
+```bash
+python pathfinder/pathfinder_test.py --stage cosmics --selection 0:all --inject-count 50 --charge-fc 15 \
+    --duration 600 --chunk-seconds 120 --note "injection test"
+```
+
+- `--inject-count N` sends N single pulses at random times (uniform within `--duration`) on the 4 corner pixels of every selected ETROC. The charge is fixed (`--charge-fc`); `QInjEn` is switched off again at the end.
+- `injections.csv` in the run folder lists the scheduled and the actual send time of each pulse (seconds since the start of the acquisition). The send time is accurate to about the read interval (~0.1 s, up to 1 s when the FIFO is flooded). Compare it with the events in the `.dat` files to count what was lost.
+- It tests the readout chain (self-trigger, FIFO, files, offline decoding). It does not test the bump bonds and does not give a random phase inside the 25 ns clock cycle.
+- `--inject-mode pattern`: one pulse every `duration / N` seconds, each with its own pixel pattern, the same on every selected ETROC. Example for 10 minutes, one pulse per minute: `--duration 600 --inject-count 10 --inject-mode pattern --charge-fc 15` (pulses at 30 s, 90 s, ... 570 s). `QSel` is written to all pixels once; before every pulse `QInjEn` is switched to the new pattern with I2C writes (the larger patterns take longer; the time is printed and reading is paused meanwhile). `injections.csv` has the pattern name for each pulse.
+- The ETROC pixel numbering starts at the bottom right: (row 0, col 0) is the bottom-right pixel, (15, 15) the top-left one. The patterns are drawn for this orientation, so the text reads correctly when the pixels are shown with (15, 15) at the top-left; the console prints them that way.
+- The pixels without injection still self-trigger on noise, so hot pixels can still flood the FIFO.
 
 **Not covered**: no external trigger (the trigger comes from the ETROC pixels, self-trigger); no decoding or per-pixel hit counting (do that offline on the `.dat` files).
 

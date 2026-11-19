@@ -113,6 +113,8 @@ def build_parser():
     parser.add_argument("--note", default="", help="cosmics stage: free-text note (HV, temperature, setup...) stored in run_info.json")
     parser.add_argument("--read-interval", type=float, default=0.1, metavar="SECONDS", help="cosmics stage: pause after each FIFO read (default: 0.1); too short can cause uhal UDP errors, too long can overflow the FIFO")
     parser.add_argument("--chunk-seconds", type=int, default=300, metavar="SECONDS", help="cosmics stage: start a new data file every N seconds (default: 300)")
+    parser.add_argument("--inject-count", type=int, default=0, metavar="N", help="cosmics stage: also send N single charge-injection pulses within --duration, charge --charge-fc (default: 0 = none; times are saved in injections.csv)")
+    parser.add_argument("--inject-mode", choices=["random", "pattern"], default="random", help="cosmics stage with --inject-count: 'random' = random times on the 4 corner pixels of every ETROC (default); 'pattern' = evenly spaced pulses, each with a different pixel pattern (CMS, ETL, ETROC, FNAL, SMU, cross, X, diamond, ring, smiley)")
     parser.add_argument("--blnw", "--pixels", dest="pixels", choices=["sample", "all"], default="sample", help="BL/NW coverage: sample=4 pixels/chip; all=256 pixels/chip (default: sample)")
     parser.add_argument("--no-save", action="store_true", help="Do not save BL/NW pickle results")
     parser.add_argument("--blnw-load", metavar="PKL|latest", default=None, help="Skip the BL/NW scan and load saved results (a .pkl path, or latest = newest valid file in the results folder)")
@@ -193,8 +195,15 @@ def show_run_plan(args):
     if args.stage == "qinj":
         print(f"Includes a fresh BL/NW scan, trigger setup and QInj: {args.charge_fc} fC, count={args.qinj_count}.")
     if args.stage == "cosmics":
-        print("Cosmic run: the QInj stage is SKIPPED (no injection, QInjEn=0 on all pixels). All 256 pixels per chip get "
-              f"DAC = baseline + {args.offset} and self-trigger; acquisition runs {args.duration} s, new file every {args.chunk_seconds} s.")
+        if args.inject_count and args.inject_mode == "pattern":
+            print(f"Cosmic run with {args.inject_count} single injections ({args.charge_fc} fC), evenly spaced, each with a different pixel pattern. "
+                  f"All 256 pixels per chip get DAC = baseline + {args.offset} and self-trigger; acquisition runs {args.duration} s, new file every {args.chunk_seconds} s.")
+        elif args.inject_count:
+            print(f"Cosmic run with {args.inject_count} random single injections ({args.charge_fc} fC) on the 4 corner pixels of every ETROC. "
+                  f"All 256 pixels per chip get DAC = baseline + {args.offset} and self-trigger; acquisition runs {args.duration} s, new file every {args.chunk_seconds} s.")
+        else:
+            print("Cosmic run: the QInj stage is SKIPPED (no injection, QInjEn=0 on all pixels). All 256 pixels per chip get "
+                  f"DAC = baseline + {args.offset} and self-trigger; acquisition runs {args.duration} s, new file every {args.chunk_seconds} s.")
     print(f"Rate: {args.rate} Mbps; merged trigger bits: {args.trigger_bits}; pixel L1Adelay: {args.l1a_delay}")
     print("Test stages run automatically; an interactive menu follows a hardware stage when --interactive is set.")
     print("On failure, the script stops. Partial hardware configuration may remain.", flush=True)
@@ -913,9 +922,103 @@ def configure_pixels_broadcast(chips, blnw_results, *, offset, l1a_delay, l1a_ta
     return applied_all, skipped_all
 
 
+# 4 x 7 letters for the text patterns (each string is one row, '#' = pixel on)
+FONT_4X7 = {
+    "A": [".##.", "#..#", "#..#", "####", "#..#", "#..#", "#..#"],
+    "C": [".###", "#...", "#...", "#...", "#...", "#...", ".###"],
+    "E": ["####", "#...", "#...", "###.", "#...", "#...", "####"],
+    "F": ["####", "#...", "#...", "###.", "#...", "#...", "#..."],
+    "L": ["#...", "#...", "#...", "#...", "#...", "#...", "####"],
+    "M": ["#..#", "####", "####", "#..#", "#..#", "#..#", "#..#"],
+    "N": ["#..#", "##.#", "##.#", "#.##", "#.##", "#..#", "#..#"],
+    "O": [".##.", "#..#", "#..#", "#..#", "#..#", "#..#", ".##."],
+    "R": ["###.", "#..#", "#..#", "###.", "#.#.", "#..#", "#..#"],
+    "S": [".###", "#...", "#...", ".##.", "...#", "...#", "###."],
+    "T": ["####", ".##.", ".##.", ".##.", ".##.", ".##.", ".##."],
+    "U": ["#..#", "#..#", "#..#", "#..#", "#..#", "#..#", ".##."],
+}
+
+
+# 4 x 6 letters for the two-line words (they must fit in rows 1..14: 6 + 2 + 6 rows)
+FONT_4X6 = {
+    "A": [".##.", "#..#", "####", "#..#", "#..#", "#..#"],
+    "C": [".###", "#...", "#...", "#...", "#...", ".###"],
+    "E": ["####", "#...", "###.", "#...", "#...", "####"],
+    "F": ["####", "#...", "###.", "#...", "#...", "#..."],
+    "L": ["#...", "#...", "#...", "#...", "#...", "####"],
+    "N": ["#..#", "##.#", "##.#", "#.##", "#.##", "#..#"],
+    "O": [".##.", "#..#", "#..#", "#..#", "#..#", ".##."],
+    "R": ["###.", "#..#", "###.", "#.#.", "#..#", "#..#"],
+    "T": ["####", ".##.", ".##.", ".##.", ".##.", ".##."],
+}
+
+
+def text_pixels(lines, size=16, top=None, font=FONT_4X7, gap=1):
+    """Pixels of 1 to 2 text lines (letters 4 columns wide, 1 column apart), centred on the size x size array.
+
+    top = first row (centred if not given), font = FONT_4X7 or FONT_4X6, gap = empty rows between the lines.
+    """
+    glyph_height = len(next(iter(font.values())))
+    height = glyph_height * len(lines) + gap * (len(lines) - 1)
+    top = (size - height) // 2 if top is None else top
+    pixels = set()
+    for line_index, line in enumerate(lines):
+        width = 4 * len(line) + (len(line) - 1)
+        left = (size - width) // 2
+        for letter_index, letter in enumerate(line):
+            for r, glyph_row in enumerate(font[letter]):
+                for c, ch in enumerate(glyph_row):
+                    if ch == "#":
+                        pixels.add((top + line_index * (glyph_height + gap) + r, left + letter_index * 5 + c))
+    return pixels
+
+
+def make_inject_patterns():
+    """Ten patterns on the 16x16 pixel array for --inject-mode pattern: list of (name, set of (row, col)).
+
+    The ETROC pixel numbering starts at the bottom right: (row 0, col 0) is the bottom-right pixel and
+    (15, 15) the top-left one. The patterns are designed as they are seen (row 0 of the drawing at the top, left to
+    right) and turned into (row, col) at the end, so that the text reads correctly when looked at in that orientation.
+    """
+    n = 16
+    centre = (n - 1) / 2.0
+    grid = [(r, c) for r in range(n) for c in range(n)]
+
+    def dist(r, c):
+        return ((r - centre) ** 2 + (c - centre) ** 2) ** 0.5
+
+    face = {(r, c) for r, c in grid if 6.5 <= dist(r, c) <= 7.6}
+    eyes = {(r, c) for r in (4, 5) for c in (4, 5, 10, 11)}
+    mouth = {(10, 4), (10, 11), (11, 5), (11, 10), (12, 6), (12, 7), (12, 8), (12, 9)}
+    drawn = [
+        ("CMS", text_pixels(["CMS"])),
+        ("ETL", text_pixels(["ETL"])),
+        ("ETROC", text_pixels(["ETR", "OC"], top=1, font=FONT_4X6, gap=2)),     # rows 0 and 15 stay off
+        ("FNAL", text_pixels(["FN", "AL"], top=1, font=FONT_4X6, gap=2)),       # rows 0 and 15 stay off
+        ("SMU", text_pixels(["SMU"])),
+        ("cross", {(r, c) for r, c in grid if r in (7, 8) or c in (7, 8)}),
+        ("X", {(r, c) for r, c in grid if r == c or r + c == n - 1}),
+        ("diamond", {(r, c) for r, c in grid if abs(r - centre) + abs(c - centre) == 7}),
+        ("ring", {(r, c) for r, c in grid if 4.5 <= dist(r, c) <= 5.8}),
+        ("smiley", face | eyes | mouth),
+    ]
+    return [(name, {(n - 1 - r, n - 1 - c) for r, c in pixels}) for name, pixels in drawn]
+
+
+def pattern_text(pixels):
+    """16 lines of text for a pixel set ('#' = injected, '.' = off), as seen: (row 15, col 15) top-left, (0, 0) bottom-right."""
+    return "\n".join("".join("#" if (r, c) in pixels else "." for c in range(15, -1, -1)) for r in range(15, -1, -1))
+
+
 def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, output_dir, info,
-                           report_interval=10, lock_check_interval=60, read_interval=0.1, max_read_errors=50, read_timeout=10.0, read_budget=1.0):
-    """Continuous self-triggered acquisition for a cosmic run (no charge injection).
+                           report_interval=10, lock_check_interval=60, read_interval=0.1, max_read_errors=50, read_timeout=10.0, read_budget=1.0,
+                           inject_count=0, inject_mode="random", inject_prepare=None, inject_labels=None):
+    """Continuous self-triggered acquisition for a cosmic run (no charge injection unless inject_count > 0).
+
+    inject_count > 0: that many single QInj pulses are sent at random times (uniform in 0..duration, one pulse
+    each, fixed charge); with inject_mode "pattern" they are evenly spaced and inject_prepare(i) is called
+    before pulse i (the caller switches QInjEn to the i-th pixel pattern). The QInjEn/QSel setup is done by the caller. Scheduled and actual send times go to
+    injections.csv (seconds since the start of the acquisition).
 
     Raw 32-bit FIFO words go to output_dir/file_<n>_CE.dat (little-endian, same layout as the
     notebook), a new file every chunk_seconds. run_info.json records the configuration, the
@@ -948,14 +1051,34 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
     utc = lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
     files, state = [], {"total_words": 0, "read_errors": 0, "lock_lost_checks": 0, "backlog_rounds": 0}
     info = dict(info, duration_s=duration, chunk_seconds=chunk_seconds, read_interval_s=read_interval, start_utc=utc(), output_dir=str(output_dir))
+    import random
+    if inject_count and inject_mode == "pattern":       # evenly spaced, in the middle of each interval
+        schedule = [(i + 0.5) * duration / inject_count for i in range(inject_count)]
+    else:
+        schedule = sorted(random.uniform(0, duration) for _ in range(inject_count)) if inject_count else []
+    sent = {}                        # index -> (seconds since start, UTC time) of the injections that were sent
+    if inject_count:
+        state["injections_sent"] = 0
+        state["injection_errors"] = 0
+
+    def write_injections():
+        if not inject_count:
+            return
+        rows = ["index,scheduled_s,sent_s,sent_utc,pattern"]
+        for i, t in enumerate(schedule):
+            s = sent.get(i)
+            label = inject_labels[i] if inject_labels else ""
+            rows.append(f"{i},{t:.3f},{s[0]:.3f},{s[1]},{label}" if s else f"{i},{t:.3f},,,{label}")
+        (output_dir / "injections.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
 
     def write_info(status):
+        write_injections()
         record = dict(info, status=status, files=files, **state)
         (output_dir / "run_info.json").write_text(json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8")
 
     write_info("running")
     print(f"Cosmic run started: {duration} s, new file every {chunk_seconds} s -> {output_dir}", flush=True)
-    handle, file_started, errors_in_a_row = None, 0.0, 0
+    handle, file_started, errors_in_a_row, next_injection = None, 0.0, 0, 0
     start = last_report = last_lock = time.time()
     status = "completed"
 
@@ -993,6 +1116,20 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
                 file_started = time.time()
                 files.append({"name": path.name, "start_utc": utc(), "words": 0})
                 print(f"Opening new file: {path.name}", flush=True)
+            while next_injection < len(schedule) and schedule[next_injection] <= time.time() - start:
+                try:
+                    if inject_prepare is not None:       # e.g. switch QInjEn to the next pattern (I2C writes, reading is paused meanwhile)
+                        t_prepare = time.time()
+                        inject_prepare(next_injection)
+                        print(f"[INFO] Injection {next_injection}: "
+                              f"{inject_labels[next_injection] if inject_labels else 'prepared'} set in {time.time() - t_prepare:.1f} s", flush=True)
+                    fifo.send_Qinj_only(count=1)
+                    sent[next_injection] = (time.time() - start, utc())
+                    state["injections_sent"] += 1
+                except Exception as exc:
+                    state["injection_errors"] += 1
+                    print(f"[WARNING] Injection {next_injection} failed: {exc}", flush=True)
+                next_injection += 1
             try:
                 if use_alarm:
                     signal.setitimer(signal.ITIMER_REAL, read_timeout)
@@ -1071,6 +1208,8 @@ def run_cosmic_acquisition(rb, mapping, chips, *, duration, chunk_seconds, outpu
         info["run_seconds"] = round(time.time() - start, 1)
         write_info(status)
     print(f"Cosmic run {status}: {state['total_words']} words in {len(files)} file(s), {info['run_seconds']} s -> {output_dir}", flush=True)
+    if inject_count:
+        print(f"Injections sent: {state['injections_sent']} of {inject_count} ({state['injection_errors']} failed); times in injections.csv", flush=True)
     return output_dir
 
 
@@ -1324,6 +1463,12 @@ def main(args):
         raise ValueError("duration and chunk-seconds must be positive")
     if args.read_interval < 0:
         raise ValueError("read-interval must not be negative")
+    if args.inject_count < 0:
+        raise ValueError("inject-count must not be negative")
+    if args.inject_count and args.stage != "cosmics":
+        raise ValueError("--inject-count is only used with --stage cosmics (the qinj stage has --qinj-count)")
+    if args.inject_mode == "pattern" and not args.inject_count:
+        raise ValueError("--inject-mode pattern needs --inject-count N")
 
     # Notebook code cell 2
     announce('0. Repository setup', 'Set repository paths and locate drivers.', 'Repository and driver paths must match this test installation.')
@@ -2342,7 +2487,12 @@ def main(args):
         break
     while True:
         try:
-            if args.stage == "cosmics":
+            if args.stage == "cosmics" and args.inject_count:
+                announce('10. QInj preparation (cosmics)',
+                         f'QSel = {args.charge_fc} fC on all pixels; QInjEn is switched per pattern before each pulse.' if args.inject_mode == "pattern"
+                         else f'Enable injection on the 4 corner pixels of every ETROC ({args.charge_fc} fC).',
+                         'All other pixels keep QInjEn=0.')
+            elif args.stage == "cosmics":
                 announce('10. QInj preparation - SKIPPED (cosmics stage)', 'No charge injection: QInjEn stays 0 on every pixel.', 'The pixels trigger on real particles only.')
             else:
                 announce('10. QInj preparation', 'Enable injection on calibrated pixels.', 'No automatic trigger/FC delay tuning is performed.')
@@ -2398,8 +2548,48 @@ def main(args):
                 show_status("QInj disabled on scanned pixels", "info")
 
 
+            COSMIC_INJECT_PIXELS = [(0, 0), (0, 15), (15, 0), (15, 15)]    # the "sample" corners
+
+
+            INJECT_PATTERNS = make_inject_patterns()
+
+
+            def set_inject_pattern(index):
+                """--inject-mode pattern: QInjEn on exactly the pixels of pattern 'index' (QSel was set for all pixels before)."""
+                name, pixels = INJECT_PATTERNS[index % len(INJECT_PATTERNS)]
+                for identity, etroc in chips.items():
+                    etroc.wr_reg("QInjEn", 0, broadcast=True)
+                    for row, col in sorted(pixels):
+                        etroc.wr_reg("QInjEn", 1, row=row, col=col, broadcast=False)
+
+
+            def set_cosmic_injection(enable):
+                """Cosmics with --inject-count: QInjEn (and QSel when enabling) on the 4 corner pixels of every ETROC
+                (pattern mode: QSel on all pixels, QInjEn is switched per pattern later; disabling clears QInjEn everywhere)."""
+                if args.inject_mode == "pattern":
+                    for identity, etroc in chips.items():
+                        if enable:
+                            etroc.wr_reg("QSel", args.charge_fc - 1, broadcast=True)
+                            show_status(f"{identity}: QSel = {args.charge_fc} fC on all pixels; QInjEn is switched per pattern", "info")
+                        etroc.wr_reg("QInjEn", 0, broadcast=True)
+                    return
+                for identity, etroc in chips.items():
+                    for row, col in COSMIC_INJECT_PIXELS:
+                        if enable:
+                            etroc.wr_reg("QSel", args.charge_fc - 1, row=row, col=col, broadcast=False)
+                        etroc.wr_reg("QInjEn", 1 if enable else 0, row=row, col=col, broadcast=False)
+                    if enable:
+                        show_status(f"{identity}: QInj enabled on {len(COSMIC_INJECT_PIXELS)} corner pixels ({args.charge_fc} fC)", "info")
+
+
             if args.stage == "cosmics":
                 qinj_enabled_pixels = {}   # QInjEn=0 was already written to every pixel (broadcast) in Step 8
+                if args.inject_count:
+                    set_cosmic_injection(True)
+                    if args.inject_mode == "pattern":
+                        for index in range(min(args.inject_count, len(INJECT_PATTERNS))):
+                            name, pixels = INJECT_PATTERNS[index]
+                            print(f"Pattern {index} ({name}, {len(pixels)} pixels):\n{pattern_text(pixels)}\n", flush=True)
             else:
                 qinj_enabled_pixels = enable_qinj_pixels(chips, blnw_results, charge_fc=CHARGE_FC_DEFAULT)
 
@@ -2628,20 +2818,38 @@ def main(args):
     while True:
         try:
             if args.stage == "cosmics":
-                announce("11. Cosmic data acquisition", f"Self-triggered, no injection, {args.duration} s, new file every {args.chunk_seconds} s.",
+                announce("11. Cosmic data acquisition",
+                         (f"Self-triggered, {args.inject_count} {'patterned' if args.inject_mode == 'pattern' else 'random'} injections" if args.inject_count else "Self-triggered, no injection")
+                         + f", {args.duration} s, new file every {args.chunk_seconds} s.",
                          "Ctrl+C stops cleanly and closes the files; retry starts a new run folder.")
             else:
                 announce("11. Data Acquisition", "Use current prepared settings.", "Errors return to debugging; retry resends an injection burst and resets FIFO.")
             if args.stage == "cosmics":
                 cosmic_dir = results_path("cosmics", args.scan_output) / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                run_cosmic_acquisition(
-                    rb, mapping, chips, duration=args.duration, chunk_seconds=args.chunk_seconds, output_dir=cosmic_dir,
-                    read_interval=args.read_interval,
-                    info={"stage": "cosmics", "note": args.note, "etrocs": list(chips), "trigger_etrocs": list(trigger_ids),
-                          "trigger_logic": args.trigger_logic, "trigger_bits": args.trigger_bits,
-                          "trigger_delay": args.trigger_delay, "l1a_delay": args.l1a_delay, "l1a_table": dict(L1A_TABLE),
-                          "threshold_offset": QINJ_LIVE.get("offset", THRESHOLD_OFFSET), "rate_mbps": args.rate,
-                          "pixels": "all", "blnw_load": args.blnw_load})
+                cosmic_info = {"stage": "cosmics", "note": args.note, "etrocs": list(chips), "trigger_etrocs": list(trigger_ids),
+                               "trigger_logic": args.trigger_logic, "trigger_bits": args.trigger_bits,
+                               "trigger_delay": args.trigger_delay, "l1a_delay": args.l1a_delay, "l1a_table": dict(L1A_TABLE),
+                               "threshold_offset": QINJ_LIVE.get("offset", THRESHOLD_OFFSET), "rate_mbps": args.rate,
+                               "pixels": "all", "blnw_load": args.blnw_load}
+                inject_labels, inject_prepare = None, None
+                if args.inject_count:
+                    cosmic_info["injection"] = {"count": args.inject_count, "charge_fc": args.charge_fc, "mode": args.inject_mode,
+                                                "pixels": COSMIC_INJECT_PIXELS, "etrocs": list(chips)}
+                    if args.inject_mode == "pattern":
+                        inject_labels = [INJECT_PATTERNS[i % len(INJECT_PATTERNS)][0] for i in range(args.inject_count)]
+                        inject_prepare = set_inject_pattern
+                        cosmic_info["injection"]["pixels"] = {name: sorted(pixels) for name, pixels in INJECT_PATTERNS}
+                try:
+                    run_cosmic_acquisition(
+                        rb, mapping, chips, duration=args.duration, chunk_seconds=args.chunk_seconds, output_dir=cosmic_dir,
+                        read_interval=args.read_interval, info=cosmic_info, inject_count=args.inject_count,
+                        inject_mode=args.inject_mode, inject_prepare=inject_prepare, inject_labels=inject_labels)
+                finally:
+                    if args.inject_count:
+                        try:
+                            set_cosmic_injection(False)     # QInjEn back to 0 on the corner pixels
+                        except Exception as exc:
+                            print(f"[WARNING] Could not turn QInjEn off on the corner pixels: {exc}", flush=True)
             else:
                 qinj_results = run_charge_injection_test(chips, qinj_count=QINJ_COUNT_DEFAULT,
                                                         max_iterations=args.fifo_reads, print_records=args.print_records)
